@@ -1309,7 +1309,8 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                               balance: '1860 บาท',
                               incomeText: 'รายได้: 4000 บาท',
                               pendingText: 'รอชำระ: 1600 บาท',
-                              onWithdrawPressed: () => _showWithdrawAmountSheet(),
+                              onWithdrawPressed: () =>
+                                  _showWithdrawAmountSheet(),
                             ),
                             SizedBox(height: 16),
                             IncomeChartCard(
@@ -1626,10 +1627,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
   Widget badmintonSummaryPage(BuildContext context) {
     return Column(
-      children: const [
-        GroupInfoCard(),
+      children: [
+        GroupInfoCard(model: dataList[0]),
         SizedBox(height: 16),
-        ImageSlideshow(),
+        ImageSlideshow(model: dataList[0]),
         SizedBox(height: 16),
         DetailsCard(),
         SizedBox(height: 16),

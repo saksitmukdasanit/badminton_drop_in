@@ -24,6 +24,13 @@ class ManagePageState extends State<ManagePage> {
   late List<Player> players;
   bool isUse = true;
   int indexData = 0;
+  bool _showDetailsOnMobile = false;
+
+  void _backToListOnMobile() {
+    setState(() {
+      _showDetailsOnMobile = !_showDetailsOnMobile;
+    });
+  }
 
   @override
   void initState() {
@@ -218,7 +225,6 @@ class ManagePageState extends State<ManagePage> {
     );
   }
 
-
   _buildBottomBarS() {
     return Container(
       color: Colors.transparent,
@@ -295,7 +301,23 @@ class ManagePageState extends State<ManagePage> {
     );
   }
 
-  _buildMobileLayout() {}
+  _buildMobileLayout() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _showDetailsOnMobile
+          ? detailsView(context, onBack: _backToListOnMobile) // หน้ารายละเอียด
+          : Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
+                child: _buildPlaying(
+                  context,
+                  title: 'ก๊วนที่กำลังมาถึง',
+                  listData: dataList,
+                ),
+              ),
+            ),
+    );
+  }
 
   _buildTabletVerticalLayout() {
     return Row(
@@ -400,13 +422,13 @@ class ManagePageState extends State<ManagePage> {
             padding: const EdgeInsets.fromLTRB(7, 16, 7, 16),
             child: ListView(
               children: [
-                GroupInfoCard(),
+                GroupInfoCard(model: dataList[indexData]),
                 SizedBox(height: 16),
-                ImageSlideshow(),
+                ImageSlideshow(model: dataList[indexData]),
                 SizedBox(height: 16),
                 DetailsCard(),
                 SizedBox(height: 16),
-                _buildbottomBar(""),
+                _buildbottomBar(dataList[indexData]['status']),
               ],
             ),
           ),
@@ -418,6 +440,79 @@ class ManagePageState extends State<ManagePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget detailsView(BuildContext context, {Function()? onBack}) {
+    final bool isMobile = onBack != null;
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: CustomScrollView(
+        slivers: [
+          // ปุ่ม Back สำหรับ Mobile
+          if (isMobile)
+            SliverToBoxAdapter(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.arrow_back_ios),
+                  label: const Text('กลับไปที่รายการ'),
+                  onPressed: onBack,
+                ),
+              ),
+            ),
+          SliverToBoxAdapter(
+            child: Text(
+              '',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.w600,
+                fontSize: getResponsiveFontSize(context, fontSize: 20),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(child: GroupInfoCard(model: dataList[indexData])),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverToBoxAdapter(child: ImageSlideshow(model: dataList[indexData])),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverToBoxAdapter(child: DetailsCard()),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverToBoxAdapter(
+            child: _buildbottomBar(dataList[indexData]['status']),
+          ),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverStickyHeader(
+            // Header จะถูกสร้างจาก _buildPlayer โดยบอกให้สร้างแค่ส่วน header
+            header: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+              ),
+              child: _buildPlayer(false, partToBuild: PlayerWidgetPart.header),
+            ),
+
+            // Sliver จะถูกสร้างจาก _buildPlayer โดยบอกให้สร้างแค่ส่วน content
+            sliver: SliverToBoxAdapter(
+              child: Card(
+                margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                ),
+                child: _buildPlayer(
+                  false,
+                  partToBuild: PlayerWidgetPart.content,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -462,6 +557,7 @@ class ManagePageState extends State<ManagePage> {
                   organizerImageUrl: game['organizerImageUrl'],
                   isInitiallyBookmarked: game['isInitiallyBookmarked'],
                   onCardTap: () {
+                    _backToListOnMobile();
                     setState(() {
                       indexData = index;
                     });

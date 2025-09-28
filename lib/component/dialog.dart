@@ -89,6 +89,7 @@ Future<void> showDialogMsg(
   bool isWarning = false,
   bool isSlideAction = false,
   required VoidCallback onConfirm,
+  VoidCallback? onConfirmRight,
 }) {
   return showDialog(
     context: context,
@@ -159,6 +160,7 @@ Future<void> showDialogMsg(
                 ),
                 onPressed: () {
                   Navigator.of(context).pop();
+                  if (onConfirmRight != null) onConfirmRight();
                 },
               ),
             ),

@@ -101,10 +101,12 @@ class _ImagePickerFormFieldState extends State<ImagePickerFormField> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // แสดงชื่อไฟล์ถ้ามี, หรือแสดงข้อความว่างๆ
-                Text(
-                  _selectedImage?.name ?? 'ตัวอย่าง',
-                  style: const TextStyle(fontSize: 16),
-                  overflow: TextOverflow.ellipsis,
+                Expanded(
+                  child: Text(
+                    _selectedImage?.name ?? 'ตัวอย่าง',
+                    style: const TextStyle(fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 IconButton(
                   icon: Icon(Icons.camera_alt, color: Colors.grey[600]),

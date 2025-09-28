@@ -220,10 +220,10 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
 
   Widget badmintonSummaryPage(BuildContext context) {
     return Column(
-      children: const [
-        GroupInfoCard(),
+      children: [
+        GroupInfoCard(model: dataList[0],),
         SizedBox(height: 16),
-        ImageSlideshow(),
+        ImageSlideshow(model: dataList[0],),
         SizedBox(height: 16),
         DetailsCard(),
         SizedBox(height: 16),

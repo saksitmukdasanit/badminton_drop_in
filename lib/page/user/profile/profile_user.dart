@@ -79,6 +79,7 @@ class ProFileUserPageState extends State<ProFileUserPage> {
             Column(
               children: [
                 menu('สมัครเป็นผู้จัด', () {
+                  // context.push('/apply-organizer');
                   context.read<UserRoleProvider>().setRole(Role.organizer);
                   context.push('/profile-organizer');
                 }),
