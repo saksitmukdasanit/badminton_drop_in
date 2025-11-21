@@ -3,7 +3,9 @@ import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   const ChangePasswordPage({super.key});
@@ -18,11 +20,14 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
   bool loadingImage = false;
   String image = '';
   double gapHeight = 20;
+  bool _isLoading = false;
 
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _oldPasswordController;
   late TextEditingController _newPasswordController;
   late TextEditingController _confirmPasswordController;
+  bool _isPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
 
   @override
   void initState() {
@@ -40,28 +45,53 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
     super.dispose();
   }
 
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
-      // เพิ่ม DialogMsg ที่นี้ถ้าข้อมูลถูกต้อง
-      showDialogMsg(
-        context,
-        title: 'แก้ไขเรียบร้อย',
-        subtitle: 'บันทึกการแก้ไขรหัสผ่าน',
-        btnLeft: 'ไปหน้าโปรโฟล์',
-        onConfirm: () {
-          // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-        },
-      );
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
     }
-    showDialogMsg(
-      context,
-      title: 'แก้ไขเรียบร้อย',
-      subtitle: 'บันทึกการแก้ไขรหัสผ่าน',
-      btnLeft: 'ไปหน้าโปรโฟล์',
-      onConfirm: () {
-        // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-      },
-    );
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final Map<String, dynamic> data = {
+        "oldPassword": _oldPasswordController.text,
+        "newPassword": _newPasswordController.text,
+      };
+
+      await ApiProvider().post('/Auth/change-password', data: data);
+
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'เปลี่ยนรหัสผ่านสำเร็จ',
+          subtitle: 'คุณได้เปลี่ยนรหัสผ่านเรียบร้อยแล้ว',
+          btnLeft: 'กลับไปหน้าโปรไฟล์',
+          onConfirm: () {
+            context.pop(); // ปิด Dialog
+            context.pop(); // กลับไปหน้า Profile
+          },
+        );
+      }
+    } catch (e) {
+      // 6. จัดการเมื่อล้มเหลว: แสดง SnackBar พร้อมข้อความ Error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      // 7. สิ้นสุด Loading เสมอ (ไม่ว่าจะสำเร็จหรือล้มเหลว)
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -76,6 +106,7 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
         child: CustomElevatedButton(
           text: 'เปลี่ยนรหัสผ่าน',
           onPressed: _submitForm,
+          isLoading: _isLoading,
         ),
       ),
       body: Container(
@@ -97,6 +128,7 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
                 hintText: 'กรุณากรอกรหัสผ่านเดิม',
                 isRequired: true,
                 controller: _oldPasswordController,
+                prefixIconData: Icons.lock_outline,
               ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
@@ -104,6 +136,13 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
                 hintText: 'กรุณากรอกรหัสผ่านใหม่',
                 isRequired: true,
                 controller: _newPasswordController,
+                obscureText: !_isPasswordVisible,
+                prefixIconData: Icons.lock_outline,
+                suffixIconData: _isPasswordVisible
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+                onSuffixIconPressed: () =>
+                    setState(() => _isPasswordVisible = !_isPasswordVisible),
               ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
@@ -111,6 +150,14 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
                 hintText: 'กรุณากรอกยืนยันรหัสผ่านใหม่',
                 isRequired: true,
                 controller: _confirmPasswordController,
+                obscureText: !_isConfirmPasswordVisible,
+                prefixIconData: Icons.lock_outline,
+                suffixIconData: _isConfirmPasswordVisible
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+                onSuffixIconPressed: () => setState(
+                  () => _isConfirmPasswordVisible = !_isConfirmPasswordVisible,
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'กรุณากรอกข้อมูลช่องนี้';

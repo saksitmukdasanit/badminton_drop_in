@@ -1,4 +1,5 @@
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/payment_action_card.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
@@ -30,9 +31,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
                   _buildPaymentCard(),
                   Container(
                     margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: PaymentActionCard(
-                      onPayNowPressed: () {},
-                    ),
+                    child: PaymentActionCard(onPayNowPressed: () {}),
                   ),
                   // _buildPaymentActionCard(),
                 ],
@@ -138,7 +137,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
               children: [
                 Text(
                   'ระบบจะโอนเงินคืนภายใน 7 วันทำการ',
-                  
+
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
                 Text(
@@ -246,29 +245,16 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
                     ),
                     const SizedBox(height: 8),
                     // Dropdown สำหรับผลการแข่งขัน
-                    DropdownButtonFormField<String>(
-                      value: _selectedGameResult,
-                      hint: const Text('ชนะ'),
-                      isDense: true,
-                      decoration: InputDecoration(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      items: ['ชนะ', 'แพ้', 'เสมอ'].map((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() {
-                          _selectedGameResult = newValue;
-                        });
+                    CustomDropdown(
+                      labelText: '',
+                      initialValue: _selectedGameResult,
+                      items: [
+                        {"code": 1, "value": 'ชนะ'},
+                        {"code": 2, "value": 'แพ้'},
+                        {"code": 3, "value": 'เสมอ'},
+                      ],
+                      onChanged: (value) {
+                        setState(() => _selectedGameResult = value);
                       },
                     ),
                     const SizedBox(height: 8),

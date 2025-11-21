@@ -8,6 +8,8 @@ import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:badminton/shared/api_provider.dart';
+import 'package:go_router/go_router.dart';
 
 class PaymentPage extends StatefulWidget {
   // --- (เพิ่มใหม่) Parameter สำหรับรับข้อมูล ---
@@ -23,10 +25,10 @@ class _PaymentPageState extends State<PaymentPage> {
   bool _autoConfirm = true;
   bool isMemCard = true;
   String? _selectedPaymentMethod;
-  final List<String> _paymentMethods = [
-    'Credit/Debit Card',
-    'Mobile Banking',
-    'QR Code',
+  final List<dynamic> _paymentMethods = [
+    {"code": 1, "value": 'Credit/Debit Card'},
+    {"code": 2, "value": 'Mobile Banking'},
+    {"code": 3, "value": 'QR Code'},
   ];
 
   // -----Credit/Debit Card----
@@ -40,6 +42,8 @@ class _PaymentPageState extends State<PaymentPage> {
   // --- State สำหรับตัวนับเวลาถอยหลัง ---
   Timer? _timer;
   Duration _remainingTime = const Duration(minutes: 10);
+
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -81,6 +85,95 @@ class _PaymentPageState extends State<PaymentPage> {
     });
   }
 
+  Future<void> _handlePayment() async {
+    // // --- 1. จัดการกรณี QR Code (ซึ่งไม่ยิง API นี้) ---
+    // if (_selectedPaymentMethod == 'QR Code') {
+    //   // TODO: เพิ่ม Logic การดาวน์โหลดรูป QR Code
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(
+    //       content: Text('กำลังดาวน์โหลด QR Code... (Logicยังไม่เสร็จ)'),
+    //     ),
+    //   );
+    //   return; // หยุดทำงาน
+    // }
+
+    // // --- 2. ตรวจสอบว่าเลือกวิธีชำระเงินหรือยัง ---
+    // if (_selectedPaymentMethod == null) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
+    //   );
+    //   return;
+    // }
+
+    // // --- 3. ตรวจสอบ Form บัตรเครดิต (ถ้าเลือก) ---
+    // if (_selectedPaymentMethod == 'Credit/Debit Card') {
+    //   if (!(_formKeyCard.currentState?.validate() ?? false)) {
+    //     return; // หยุดถ้ากรอกบัตรไม่ถูกต้อง
+    //   }
+    // }
+
+    // --- 4. เริ่ม Loading ---
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 5. รวบรวมข้อมูลการชำระเงิน (นี่เป็นข้อมูลตัวอย่าง คุณต้องปรับแก้ให้ตรงกับ DTO ที่ API ต้องการ)
+      // dynamic paymentData;
+      // if (_selectedPaymentMethod == 'Credit/Debit Card') {
+      //   paymentData = {
+      //     'method': 'CreditCard',
+      //     'cardNumber': _cardNumberController.text,
+      //     'cardName': _cardNameController.text,
+      //     'expiryMonth': _expiryMonthController.text,
+      //     'expiryYear': _expiryYearController.text,
+      //     'cvv': _cvvController.text,
+      //     'saveCard': isMemCard,
+      //   };
+      // } else if (_selectedPaymentMethod == 'Mobile Banking') {
+      //   paymentData = {'method': 'MobileBanking', 'bank': 'KBank'}; // ตัวอย่าง
+      // }
+
+      // --- 6. ยิง API ---
+      // (ApiProvider จะแนบ Token ไปใน Header ให้เอง)
+      await ApiProvider().post(
+        '/GameSessions/${widget.bookingId}/join',
+        // data: paymentData,
+      );
+
+      // --- 7. ถ้าสำเร็จ: แสดง Dialog ---
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'ชำระเงินเรียบร้อย',
+          subtitle: 'คุณได้ชำระเงินจำนวน 130 บาท \n ยืนยันการจอง ก๊วนแมวเหมียว',
+          btnLeft: 'ไปหน้าการจอง',
+          onConfirm: () {
+            context.pop(); // ปิด Dialog
+            context.go('/my-game-user'); // กลับไปหน้า "เกมของฉัน"
+          },
+        );
+      }
+    } catch (e) {
+      // --- 8. ถ้าล้มเหลว: แสดง Error ---
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      // --- 9. สิ้นสุด Loading เสมอ ---
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   Widget _buildPaymentDetails() {
     switch (_selectedPaymentMethod) {
       case 'Credit/Debit Card':
@@ -105,18 +198,8 @@ class _PaymentPageState extends State<PaymentPage> {
 
         child: CustomElevatedButton(
           text: _selectedPaymentMethod == 'QR Code' ? 'Download QR' : 'Pay Now',
-          onPressed: () {
-            showDialogMsg(
-              context,
-              title: 'ชำระเงินเรียบร้อย',
-              subtitle:
-                  'คุณได้ชำระเงินจำนวน 130 บาท \n ยืนยันการจอง ก๊วนแมวเหมียว',
-              btnLeft: 'ไปหน้าการจอง',
-              onConfirm: () {
-                // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-              },
-            );
-          },
+          isLoading: _isLoading,
+          onPressed: _handlePayment, // <<< CHANGED: เรียกใช้ฟังก์ชันใหม่
           backgroundColor: _selectedPaymentMethod == 'QR Code'
               ? Colors.white
               : Colors.black,
@@ -126,6 +209,28 @@ class _PaymentPageState extends State<PaymentPage> {
           side: _selectedPaymentMethod == 'QR Code'
               ? const BorderSide(color: Colors.black)
               : null,
+
+          // onPressed: () {
+          //   showDialogMsg(
+          //     context,
+          //     title: 'ชำระเงินเรียบร้อย',
+          //     subtitle:
+          //         'คุณได้ชำระเงินจำนวน 130 บาท \n ยืนยันการจอง ก๊วนแมวเหมียว',
+          //     btnLeft: 'ไปหน้าการจอง',
+          //     onConfirm: () {
+          //       // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
+          //     },
+          //   );
+          // },
+          // backgroundColor: _selectedPaymentMethod == 'QR Code'
+          //     ? Colors.white
+          //     : Colors.black,
+          // foregroundColor: _selectedPaymentMethod == 'QR Code'
+          //     ? Theme.of(context).colorScheme.primary
+          //     : Colors.white,
+          // side: _selectedPaymentMethod == 'QR Code'
+          //     ? const BorderSide(color: Colors.black)
+          //     : null,
         ),
       ),
       body: SafeArea(
@@ -174,7 +279,7 @@ class _PaymentPageState extends State<PaymentPage> {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 16),
 
               // --- Checkbox ---
@@ -373,7 +478,11 @@ class _PaymentPageState extends State<PaymentPage> {
         CustomDropdown(
           labelText: 'เลือกธนาคาร',
           // initialValue: _selectedPaymentMethod,
-          items: ['KBank', 'SCB', 'BBL'],
+          items: [
+            {"code": 1, "value": 'KBank'},
+            {"code": 2, "value": 'SCB'},
+            {"code": 3, "value": 'BBL'},
+          ],
           onChanged: (val) {},
         ),
       ],

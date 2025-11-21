@@ -1,10 +1,17 @@
+import 'dart:io';
+
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/button.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
+import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_places_flutter/google_places_flutter.dart';
 import 'package:intl/intl.dart';
 
 class AddGamePage extends StatefulWidget {
@@ -17,6 +24,7 @@ class AddGamePage extends StatefulWidget {
 
 class AddGamePageState extends State<AddGamePage> {
   // --- ประกาศ Controllers ทั้งหมด ---
+  final FocusNode _courtSearchFocusNode = FocusNode();
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _teamNameController;
   late final TextEditingController _dateController;
@@ -31,7 +39,6 @@ class AddGamePageState extends State<AddGamePage> {
   late final TextEditingController _notesController;
 
   // --- ตัวแปรสำหรับจัดการ State อื่นๆ ---
-  String? _selectedCourt;
   String? _selectedGameType;
   String? _selectedQueueType;
   String? _selectedShuttleBrand;
@@ -39,16 +46,19 @@ class AddGamePageState extends State<AddGamePage> {
   int? _shuttleChargeMethod = 1; // 1 = เก็บเพิ่ม, 2 = บุฟเฟ่ต์
   final List<TextEditingController> _courtNumberControllers = [];
 
-  final Map<String, bool> _facilities = {
-    'ไฟสนามด้านบน': false,
-    'ไฟสนามด้านข้าง': false,
-    'ห้องอาบน้ำ': false,
-    'ห้องรับรอง': false,
-    'เช่ารองเท้า': false,
-    'เช่าไม้แบด': false,
-    'สนามติดแอร์': false,
-    'Wifi': false,
-  };
+  final TextEditingController _courtSearchController = TextEditingController();
+  // คุณอาจจะต้องสร้าง Model เพื่อเก็บข้อมูลสถานที่ที่สมบูรณ์กว่านี้
+  Map<String, dynamic>? _selectedPlace;
+
+  bool _isLoading = true;
+  List<dynamic> _gameTypes = [];
+  List<dynamic> _pairingMethods = [];
+  List<dynamic> _shuttleBrands = [];
+  List<dynamic> _shuttleModels = [];
+  List<dynamic> _facilitiesFromApi = [];
+  Map<String, bool> _facilities = {};
+
+  final List<dynamic> _gameImages = [];
 
   @override
   void initState() {
@@ -63,6 +73,8 @@ class AddGamePageState extends State<AddGamePage> {
     _courtTotalCostController = TextEditingController();
     _openCourtsController = TextEditingController();
     _notesController = TextEditingController();
+    _courtSearchFocusNode.addListener(_onCourtSearchFocusChange);
+    _fetchMasterData();
     super.initState();
   }
 
@@ -80,29 +92,177 @@ class AddGamePageState extends State<AddGamePage> {
     _courtTotalCostController.dispose();
     _openCourtsController.dispose();
     _notesController.dispose();
+    _courtSearchFocusNode.removeListener(_onCourtSearchFocusChange);
+    _courtSearchFocusNode.dispose();
     for (final controller in _courtNumberControllers) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  void _updateCourtFields(String value) {
+  void _onCourtSearchFocusChange() {
+    if (_courtSearchFocusNode.hasFocus) {
+      // หน่วงเวลาเล็กน้อยเพื่อให้คีย์บอร์ดขึ้นมาก่อน
+      Future.delayed(const Duration(milliseconds: 300), () {
+        // สั่งให้เลื่อนหน้าจอเพื่อให้แน่ใจว่าช่องค้นหาสนามมองเห็นได้
+        Scrollable.ensureVisible(
+          _courtSearchFocusNode.context!,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          alignment: 0.1, // เลื่อนให้ช่องอยู่เหนือคีย์บอร์ดเล็กน้อย
+        );
+      });
+    }
+  }
+
+  Future<void> _fetchMasterData() async {
+    try {
+      // ใช้ Future.wait เพื่อเรียก API ทั้งหมดพร้อมกัน
+      final responses = await Future.wait([
+        ApiProvider().get('/Dropdowns/gametypes'),
+        ApiProvider().get('/Dropdowns/pairingmethods'),
+        ApiProvider().get('/Dropdowns/shuttlecockbrands'),
+        ApiProvider().get('/Dropdowns/facilities'),
+        // ถ้าเป็นการแก้ไข (code != 'new') ให้ดึงข้อมูลเกมมาด้วย
+        if (widget.code != 'new')
+          ApiProvider().get('/GameSessions/${widget.code}'),
+      ]);
+
+      // นำข้อมูล Master Data มาใส่ใน State
+      setState(() {
+        _gameTypes = responses[0];
+        _pairingMethods = responses[1];
+        _shuttleBrands = responses[2];
+        _facilitiesFromApi = responses[3] as List;
+        _facilities = {
+          for (var item in _facilitiesFromApi) item['value']: false,
+        };
+      });
+
+      // --- ตรวจสอบและใส่ข้อมูลเดิม (กรณีแก้ไข) ---
+      if (widget.code != 'new' && responses.length > 4) {
+        final gameData = responses[4]['data'];
+        final shuttlecockModelId = gameData['shuttlecockModelId']?.toString();
+
+        if (gameData != null) {
+          // --- NEW: โหลดข้อมูลรุ่นลูกแบดก่อน แล้วค่อย setState ---
+          if (gameData['shuttlecockBrandId'] != null) {
+            await _callReadShuttlecockmodels(
+              gameData['shuttlecockBrandId']?.toString(),
+            );
+          }
+
+          setState(() {
+            _teamNameController.text = gameData['groupName'] ?? '';
+            // _courtSearchController.text = gameData['courtName'] ?? '';
+            _dateController.text = gameData['sessionDate'] ?? '';
+            _startTimeController.text = gameData['startTime'] ?? '';
+            _endTimeController.text = gameData['endTime'] ?? '';
+            _selectedGameType = gameData['gameTypeId']?.toString();
+            _slotsController.text =
+                gameData['maxParticipants']?.toString() ?? '';
+            _selectedQueueType = gameData['pairingMethodId']?.toString();
+            _shuttleChargeMethod = gameData['costingMethod'];
+            _shuttlePriceController.text =
+                gameData['shuttlecockFeePerPerson']?.toString() ?? '';
+            _shuttleCostController.text =
+                gameData['shuttlecockCostPerUnit']?.toString() ?? '';
+            _selectedShuttleBrand = gameData['shuttlecockBrandId']?.toString();
+            _selectedShuttleModel =
+                shuttlecockModelId; // ใช้ค่าที่เก็บไว้ก่อนหน้า
+            _courtPriceController.text =
+                gameData['courtFeePerPerson']?.toString() ?? '';
+            _courtTotalCostController.text =
+                gameData['totalCourtCost']?.toString() ?? '';
+            _openCourtsController.text =
+                gameData['numberOfCourts']?.toString() ?? '';
+            _notesController.text = gameData['notes'] ?? '';
+            if (gameData['photoUrls'] is List) {
+              _gameImages.addAll(List<String>.from(gameData['photoUrls']));
+            }
+
+            // --- ส่วนที่เพิ่ม: ดึงข้อมูล VenueData มาใส่ใน _selectedPlace ---
+            if (gameData['venueData'] != null) {
+              final venue = gameData['venueData'];
+              _courtSearchController.text = venue['name'] ?? '';
+              _selectedPlace = {
+                'placeId': venue['googlePlaceId'],
+                'name': venue['name'],
+                'address': venue['address'],
+                'lat': venue['latitude']?.toString(),
+                'lng': venue['longitude']?.toString(),
+              };
+            }
+
+            // --- ส่วนที่เพิ่ม: ดึงข้อมูล Facilities ที่เลือกไว้ ---
+            if (gameData['facilityIds'] is List) {
+              final List<int> selectedFacilityIds = List<int>.from(
+                gameData['facilityIds'],
+              );
+              for (var facility in _facilitiesFromApi) {
+                if (selectedFacilityIds.contains(facility['code'])) {
+                  _facilities[facility['value']] = true;
+                }
+              }
+            }
+
+            // --- ส่วนที่เพิ่ม: ดึงข้อมูล Court Numbers ---
+            if (gameData['courtNumbers'] is String) {
+              _updateCourtFields(
+                gameData['numberOfCourts'].toString(),
+                gameData['courtNumbers'],
+              );
+            }
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('ไม่สามารถดึงข้อมูล Master Data ได้: $e'),
+          ),
+        );
+      }
+    } finally {
+      // เมื่อโหลดข้อมูลเสร็จสิ้น (ทั้งสำเร็จและล้มเหลว) ให้ปิด loading
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _callReadShuttlecockmodels(shuttlecockbrandsId) async {
+    final responses = await ApiProvider().get(
+      '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
+    );
+
+    setState(() {
+      _shuttleModels = responses;
+    });
+  }
+
+  void _updateCourtFields(String value, [String? initialValues]) {
     // แปลง String ที่รับเข้ามาเป็น int (ถ้าแปลงไม่ได้ให้เป็น 0)
     final int count = int.tryParse(value) ?? 0;
 
     // ถ้าจำนวนเท่าเดิม ไม่ต้องทำอะไร
-    if (count == _courtNumberControllers.length) return;
+    if (count == _courtNumberControllers.length && initialValues == null)
+      return;
 
     setState(() {
-      // กรณีที่จำนวนที่กรอก > จำนวนช่องปัจจุบัน -> ให้สร้างเพิ่ม
-      while (_courtNumberControllers.length < count) {
-        _courtNumberControllers.add(TextEditingController());
+      // เคลียร์ controller เก่าทั้งหมดเพื่อป้องกันปัญหา
+      for (var controller in _courtNumberControllers) {
+        controller.dispose();
       }
-      // กรณีที่จำนวนที่กรอก < จำนวนช่องปัจจุบัน -> ให้ลบออก
-      while (_courtNumberControllers.length > count) {
-        // .removeLast() คือการลบตัวสุดท้ายออกจาก List
-        // และต้อง .dispose() controller ที่ลบออกไปด้วย
-        _courtNumberControllers.removeLast().dispose();
+      _courtNumberControllers.clear();
+
+      // แยก initialValues ถ้ามี
+      final List<String> values = initialValues?.split(',') ?? [];
+
+      // กรณีที่จำนวนที่กรอก > จำนวนช่องปัจจุบัน -> ให้สร้างเพิ่ม
+      for (int i = 0; i < count; i++) {
+        final initialText = i < values.length ? values[i] : '';
+        _courtNumberControllers.add(TextEditingController(text: initialText));
       }
     });
   }
@@ -139,12 +299,208 @@ class AddGamePageState extends State<AddGamePage> {
     }
   }
 
+  String _formatDateForApi(String date) {
+    try {
+      final inputFormat = DateFormat('dd/MM/yyyy');
+      final outputFormat = DateFormat('yyyy-MM-dd');
+      final dateTime = inputFormat.parse(date);
+      return outputFormat.format(dateTime);
+    } catch (e) {
+      return DateFormat('yyyy-MM-dd').format(DateTime.now());
+    }
+  }
+
+  // แปลงจาก "HH:mm" (24-hour) หรือ "h:mm a" (12-hour AM/PM) ไปเป็น "HH:mm"
+  String _formatTimeForApi(String time) {
+    try {
+      // ลองแปลงจาก h:mm a (เช่น 6:30 PM) ก่อน
+      final inputFormat12Hour = DateFormat('h:mm a');
+      final dateTime = inputFormat12Hour.parse(time);
+      return DateFormat('HH:mm').format(dateTime);
+    } catch (e) {
+      try {
+        // ถ้าไม่สำเร็จ ลองแปลงจาก HH:mm (เช่น 18:30)
+        final inputFormat24Hour = DateFormat('HH:mm');
+        final dateTime = inputFormat24Hour.parse(time);
+        return DateFormat('HH:mm').format(dateTime);
+      } catch (e) {
+        // ถ้าแปลงไม่ได้เลย ให้คืนค่าเวลาปัจจุบัน
+        return DateFormat('HH:mm').format(DateTime.now());
+      }
+    }
+  }
+
+  Future<void> _onImagePicked(List<File> imageFile) async {
+    // จำกัดให้มีรูปได้ไม่เกิน 5 รูป
+    if (_gameImages.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('อัปโหลดรูปภาพได้สูงสุด 5 รูป')),
+      );
+      return;
+    }
+
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: imageFile,
+        folderName: "Game",
+      );
+
+      if (response.length > 0) {
+        if (mounted) {
+          setState(() {
+            for (var r in response) {
+              _gameImages.add(r['imageUrl']);
+            }
+          });
+        }
+      } else {
+        if (mounted) {
+          final errorMessage =
+              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange,
+              content: Text(errorMessage),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    }
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับลบรูปภาพ ---
+  void _removeImage(int index) {
+    setState(() {
+      _gameImages.removeAt(index);
+    });
+  }
+
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_selectedPlace == null && _courtSearchController.text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('กรุณาเลือกสนาม')));
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // (ส่วนนี้ต้องแน่ใจว่า _facilities ถูกสร้างจาก API ที่มี 'code' และ 'value')
+      final List<int> facilityIds = [];
+      _facilities.forEach((key, value) {
+        if (value == true) {
+          // ถ้า Checkbox ถูกเลือก
+          // หา item ที่มี value ตรงกับ key แล้วดึง code (ID) ออกมา
+          // (โค้ดนี้อาจจะต้องปรับแก้ตามโครงสร้างข้อมูล facilities ของคุณ)
+          final facility = _facilitiesFromApi.firstWhere(
+            (f) => f['value'] == key,
+            orElse: () => null,
+          );
+          if (facility != null) {
+            facilityIds.add(facility['code']);
+          }
+        }
+      });
+
+      setState(() {});
+      // --- 2. รวบรวมข้อมูลทั้งหมดเพื่อส่งให้ API ---
+      final Map<String, dynamic> gameData = {
+        "groupName": _teamNameController.text,
+        "venueData": {
+          "googlePlaceId": _selectedPlace!['placeId'],
+          "name": _selectedPlace!['name'],
+          "address": _selectedPlace!['address'],
+          "latitude": _selectedPlace!['lat'],
+          "longitude": _selectedPlace!['lng'],
+        },
+        "sessionDate": _formatDateForApi(_dateController.text),
+        "startTime": _formatTimeForApi(_startTimeController.text),
+        "endTime": _formatTimeForApi(_endTimeController.text),
+        "gameTypeId": int.tryParse(_selectedGameType ?? '0'),
+        "pairingMethodId": int.tryParse(_selectedQueueType ?? '0'),
+        "maxParticipants": int.tryParse(_slotsController.text),
+        "costingMethod":
+            _shuttleChargeMethod, // สมมติว่า 1 = PER_UNIT, 2 = BUFFET
+        "courtFeePerPerson": double.tryParse(_courtPriceController.text),
+        "shuttlecockFeePerPerson": double.tryParse(
+          _shuttlePriceController.text,
+        ),
+        "totalCourtCost": double.tryParse(_courtTotalCostController.text),
+        "shuttlecockCostPerUnit": double.tryParse(_shuttleCostController.text),
+        "shuttlecockModelId": int.tryParse(_selectedShuttleModel ?? '0'),
+        "numberOfCourts": int.tryParse(_openCourtsController.text),
+        "courtNumbers": _courtNumberControllers
+            .map((c) => c.text)
+            .join(','), // รวมเป็น String
+        "notes": _notesController.text,
+        "facilityIds": facilityIds, // << ใช้ List ของ ID ที่แปลงแล้ว
+        "photoUrls": _gameImages,
+      };
+
+      // --- 3. เรียก API (POST สำหรับสร้างใหม่, PUT สำหรับแก้ไข) ---
+      if (widget.code == 'new') {
+        await ApiProvider().post('/GameSessions', data: gameData);
+      } else {
+        await ApiProvider().put('/GameSessions/${widget.code}', data: gameData);
+      }
+
+      // 4. ถ้าสำเร็จ แสดง Dialog
+      if (mounted) {
+        final isEditing = widget.code != 'new';
+        showDialogMsg(
+          context,
+          title: isEditing ? 'แก้ไขก๊วนเรียบร้อย' : 'สร้างก๊วนใหม่เรียบร้อย',
+          subtitle: isEditing
+              ? 'ยืนยันการแก้ไข ${_teamNameController.text}'
+              : 'ยืนยันการสร้าง ${_teamNameController.text}',
+          btnLeft: 'ไปหน้าข้อมูลก๊วน',
+          onConfirm: () {
+            context.pop(); // ปิด Dialog
+            context.pop(true); // กลับไปหน้าก่อนหน้า พร้อมส่งค่า true กลับไป
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('สร้างก๊วนล้มเหลว: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.code != 'new';
     return Scaffold(
       extendBody: true,
-      backgroundColor: Colors.transparent,
-      appBar: AppBarSubMain(title: 'New Game', isBack: false),
+      backgroundColor: Colors.white,
+      appBar: AppBarSubMain(
+        title: isEditing ? 'Edit Game' : 'New Game',
+        isBack: true,
+      ),
       body: Container(
         height: double.infinity,
         decoration: BoxDecoration(
@@ -154,51 +510,55 @@ class AddGamePageState extends State<AddGamePage> {
             end: Alignment.bottomCenter,
           ),
         ),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16.0),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    spreadRadius: 2,
-                    blurRadius: 10,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(16.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16.0),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          spreadRadius: 2,
+                          blurRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth > 600) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: _buildLeftColumn(context)),
+                                const SizedBox(width: 24),
+                                Expanded(child: _buildRightColumn(context)),
+                              ],
+                            );
+                          } else {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildLeftColumn(context),
+                                const SizedBox(
+                                  height: 24,
+                                ), // เพิ่มระยะห่างแนวตั้ง
+                                _buildRightColumn(context),
+                              ],
+                            );
+                          }
+                        },
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              child: Form(
-                key: _formKey,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth > 600) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: _buildLeftColumn(context)),
-                          const SizedBox(width: 24),
-                          Expanded(child: _buildRightColumn(context)),
-                        ],
-                      );
-                    } else {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildLeftColumn(context),
-                          const SizedBox(height: 24), // เพิ่มระยะห่างแนวตั้ง
-                          _buildRightColumn(context),
-                        ],
-                      );
-                    }
-                  },
                 ),
               ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -208,38 +568,48 @@ class AddGamePageState extends State<AddGamePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('เพิ่มได้สูงสุด 5 รูป'),
+        const Text('เพิ่มรูปได้สูงสุด 5 รูป'),
         const SizedBox(height: 8),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 5,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-          ),
-          itemCount: 5,
-          itemBuilder: (context, index) {
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.add, color: Colors.grey[600]),
-            );
-          },
-        ),
+        _buildImagePickerGrid(),
         const SizedBox(height: 16),
         CustomTextFormField(
           labelText: 'ชื่อทีม',
           controller: _teamNameController,
         ),
         const SizedBox(height: 16),
-        CustomDropdown(
-          labelText: 'สนาม',
-          initialValue: _selectedCourt,
-          items: const ['สนาม A', 'สนาม B', 'สนาม C'],
-          onChanged: (value) => setState(() => _selectedCourt = value),
+        GooglePlaceAutoCompleteTextField(
+          focusNode: _courtSearchFocusNode,
+          textEditingController: _courtSearchController,
+          googleAPIKey: "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc",
+          inputDecoration: InputDecoration(
+            labelText: "ค้นหาสนาม",
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+          ),
+          debounceTime: 400,
+          countries: ["th"], // จำกัดการค้นหาในประเทศไทย
+          isLatLngRequired: true,
+          getPlaceDetailWithLatLng: (prediction) {
+            // Callback เมื่อผู้ใช้เลือกสถานที่
+            setState(() {
+              _selectedPlace = {
+                'placeId': prediction.placeId, // <<< NEW: เก็บ Place ID
+                'name': prediction.description,
+                'address':
+                    prediction.description, // ใช้ description สำหรับที่อยู่ด้วย
+                'lat': prediction.lat,
+                'lng': prediction.lng,
+              };
+            });
+            print("Selected Place: ${prediction.description}");
+          },
+          itemClick: (prediction) {
+            _courtSearchController.text = prediction.description ?? '';
+            _courtSearchController.selection = TextSelection.fromPosition(
+              TextPosition(offset: prediction.description?.length ?? 0),
+            );
+          },
         ),
         const SizedBox(height: 16),
         CustomTextFormField(
@@ -279,8 +649,10 @@ class AddGamePageState extends State<AddGamePage> {
         CustomDropdown(
           labelText: 'เล่นเกมละ/เซต',
           initialValue: _selectedGameType,
-          items: const ['21 แต้ม', '15 แต้ม'],
-          onChanged: (value) => setState(() => _selectedGameType = value),
+          items: _gameTypes,
+          onChanged: (value) {
+            setState(() => _selectedGameType = value.toString());
+          },
         ),
         const SizedBox(height: 16),
         CustomTextFormField(
@@ -292,8 +664,9 @@ class AddGamePageState extends State<AddGamePage> {
         CustomDropdown(
           labelText: 'วิธีจัดคิว',
           initialValue: _selectedQueueType,
-          items: const ['จับคู่แบบสุ่ม', 'เรียงตามลำดับ'],
-          onChanged: (value) => setState(() => _selectedQueueType = value),
+          items: _pairingMethods,
+          onChanged: (value) =>
+              setState(() => _selectedQueueType = value.toString()),
         ),
         const SizedBox(height: 16),
         Text(
@@ -393,26 +766,23 @@ class AddGamePageState extends State<AddGamePage> {
           ],
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: CustomDropdown(
-                labelText: 'ลูกแบดที่ใช้ยี่ห้อ',
-                initialValue: _selectedShuttleBrand,
-                items: const ['Lining', 'Yonex', 'Victor'],
-                onChanged: (v) => setState(() => _selectedShuttleBrand = v),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: CustomDropdown(
-                labelText: 'รุ่น',
-                initialValue: _selectedShuttleModel,
-                items: const ['A+100', 'AS-50', 'Master No.1'],
-                onChanged: (v) => setState(() => _selectedShuttleModel = v),
-              ),
-            ),
-          ],
+        CustomDropdown(
+          labelText: 'ลูกแบดที่ใช้ยี่ห้อ',
+          initialValue: _selectedShuttleBrand,
+          items: _shuttleBrands,
+          onChanged: (v) {
+            _callReadShuttlecockmodels(v);
+            setState(() => _selectedShuttleBrand = v.toString());
+          },
+        ),
+        // const SizedBox(width: 16),
+        const SizedBox(height: 16),
+        CustomDropdown(
+          labelText: 'รุ่น',
+          initialValue: _selectedShuttleModel,
+          items: _shuttleModels,
+          onChanged: (v) =>
+              setState(() => _selectedShuttleModel = v.toString()),
         ),
         const SizedBox(height: 16),
         Row(
@@ -479,32 +849,146 @@ class AddGamePageState extends State<AddGamePage> {
           labelText: '',
           controller: _notesController,
           minLines: 6,
+          maxLines: 6,
         ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () {
-              showDialogMsg(
-                context,
-                title: 'สร้างก๊วนใหม่เรียบร้อย',
-                subtitle: 'ยืนยันการสร้าง ก๊วนแมวเหมียว',
-                btnLeft: 'ไปหน้าข้อมูลก๊วน',
-                onConfirm: () {},
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              backgroundColor: Colors.black87,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Create Game'),
+          child: CustomElevatedButton(
+            isLoading: _isLoading,
+            onPressed: _submitForm,
+            text: widget.code != 'new' ? 'Save Changes' : 'Create Game',
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildImagePickerGrid() {
+    return AspectRatio(
+      aspectRatio: 1.8, // กำหนดสัดส่วนของพื้นที่ทั้งหมด
+      child: Row(
+        children: [
+          // --- ช่องใหญ่ด้านซ้าย ---
+          Expanded(
+            flex: 2, // ให้ความกว้างเป็น 2 ส่วน
+            child: _buildImageSlot(
+              0,
+              isLarge: true,
+            ), // ช่องนี้คือรูปที่ 1 (index 0)
+          ),
+          const SizedBox(width: 10),
+          // --- 4 ช่องเล็กด้านขวา ---
+          Expanded(
+            flex: 2, // ให้ความกว้างเป็น 2 ส่วนเท่ากัน
+            child: Column(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildImageSlot(1)), // รูปที่ 2 (index 1)
+                      const SizedBox(width: 10),
+                      Expanded(child: _buildImageSlot(2)), // รูปที่ 3 (index 2)
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildImageSlot(3)), // รูปที่ 4 (index 3)
+                      const SizedBox(width: 10),
+                      Expanded(child: _buildImageSlot(4)), // รูปที่ 5 (index 4)
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- NEW: ฟังก์ชันย่อยสำหรับสร้างแต่ละช่อง (ทั้งช่องที่มีรูปและช่องว่าง) ---
+  Widget _buildImageSlot(int index, {bool isLarge = false}) {
+    // --- กรณีที่ช่องนั้นมีรูปภาพอยู่แล้ว ---
+    if (index < _gameImages.length) {
+      final imageItem = _gameImages[index];
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // แสดงรูปตามประเภท (URL หรือ File)
+            if (imageItem is String)
+              Image.network(imageItem, fit: BoxFit.cover)
+            else if (imageItem is File)
+              Image.file(imageItem, fit: BoxFit.cover),
+
+            // ปุ่มลบรูป
+            Positioned(
+              top: 4,
+              right: 4,
+              child: InkWell(
+                onTap: () => _removeImage(index),
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // --- กรณีที่เป็นช่องว่างสำหรับเพิ่มรูป ---
+    // จะแสดงช่องนี้ก็ต่อเมื่อจำนวนรูปยังไม่ถึง 5 รูป
+    if (_gameImages.length < 5) {
+      // ใช้ ImageUploadPicker ที่คุณมีอยู่แล้วเป็นปุ่ม
+      return ImageUploadPicker(
+        allowMultiple: true,
+        callback: _onImagePicked,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.add_circle_outline,
+                  color: Colors.grey[600],
+                  size: isLarge ? 32 : 24,
+                ),
+                if (isLarge) ...[
+                  // แสดงข้อความเฉพาะในช่องใหญ่
+                  const SizedBox(height: 8),
+                  Text(
+                    'เพิ่มได้สูงสุด 5 รูป',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ถ้าเต็ม 5 รูปแล้ว และ index นี้ไม่มีรูป ก็ให้แสดงเป็นช่องว่างไปเลย
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(12),
+      ),
     );
   }
 }

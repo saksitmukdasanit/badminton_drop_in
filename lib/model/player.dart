@@ -15,32 +15,37 @@ class GameHistory {
 
 class Player {
   final String id;
-  final String name;
-  final String fullName;
-  final String imageUrl;
-  final int level;
-  final int gamesPlayed;
-  final int shuttlesUsed;
-  final Duration waitingTime;
-
-  final Duration totalPlayTime;
-  final String emergencyContactName;
-  final String emergencyContactPhone;
-  final List<GameHistory> gameHistory;
+  final String name; // nickname
+  final String? fullName;
+  final String? imageUrl;
+  final int? level;
+  final String? skillLevelName;
+  final int? skillLevelId;
+  final String? skillLevelColor;
+  final int? gamesPlayed;
+  final int? shuttlesUsed;
+  final Duration? waitingTime;
+  final Duration? totalPlayTime;
+  final String? emergencyContactName;
+  final String? emergencyContactPhone;
+  final List<GameHistory>? gameHistory;
 
   Player({
     required this.id,
     required this.name,
-    required this.fullName,
-    required this.imageUrl,
-    required this.level,
-    required this.gamesPlayed,
-    required this.shuttlesUsed,
-    required this.waitingTime,
-    required this.totalPlayTime,
-    required this.emergencyContactName,
-    required this.emergencyContactPhone,
-    required this.gameHistory,
+    this.fullName,
+    this.imageUrl,
+    this.level,
+    this.skillLevelName,
+    this.skillLevelId,
+    this.skillLevelColor,
+    this.gamesPlayed = 0,
+    this.shuttlesUsed = 0,
+    this.waitingTime = Duration.zero,
+    this.totalPlayTime = Duration.zero,
+    this.emergencyContactName,
+    this.emergencyContactPhone,
+    this.gameHistory,
   });
 }
 
@@ -51,7 +56,10 @@ class RosterPlayer {
   final String fullName;
   final String gender;
   int skillLevel; // ใช้ int เพื่อให้เปลี่ยนค่าใน Dropdown ได้
+  final String? skillLevelName;
   bool isChecked;
+  final int participantId;
+  final String participantType;
 
   RosterPlayer({
     required this.no,
@@ -59,6 +67,24 @@ class RosterPlayer {
     required this.fullName,
     required this.gender,
     required this.skillLevel,
-    this.isChecked = true,
+    this.skillLevelName,
+    this.isChecked = false,
+    required this.participantId,
+    required this.participantType,
   });
+
+  // --- NEW: เพิ่ม factory constructor fromJson ---
+  factory RosterPlayer.fromJson(Map<String, dynamic> json, int index) {
+    return RosterPlayer(
+      no: index,
+      nickname: json['nickname'],
+      fullName: json['fullName'] ?? json['nickname'],
+      gender: json['genderName'] ?? 'N/A',
+      skillLevel: json['skillLevelId'],
+      skillLevelName: json['skillLevelName'],
+      isChecked: json['isCheckedIn'] ?? false,
+      participantId: json['participantId'],
+      participantType: json['participantType'],
+    );
+  }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
@@ -6,9 +7,11 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/image_picker_form.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
 class ApplyOrganizerPage extends StatefulWidget {
   const ApplyOrganizerPage({super.key});
@@ -19,35 +22,36 @@ class ApplyOrganizerPage extends StatefulWidget {
 
 class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
   late Future<dynamic> futureModel;
-  String profileImageUrl = '';
   bool loadingImage = false;
-  String image = '';
+  String imageUrl = '';
   double gapHeight = 20;
   String? _selectedBank;
-  XFile? _bookbankImage;
-  final List<String> _banks = [
-    'ธนาคารกสิกรไทย',
-    'ธนาคารไทยพาณิชย์',
-    'ธนาคารกรุงเทพ',
-    'ธนาคารกรุงไทย',
+  String bookbankUrl = '';
+  final List<dynamic> _banks = [
+    {"code": "1", "value": 'ธนาคารกสิกรไทย'},
+    {"code": "2", "value": 'ธนาคารไทยพาณิชย์'},
+    {"code": "3", "value": 'ธนาคารกรุงเทพ'},
+    {"code": "4", "value": 'ธนาคารกรุงไทย'},
   ];
 
   final _formKey = GlobalKey<FormState>();
   late TextEditingController idcardController;
   late TextEditingController bookBankNoController;
-
-  late TextEditingController phoneController;
+  late TextEditingController publicPhoneController;
   late TextEditingController facebookController;
   late TextEditingController lineController;
+
+  bool _isLoading = false;
 
   @override
   void initState() {
     idcardController = TextEditingController();
     bookBankNoController = TextEditingController();
-
-    phoneController = TextEditingController();
+    publicPhoneController = TextEditingController();
     facebookController = TextEditingController();
     lineController = TextEditingController();
+
+    _callRead();
     super.initState();
   }
 
@@ -56,34 +60,180 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
     idcardController.dispose();
     bookBankNoController.dispose();
 
-    phoneController.dispose();
+    publicPhoneController.dispose();
     facebookController.dispose();
     lineController.dispose();
     super.dispose();
   }
 
-  _uploadImage(file) async {}
-
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
-      // เพิ่ม DialogMsg ที่นี้ถ้าข้อมูลถูกต้อง
-      showDialogMsg(
-        context,
-        title: 'สมัครเป็นผู้จัดเรียบร้อย',
-        subtitle: 'หมายเหตุ: \nรอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
-        btnLeft: 'ไปหน้าโปรโฟล์',
-        onConfirm: () {},
-      );
+  Future<void> _callRead() async {
+    try {
+      final response = await ApiProvider().get('/Profiles/me');
+      final userData = response['data'];
+      setState(() {
+        // ดึงเบอร์โทรและรูปโปรไฟล์เดิมมาแสดง
+        publicPhoneController.text = userData['phoneNumber'] ?? '';
+        imageUrl = userData['profilePhotoUrl'] ?? '';
+        if (userData['isOrganizer'] == false) {
+          showDialogMsg(
+            context,
+            title: 'คุณได้สมัครเป็นผู้จัดแล้ว',
+            subtitle: 'รอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
+            btnLeft: 'กลับไปหน้าโปรไฟล์',
+            onConfirm: () {
+              context.pop(); // ปิด Dialog
+              context.pop(); // กลับไปหน้าโปรไฟล์
+            },
+          );
+        }
+      });
+    } catch (e) {
+      // จัดการ Error หากดึงข้อมูลไม่ได้
+      print('Failed to fetch initial data: $e');
     }
-    showDialogMsg(
-      context,
-      title: 'สมัครเป็นผู้จัดเรียบร้อย',
-      subtitle: 'หมายเหตุ: \nรอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
-      btnLeft: 'ไปหน้าโปรโฟล์',
-      onConfirm: () {
-        // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-      },
-    );
+  }
+
+  _uploadImageProfile(List<File> file) async {
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: file,
+        folderName: 'Profile',
+      );
+
+      if (response.length > 0) {
+        if (mounted) {
+          setState(() {
+            imageUrl = response[0]['imageUrl'];
+          });
+        }
+      } else {
+        if (mounted) {
+          final errorMessage =
+              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange,
+              content: Text(errorMessage),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    }
+  }
+
+  _uploadImage(List<File> file) async {
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: file,
+        folderName: 'Bookbank',
+      );
+
+      if (response.length > 0) {
+        if (mounted) {
+          setState(() {
+            bookbankUrl = response[0]['imageUrl'];
+          });
+        }
+      } else {
+        if (mounted) {
+          final errorMessage =
+              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange,
+              content: Text(errorMessage),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _submitForm() async {
+    // 1. ตรวจสอบ Form และรูปภาพที่จำเป็น
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 3. รวบรวมข้อมูลทั้งหมดเพื่อส่งให้ API
+      final Map<String, dynamic> data = {
+        "profilePhotoUrl": imageUrl,
+        "nationalId": idcardController.text,
+        "bankId": int.tryParse(_selectedBank ?? "0"),
+        "bankAccountNumber": bookBankNoController.text,
+        "bankAccountPhotoUrl": bookbankUrl,
+        "publicPhoneNumber": publicPhoneController.text,
+        "facebookLink": facebookController.text,
+        "lineId": lineController.text,
+        "phoneVisibility": 0,
+        "facebookVisibility": 0,
+        "lineVisibility": 0,
+      };
+
+      final response = await ApiProvider().post(
+        '/Organizer/register',
+        data: data,
+      );
+
+      if (response['status'] == 201) {
+        if (mounted) {
+          showDialogMsg(
+            context,
+            title: 'สมัครเป็นผู้จัดเรียบร้อย',
+            subtitle: 'หมายเหตุ: \nรอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
+            btnLeft: 'กลับไปหน้าโปรไฟล์',
+            onConfirm: () {
+              context.pop(); // ปิด Dialog
+              context.pop(); // กลับไปหน้าโปรไฟล์
+            },
+          );
+        }
+      } else {
+        if (mounted) {
+          final errorMessage =
+              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange, // อาจใช้สีอื่นที่ไม่ใช่แดง
+              content: Text(errorMessage),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -115,6 +265,15 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
                 isRequired: true,
                 controller: idcardController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(13),
+                ],
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'กรุณากรอกข้อมูล';
+                  if (value.length != 13) return 'เลขบัตรต้องมี 13 หลัก';
+                  return null;
+                },
               ),
               SizedBox(height: gapHeight),
               CustomDropdown(
@@ -141,17 +300,14 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
                 isRequired: true,
                 controller: bookBankNoController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               ),
               SizedBox(height: gapHeight),
               ImagePickerFormField(
                 labelText: 'รูป Bookbank',
                 isRequired: true,
-                onImageSelected: (XFile? image) {
-                  // รับไฟล์ที่เลือกกลับมาเก็บใน State ของหน้านี้
-                  setState(() {
-                    _bookbankImage = image;
-                  });
-                  print('Image selected: ${_bookbankImage?.path}');
+                onImageSelected: (File image) {
+                  _uploadImage([image]);
                 },
               ),
               SizedBox(height: gapHeight),
@@ -164,25 +320,27 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
                 labelText: 'เบอร์โทรติดต่อสาธารณะ',
                 hintText: 'กรุณากรอกเบอร์โทรติดต่อสาธารณะ',
                 isRequired: true,
-                controller: bookBankNoController,
+                controller: publicPhoneController,
                 keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
                 labelText: 'Facebook',
                 hintText: 'กรุณากรอกFacebook',
-                controller: bookBankNoController,
+                controller: facebookController,
               ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
                 labelText: 'Line',
                 hintText: 'กรุณากรอกLine',
-                controller: bookBankNoController,
+                controller: lineController,
               ),
               SizedBox(height: gapHeight + 20),
               CustomElevatedButton(
                 text: 'สมัครเป็นผู้จัด',
                 onPressed: _submitForm,
+                isLoading: _isLoading,
               ),
               SizedBox(height: gapHeight),
             ],
@@ -199,16 +357,16 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
           ImageUploadPicker(
             callback: (file) => {
               setState(() {
-                _uploadImage(file);
+                _uploadImageProfile(file);
               }),
             },
-            child: image != ''
+            child: imageUrl != ''
                 ? Container(
                     height: 120,
                     width: 120,
                     decoration: BoxDecoration(
                       image: DecorationImage(
-                        image: NetworkImage(image),
+                        image: NetworkImage(imageUrl),
                         fit: BoxFit.cover,
                       ),
                       borderRadius: BorderRadius.circular(100.0),

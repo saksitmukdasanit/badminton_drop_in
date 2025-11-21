@@ -38,7 +38,10 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   final _formKey = GlobalKey<FormState>(); // Key สำหรับ validation
 
   String? _selectedPaymentMethod;
-  final List<String> _paymentMethods = ['QR Code', 'เงินสด'];
+  final List<dynamic> _paymentMethods = [
+    {"code": 1, "value": 'QR Code'},
+    {"code": 2, "value": 'เงินสด'},
+  ];
 
   @override
   void initState() {

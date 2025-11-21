@@ -221,9 +221,9 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   Widget badmintonSummaryPage(BuildContext context) {
     return Column(
       children: [
-        GroupInfoCard(model: dataList[0],),
+        GroupInfoCard(model: dataList[0]),
         SizedBox(height: 16),
-        ImageSlideshow(model: dataList[0],),
+        ImageSlideshow(model: dataList[0]),
         SizedBox(height: 16),
         DetailsCard(),
         SizedBox(height: 16),
@@ -246,6 +246,7 @@ class GroupInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final formattedDateTime = formatSessionStart(model['sessionStart']);
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -259,7 +260,7 @@ class GroupInfoCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
             color: const Color(0xFF6B7280), // สีเทาเข้ม
             child: Text(
-              model['teamName'],
+              model['groupName'],
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -291,7 +292,7 @@ class GroupInfoCard extends StatelessWidget {
             child: Chip(
               label: Text(
                 // --- (แก้ไข) ใช้ข้อมูลจาก parameter ---
-                '${model['date']} ${model['time']}',
+                '${model['sessionDate']} ${model['startTime']} ${model['endTime']}',
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.black,
@@ -299,7 +300,7 @@ class GroupInfoCard extends StatelessWidget {
                 ),
               ),
               backgroundColor: dayColors.firstWhere(
-                (d) => d['code'] == model['day'],
+                (d) => d['code'] == formattedDateTime['day'],
               )['display'],
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
@@ -338,7 +339,8 @@ class ImageSlideshow extends StatelessWidget {
 
 // --- Widget ย่อย: การ์ดรายละเอียด ---
 class DetailsCard extends StatelessWidget {
-  const DetailsCard({super.key});
+  final dynamic model;
+  const DetailsCard({super.key, this.model});
 
   @override
   Widget build(BuildContext context) {
@@ -352,61 +354,55 @@ class DetailsCard extends StatelessWidget {
           children: [
             // ไอคอนสิ่งอำนวยความสะดวก
             Wrap(
-              spacing: 8.0, // ระยะห่างระหว่างไอคอนแนวนอน
-              runSpacing: 8.0, // ระยะห่างระหว่างบรรทัด
-              children: [
-                _buildFacilityIcon(context, Icons.wifi),
-                _buildFacilityIcon(context, Icons.ac_unit),
-                _buildFacilityIcon(context, Icons.chair),
-                _buildFacilityIcon(context, Icons.search),
-                _buildFacilityIcon(context, Icons.directions_run),
-                _buildFacilityIcon(context, Icons.shower),
-              ],
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children:
+                  (model['facilities'] as List<dynamic>?)
+                      ?.map(
+                        (facility) =>
+                            _buildFacilityIcon(context, facility['iconUrl']),
+                      )
+                      .toList() ??
+                  [],
             ),
             SizedBox(height: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.start,
+            _buildText(
+              context,
+              'ค่าสนาม ${model['courtFeePerPerson']} บาท/ชั่วโมง',
+            ),
+            _buildText(
+              context,
+              '${model['shuttlecockBrandName']} ${model['shuttlecockModelName']} ${model['shuttlecockFeePerPerson']}/ลูก ',
+            ),
+            _buildText(context, '${model['gameTypeName']}'),
+            _buildText(context, 'สนามที่ ${model['courtNumbers']}'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildText(context, 'ค่าสนาม 60 บาท/ชั่วโมง'),
-                    _buildText(context, 'Yonex 20บาท/ลูก '),
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildText(context, 'เล่น 21 แต้ม/2เซ็ต'),
-                    _buildText(context, 'สนามที่ 4, 5, 6'),
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        _buildText(context, 'ผู้เล่น 57/80 คน'),
-                        _buildText(context, 'สำรอง 00/10 คน'),
-                      ],
+                    _buildText(
+                      context,
+                      'ผู้เล่น ${model['currentParticipants']}/${model['maxParticipants']} คน',
                     ),
-                    GestureDetector(
-                      onTap: () => context.push('/player-list/1'),
-                      child: Text(
-                        'ดูผู้เล่น',
-                        style: TextStyle(
-                          color: Colors.teal[600],
-                          fontWeight: FontWeight.bold,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
+                    _buildText(context, 'สำรอง 00/10 คน'),
                   ],
                 ),
-                Text('note : มาเล่นแบดมินตันกับเพื่อนในก๊วนที่วงเวีย...'),
+                GestureDetector(
+                  onTap: () =>
+                      context.push('/player-list/${model['groupName']}'),
+                  child: Text(
+                    'ดูผู้เล่น',
+                    style: TextStyle(
+                      color: Colors.teal[600],
+                      fontWeight: FontWeight.bold,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
               ],
             ),
+            Text('note : ${model['notes']}'),
 
             // รายละเอียดค่าใช้จ่ายและผู้เล่น
             const Divider(height: 32),
@@ -432,11 +428,10 @@ class DetailsCard extends StatelessWidget {
   }
 
   // Helper สำหรับสร้างไอคอน
-  Widget _buildFacilityIcon(BuildContext context, IconData icon) {
+  Widget _buildFacilityIcon(BuildContext context, String iconUrl) {
     return CircleAvatar(
       radius: 22,
-      backgroundColor: Color(0xFF0E9D7A),
-      child: Icon(icon, color: Colors.white),
+      child: Image.network(iconUrl),
     );
   }
 

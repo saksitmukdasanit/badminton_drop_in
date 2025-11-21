@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/button.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
+import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/image_picker_form.dart';
 import 'package:badminton/component/loading_image_network.dart';
 import 'package:badminton/component/text_box.dart';
@@ -8,12 +12,13 @@ import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/page/organizer/history/history_organizer_payment.dart';
 import 'package:badminton/page/organizer/profile/edit_skill_levels.dart';
 import 'package:badminton/page/organizer/profile/finance.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 class ProfileMenuItem {
@@ -42,6 +47,9 @@ class ProFileOrganizerPage extends StatefulWidget {
 }
 
 class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
+  late Future<dynamic> futureModel;
+  bool _isLoading = true;
+  bool _isSaving = false;
   int _selectedIndex = 0;
   bool _isPanelVisible = false;
   late final List<ProfileMenuItem> _topMenuItems;
@@ -49,39 +57,43 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   String profileImageUrl = '';
 
   // ---- Edit profile
-  final _firstNameController = TextEditingController(text: 'สวย');
-  final _lastNameController = TextEditingController(text: 'คงทน');
-  final _emailController = TextEditingController(text: 'somsuay@mail.com');
-  final _phoneController = TextEditingController(text: '0878087785');
-  final _publicPhoneController = TextEditingController(text: '0844438273');
-  final _lineIdController = TextEditingController(text: 'somsuay1996');
-  final _facebookController = TextEditingController(
-    text: 'www.facebook.com/somsuay',
-  );
+  final _firstNameController = TextEditingController(text: '');
+  final _lastNameController = TextEditingController(text: '');
+  final _emailController = TextEditingController(text: '');
+  final _phoneController = TextEditingController(text: '');
+  final _publicPhoneController = TextEditingController(text: '');
+  final _lineIdController = TextEditingController(text: '');
+  final _facebookController = TextEditingController(text: '');
   late TextEditingController emergencyNameController;
   late TextEditingController emergencyPhoneController;
-  String? _selectedGender = 'หญิง';
+  String? _selectedGender = '1';
 
   // ---- Edit Transfer
   late TextEditingController idcardController;
   late TextEditingController bookBankNoController;
+  String? bookbankUrl;
   String? _selectedBank;
-  XFile? _bookbankImage;
-  final List<String> _banks = [
-    'ธนาคารกสิกรไทย',
-    'ธนาคารไทยพาณิชย์',
-    'ธนาคารกรุงเทพ',
-    'ธนาคารกรุงไทย',
+  int? _phoneVisibility;
+  int? _facebookVisibility;
+  int? _lineVisibility;
+  final List<dynamic> _banks = [
+    {"code": "1", "value": 'ธนาคารกสิกรไทย'},
+    {"code": "2", "value": 'ธนาคารไทยพาณิชย์'},
+    {"code": "3", "value": 'ธนาคารกรุงเทพ'},
+    {"code": "4", "value": 'ธนาคารกรุงไทย'},
   ];
 
   // ---- Edit SkillLevel
-  String _numberOfLevels = '6';
+  String _numberOfLevels = '4';
   List<SkillLevel> _skillLevels = [];
 
   // ----- Change Password
   late TextEditingController _oldPasswordController;
   late TextEditingController _newPasswordController;
   late TextEditingController _confirmPasswordController;
+  bool _isPasswordVisible = false;
+  bool _isNewPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
 
   // ----- Finance
   static const Color playersColor = Colors.blue;
@@ -102,6 +114,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     _confirmPasswordController = TextEditingController();
 
     _generateSkillLevels(int.parse(_numberOfLevels));
+    _fetchData();
     super.initState();
     _topMenuItems = [
       ProfileMenuItem(
@@ -188,27 +201,270 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
       btnLeftBackColor: Colors.black,
       onConfirm: () {
         // Pop the confirmation dialog
-        Navigator.of(context).pop();
-
-        // Show success dialog
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
         showDialogMsg(
           context,
           title: 'ออกจากระบบเรียบร้อย',
           subtitle: '',
           btnLeft: 'ไปหน้า Log In',
           onConfirm: () {
-            // TODO: Navigate to Login Page
-            Navigator.of(context).pop();
+            context.read<UserRoleProvider>().setRole(Role.player);
+            authProvider.logout();
           },
         );
       },
     );
   }
 
+  Future<void> _fetchData() async {
+    try {
+      // 1. เรียก API เพื่อดึงข้อมูลโปรไฟล์ของผู้จัด
+      // final response = await ApiProvider().get('/Organizer/profile');
+      // final userData = response['data']; // สมมติว่าข้อมูลจริงอยู่ใน key 'data'
+      final responses = await Future.wait([
+        ApiProvider().get('/Organizer/profile'),
+        ApiProvider().get('/organizer/skill-levels'),
+      ]);
+      final userData = responses[0]['data'];
+      final skillLevelsData = responses[1]['data'];
+
+      // 2. ใช้ setState เพื่อนำข้อมูลไปใส่ใน Controllers และ State ต่างๆ
+      setState(() {
+        // --- ส่วน Profile หลัก ---
+        profileImageUrl = userData['profilePhotoUrl'] ?? '';
+
+        // --- ส่วนแก้ไขข้อมูลติดต่อ (Tap 1) ---
+        _firstNameController.text = userData['firstName'] ?? '';
+        _lastNameController.text = userData['lastName'] ?? '';
+        _emailController.text = userData['email'] ?? '';
+        _phoneController.text = userData['phoneNumber'] ?? '';
+        _publicPhoneController.text = userData['publicPhoneNumber'] ?? '';
+        _lineIdController.text = userData['lineId'] ?? '';
+        _facebookController.text = userData['facebookLink'] ?? '';
+        _selectedGender = (userData['gender'] ?? "1").toString();
+        emergencyNameController.text = userData['emergencyContactName'] ?? '';
+        emergencyPhoneController.text = userData['emergencyContactPhone'] ?? '';
+
+        // --- ส่วนแก้ไขข้อมูลโอนเงิน (Tap 2) ---
+        idcardController.text = userData['nationalId'] ?? '';
+        bookBankNoController.text = userData['bankAccountNumber'] ?? '';
+        bookbankUrl = userData['bankAccountPhotoUrl'] ?? '';
+        _selectedBank = userData['bankId']?.toString();
+
+        _phoneVisibility = userData['phoneVisibility'];
+        _facebookVisibility = userData['facebookVisibility'];
+        _lineVisibility = userData['lineVisibility'];
+
+        // --- ส่วนแก้ไขระดับมือ (Tap 3) ---
+        // สมมติว่า API คืนค่า skillLevels มาเป็น List of maps
+        if (skillLevelsData is List && skillLevelsData.isNotEmpty) {
+          final List<SkillLevel> levelsFromApi = skillLevelsData.map((
+            levelData,
+          ) {
+            return SkillLevel(
+              skillLevelId: levelData['skillLevelId'],
+              levelRank: levelData['levelRank'],
+              name: levelData['levelName'],
+              // (Optional) แปลง Hex color string เป็น Color object
+              selectedColor: Color(
+                int.parse(
+                      levelData['colorHexCode'].substring(1, 7),
+                      radix: 16,
+                    ) +
+                    0xFF000000,
+              ),
+            );
+          }).toList();
+
+          setState(() {
+            // Dispose controllers เก่าก่อน
+            for (var level in _skillLevels) {
+              level.dispose();
+            }
+            // อัปเดต List ด้วยข้อมูลจาก API
+            _skillLevels = levelsFromApi;
+            _numberOfLevels = _skillLevels.length.toString();
+            _isLoading = false;
+          });
+        }
+      });
+    } catch (e) {
+      // จัดการ Error หากดึงข้อมูลไม่ได้
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('ไม่สามารถดึงข้อมูลได้: $e'),
+          ),
+        );
+      }
+    } finally {
+      // 3. เมื่อทุกอย่างเสร็จสิ้น ให้ซ่อน Loading และแสดงฟอร์ม
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  _uploadImage(List<File> file,String type) async {
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: file,
+        folderName: type,
+      );
+
+      if (response.length > 0) {
+        if (mounted) {
+          setState(() {
+            switch (type) {
+              case 'ProfileOrganizer':
+                profileImageUrl = response[0]['imageUrl'];
+                break;
+              case 'Bookbank':
+                bookbankUrl = response[0]['imageUrl'];
+                break;
+              default:
+            }
+          });
+        }
+      } else {
+        if (mounted) {
+          final errorMessage =
+              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange,
+              content: Text(errorMessage),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveData() async {
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      switch (_selectedIndex) {
+        case 0: // แก้ไขข้อมูลติดต่อ
+          await _saveContactInfo();
+          break;
+        case 1: // แก้ไขข้อมูลโอนเงิน
+          await _saveTransferInfo();
+          break;
+        case 2: // แก้ไขเกณฑ์ระดับมือ
+          await _saveSkillLevels();
+          break;
+        case 3: // แก้ไขรหัสผ่าน
+          await _saveNewPassword();
+          break;
+      }
+      // ถ้าสำเร็จ แสดง SnackBar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.green,
+            content: Text('บันทึกข้อมูลสำเร็จ'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('บันทึกข้อมูลล้มเหลว: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _saveContactInfo() async {
+    final Map<String, dynamic> data = {
+      'firstName': _firstNameController.text,
+      'lastName': _lastNameController.text,
+      'email': _emailController.text,
+      "gender": _selectedGender,
+      "profilePhotoUrl": profileImageUrl,
+      'emergencyContactName': emergencyNameController.text,
+      'emergencyContactPhone': emergencyPhoneController.text,
+      'publicPhoneNumber': _publicPhoneController.text,
+      'facebookLink': _facebookController.text,
+      'lineId': _lineIdController.text,
+      "phoneVisibility": _phoneVisibility,
+      "facebookVisibility": _facebookVisibility,
+      "lineVisibility": _lineVisibility,
+    };
+    await ApiProvider().put('/Organizer/profileUserAndOrganizer', data: data);
+  }
+
+  Future<void> _saveTransferInfo() async {
+    final Map<String, dynamic> data = {
+      'nationalId': idcardController.text,
+      'bankId': int.tryParse(_selectedBank ?? '0'),
+      'bankAccountNumber': bookBankNoController.text,
+      'bankAccountPhotoUrl': bookbankUrl,
+    };
+    await ApiProvider().put('/Organizer/updateTransferBooking', data: data);
+  }
+
+  Future<void> _saveSkillLevels() async {
+    final List<Map<String, dynamic>> levelsData = _skillLevels.map((level) {
+      return {
+        'skillLevelId': level.skillLevelId,
+        'levelRank': level.levelRank,
+        'levelName': level.nameController.text,
+        'colorHexCode':
+            '#${level.selectedColor.value.toRadixString(16).substring(2)}',
+      };
+    }).toList();
+
+    await ApiProvider().post('/organizer/skill-levels', data: levelsData);
+  }
+
+  Future<void> _saveNewPassword() async {
+    if (_newPasswordController.text != _confirmPasswordController.text) {
+      throw Exception('รหัสผ่านใหม่ไม่ตรงกัน');
+    }
+    final Map<String, dynamic> data = {
+      'oldPassword': _oldPasswordController.text,
+      'newPassword': _newPasswordController.text,
+    };
+    await ApiProvider().post('/Auth/change-password', data: data);
+  }
+
   @override
   Widget build(BuildContext context) {
     const double tabletBreakpoint = 768;
     final bool isTablet = MediaQuery.of(context).size.width >= tabletBreakpoint;
+
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBarSubMain(title: 'Profile', isBack: false),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     if (isTablet) {
       // --- 🖥️ Layout สำหรับ Tablet ---
@@ -248,22 +504,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                           padding: const EdgeInsets.all(16.0),
                           child: SizedBox(
                             width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                // TODO: Add save logic here
-                                print('บันทึกข้อมูล');
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue.shade900,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text('บันทึกข้อมูล'),
+                            child: CustomElevatedButton(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: Colors.blue.shade900,
+                              onPressed: _isSaving ? () {} : _saveData,
+                              text: 'บันทึกการแก้ไข',
                             ),
                           ),
                         ),
@@ -296,9 +541,9 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               onTap: () {},
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(100),
-                child: (profileImageUrl != '')
+                child: (profileImageUrl.isNotEmpty)
                     ? LoadingImageNetwork(
-                        "",
+                        profileImageUrl,
                         fit: BoxFit.cover,
                         isProfile: true,
                       )
@@ -319,7 +564,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                "Somsuay Meesook",
+                "${_firstNameController.text} ${_lastNameController.text}",
                 style: TextStyle(
                   fontFamily: 'Kanit',
                   fontSize: getResponsiveFontSize(context, fontSize: 20),
@@ -374,7 +619,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                   color: title == 'Log out'
                       ? Color(0XFFDB2C2C)
                       : Color(0xFF000000),
-                  fontSize: getResponsiveFontSize(context, fontSize: 16),
+                  fontSize: getResponsiveFontSize(context, fontSize: 20),
                   fontWeight: FontWeight.w400,
                 ),
               ),
@@ -382,7 +627,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                   ? Icon(
                       Icons.arrow_forward,
                       color: Color(0xFF000000),
-                      size: 16,
+                      size: 20,
                       fontWeight: FontWeight.w400,
                     )
                   : Image.asset(
@@ -517,12 +762,36 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
             const SizedBox(height: 16),
             Center(
               child: Stack(
-                children: const [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundImage: NetworkImage(
-                      'https://i.pravatar.cc/150?img=26',
-                    ),
+                children: [
+                  // CircleAvatar(
+                  //   radius: 50,
+                  //   backgroundImage: NetworkImage(profileImageUrl),
+                  // ),
+                  ImageUploadPicker(
+                    callback: (file) => {
+                      setState(() {
+                        _uploadImage(file, 'ProfileOrganizer');
+                      }),
+                    },
+                    child: profileImageUrl != ''
+                        ? Container(
+                            height: 120,
+                            width: 120,
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: NetworkImage(profileImageUrl),
+                                fit: BoxFit.cover,
+                              ),
+                              borderRadius: BorderRadius.circular(100.0),
+                            ),
+                          )
+                        : Image.asset(
+                            'assets/icon/profile.png',
+                            fit: BoxFit.cover,
+                            height: 120,
+                            width: 120,
+                            color: Colors.black,
+                          ),
                   ),
                   Positioned(
                     bottom: 0,
@@ -559,12 +828,19 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               controller: _phoneController,
               labelText: 'เบอร์โทรศัพท์',
               isRequired: true,
+              enabled: false,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             const SizedBox(height: 16),
             CustomDropdown(
               labelText: 'เพศ',
               initialValue: _selectedGender,
-              items: ['ชาย', 'หญิง', 'อื่นๆ'],
+              items: [
+                {"code": "1", "value": 'ชาย'},
+                {"code": "2", "value": 'หญิง'},
+                {"code": "3", "value": 'อื่นๆ'},
+              ],
               isRequired: true,
               onChanged: (value) {
                 setState(() {
@@ -594,6 +870,8 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                     labelText: 'เบอร์ผู้ติดต่อฉุกเฉิน',
                     hintText: 'กรอกเบอร์ผฉุกเฉิน',
                     controller: emergencyPhoneController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
                 ),
               ],
@@ -624,49 +902,52 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               ),
             ),
             const SizedBox(height: 16),
+            // CustomTextFormField(
+            //   controller: _phoneController,
+            //   labelText: 'เบอร์โทรลงทะเบียน',
+            //   enabled: false,
+            // ),
+            // Row(
+            //   children: [
+            //     Expanded(
+            //       child: CheckboxListTile(
+            //         title: Text(
+            //           'แสดงข้อมูลก่อนจอง',
+            //           style: TextStyle(
+            //             fontWeight: FontWeight.w400,
+            //             fontSize: getResponsiveFontSize(context, fontSize: 12),
+            //           ),
+            //         ),
+            //         value: false,
+            //         onChanged: (bool? value) => {},
+            //         controlAffinity: ListTileControlAffinity.leading,
+            //         contentPadding: EdgeInsets.zero,
+            //       ),
+            //     ),
+            //     Expanded(
+            //       child: CheckboxListTile(
+            //         title: Text(
+            //           'แสดงข้อมูลหลังจอง',
+            //           style: TextStyle(
+            //             fontWeight: FontWeight.w400,
+            //             fontSize: getResponsiveFontSize(context, fontSize: 12),
+            //           ),
+            //         ),
+            //         value: false,
+            //         onChanged: (bool? value) => {},
+            //         controlAffinity: ListTileControlAffinity.leading,
+            //         contentPadding: EdgeInsets.zero,
+            //       ),
+            //     ),
+            //   ],
+            // ),
+            // const SizedBox(height: 16),
             CustomTextFormField(
               controller: _publicPhoneController,
-              labelText: 'เบอร์โทรศัพท์ติดต่อ',
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
-                      ),
-                    ),
-                    value: false,
-                    onChanged: (bool? value) => {},
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลหลังจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
-                      ),
-                    ),
-                    value: false,
-                    onChanged: (bool? value) => {},
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            CustomTextFormField(
-              controller: _publicPhoneController,
-              labelText: 'เบอร์โทรศัพท์สำรอง',
+              labelText: 'เบอร์โทรสาธารณะ',
               isRequired: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             Row(
               children: [
@@ -676,11 +957,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _phoneVisibility == 3 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _phoneVisibility = 3;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -691,11 +977,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _phoneVisibility == 2 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _phoneVisibility = 2;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -715,11 +1006,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _facebookVisibility == 3 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _facebookVisibility = 3;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -730,11 +1026,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _facebookVisibility == 2 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _facebookVisibility = 2;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -754,11 +1055,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _lineVisibility == 3 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _lineVisibility = 3;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -769,11 +1075,16 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       'แสดงข้อมูลก่อนจอง',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
                       ),
                     ),
-                    value: false,
-                    onChanged: (bool? value) => {},
+                    value: _lineVisibility == 2 ? true : false,
+                    onChanged: (bool? value) => {
+                      if (value == true)
+                        setState(() {
+                          _lineVisibility = 2;
+                        }),
+                    },
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -814,6 +1125,15 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               isRequired: true,
               controller: idcardController,
               keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(13),
+              ],
+              validator: (value) {
+                if (value == null || value.isEmpty) return 'กรุณากรอกข้อมูล';
+                if (value.length != 13) return 'เลขบัตรต้องมี 13 หลัก';
+                return null;
+              },
             ),
             SizedBox(height: 16),
             CustomDropdown(
@@ -840,17 +1160,15 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               isRequired: true,
               controller: bookBankNoController,
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             SizedBox(height: 16),
             ImagePickerFormField(
               labelText: 'รูป Bookbank',
               isRequired: true,
-              onImageSelected: (XFile? image) {
-                // รับไฟล์ที่เลือกกลับมาเก็บใน State ของหน้านี้
-                setState(() {
-                  _bookbankImage = image;
-                });
-                print('Image selected: ${_bookbankImage?.path}');
+              initialImageUrl: bookbankUrl,
+              onImageSelected: (File image) {
+                _uploadImage([image], 'Bookbank');
               },
             ),
           ],
@@ -861,24 +1179,39 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
   // ------- Tap 3 -------
   void _generateSkillLevels(int count) {
-    if (_skillLevels.isNotEmpty) {
-      for (var level in _skillLevels) {
-        level.dispose();
+    final currentCount = _skillLevels.length;
+
+    // ถ้าจำนวนไม่เปลี่ยนแปลง ก็ไม่ต้องทำอะไร
+    if (count == currentCount) return;
+
+    setState(() {
+      if (count > currentCount) {
+        // --- กรณีเพิ่มจำนวน ---
+        // เพิ่มเฉพาะส่วนที่ขาดหายไป
+        for (int i = currentCount; i < count; i++) {
+          _skillLevels.add(
+            SkillLevel(
+              levelRank: i + 1,
+              name: 'ระดับ ${i + 1}', // ชื่อเริ่มต้นสำหรับรายการใหม่
+              selectedColor: HSLColor.fromAHSL(
+                1.0,
+                (360 / 10) * i,
+                0.8,
+                0.6,
+              ).toColor(),
+            ),
+          );
+        }
+      } else {
+        // --- กรณีลดจำนวน ---
+        // 1. Dispose controllers ของรายการที่จะถูกลบก่อน
+        for (int i = count; i < currentCount; i++) {
+          _skillLevels[i].dispose();
+        }
+        // 2. ลบรายการส่วนเกินออกจาก List
+        _skillLevels.removeRange(count, currentCount);
       }
-    }
-    _skillLevels = List.generate(
-      count,
-      (index) => SkillLevel(
-        name: index == 0 ? 'มือใหม่' : 'ระดับ ${index + 1}',
-        // กำหนดสีเริ่มต้นแบบสุ่มหรือแบบไล่สีก็ได้
-        selectedColor: HSLColor.fromAHSL(
-          1.0,
-          (360 / 10) * index,
-          0.8,
-          0.6,
-        ).toColor(),
-      ),
-    );
+    });
   }
 
   void _showColorPickerDialog(SkillLevel level) {
@@ -950,7 +1283,18 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
             CustomDropdown(
               labelText: '',
               initialValue: _numberOfLevels,
-              items: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+              items: [
+                {"code": "1", "value": '1'},
+                {"code": "2", "value": '2'},
+                {"code": "3", "value": '3'},
+                {"code": "4", "value": '4'},
+                {"code": "5", "value": '5'},
+                {"code": "6", "value": '6'},
+                {"code": "7", "value": '7'},
+                {"code": "8", "value": '8'},
+                {"code": "9", "value": '9'},
+                {"code": "10", "value": '10'},
+              ],
               onChanged: (value) {
                 setState(() {
                   _numberOfLevels = value ?? '0';
@@ -965,7 +1309,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                 Expanded(
                   flex: 2,
                   child: Text(
-                    'ความเก่ง',
+                    'ฝีมือ',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: getResponsiveFontSize(context, fontSize: 16),
@@ -1099,6 +1443,13 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               hintText: 'กรุณากรอกรหัสผ่านเดิม',
               isRequired: true,
               controller: _oldPasswordController,
+              obscureText: !_isPasswordVisible,
+              prefixIconData: Icons.lock_outline,
+              suffixIconData: _isPasswordVisible
+                  ? Icons.visibility_off
+                  : Icons.visibility,
+              onSuffixIconPressed: () =>
+                  setState(() => _isPasswordVisible = !_isPasswordVisible),
             ),
             SizedBox(height: 16),
             CustomTextFormField(
@@ -1106,6 +1457,14 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               hintText: 'กรุณากรอกรหัสผ่านใหม่',
               isRequired: true,
               controller: _newPasswordController,
+              obscureText: !_isNewPasswordVisible,
+              prefixIconData: Icons.lock_outline,
+              suffixIconData: _isNewPasswordVisible
+                  ? Icons.visibility_off
+                  : Icons.visibility,
+              onSuffixIconPressed: () => setState(
+                () => _isNewPasswordVisible = !_isNewPasswordVisible,
+              ),
             ),
             SizedBox(height: 16),
             CustomTextFormField(
@@ -1113,13 +1472,23 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               hintText: 'กรุณากรอกยืนยันรหัสผ่านใหม่',
               isRequired: true,
               controller: _confirmPasswordController,
+              obscureText: !_isConfirmPasswordVisible,
+              prefixIconData: Icons.lock_outline,
+              suffixIconData: _isConfirmPasswordVisible
+                  ? Icons.visibility_off
+                  : Icons.visibility,
+              onSuffixIconPressed: () => setState(
+                () => _isConfirmPasswordVisible = !_isConfirmPasswordVisible,
+              ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
-                  return 'กรุณากรอกข้อมูลช่องนี้';
+                  return 'กรุณายืนยันรหัสผ่าน';
                 }
+                // เปรียบเทียบค่ากับ password controller ตัวแรก
                 if (value != _newPasswordController.text) {
-                  return 'รหัสผ่านใหม่ไม่ตรงกัน';
+                  return 'รหัสผ่านไม่ตรงกัน';
                 }
+                // ถ้าทุกอย่างถูกต้อง ให้ return null
                 return null;
               },
             ),
@@ -1244,11 +1613,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                   onPressed: () {
                     Navigator.pop(ctx);
                   },
-                  child: const Text('ยืนยันการถอนเงิน'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.black,
                     foregroundColor: Colors.white,
                   ),
+                  child: const Text('ยืนยันการถอนเงิน'),
                 ),
               ),
             ],
@@ -1356,10 +1725,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                         child: HistoryCardFinance(
                           initialTimeRange: 'วันนี้',
                           timeRangeItems: [
-                            'วันนี้',
-                            'สัปดาห์นี้',
-                            'เดือนนี้',
-                            'ทั้งหมด',
+                            {"1": 'วันนี้'},
+                            {"2": 'สัปดาห์นี้'},
+                            {"3": 'เดือนนี้'},
+                            {"4": 'ทั้งหมด'},
                           ],
                           incomeHistory: [
                             HistoryItem(
@@ -1491,10 +1860,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       HistoryCardFinance(
                         initialTimeRange: 'วันนี้',
                         timeRangeItems: [
-                          'วันนี้',
-                          'สัปดาห์นี้',
-                          'เดือนนี้',
-                          'ทั้งหมด',
+                          {"1": 'วันนี้'},
+                          {"2": 'สัปดาห์นี้'},
+                          {"3": 'เดือนนี้'},
+                          {"4": 'ทั้งหมด'},
                         ],
                         incomeHistory: [
                           HistoryItem(

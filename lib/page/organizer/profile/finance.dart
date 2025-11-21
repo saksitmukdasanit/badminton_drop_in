@@ -98,10 +98,10 @@ class _FinancePageState extends State<FinancePage> {
                     HistoryCardFinance(
                       initialTimeRange: 'วันนี้',
                       timeRangeItems: [
-                        'วันนี้',
-                        'สัปดาห์นี้',
-                        'เดือนนี้',
-                        'ทั้งหมด',
+                        {"code": 1, "value": 'วันนี้'},
+                        {"code": 2, "value": 'สัปดาห์นี้'},
+                        {"code": 3, "value": 'เดือนนี้'},
+                        {"code": 4, "value": 'ทั้งหมด'},
                       ],
                       incomeHistory: [
                         HistoryItem(
@@ -541,7 +541,7 @@ class HistoryItem {
 class HistoryCardFinance extends StatefulWidget {
   // --- Parameters for data and configuration ---
   final String initialTimeRange;
-  final List<String> timeRangeItems;
+  final List<dynamic> timeRangeItems;
   final List<HistoryItem> incomeHistory;
   final Widget withdrawalHistoryView; // รับเป็น Widget มาเลยเพื่อความยืดหยุ่น
 

@@ -12,6 +12,7 @@ class GameCard2 extends StatefulWidget {
   final String location;
   final String price;
   final String shuttlecockInfo;
+  final String shuttlecockBrand;
   final String gameInfo;
   final int currentPlayers;
   final int maxPlayers;
@@ -33,6 +34,7 @@ class GameCard2 extends StatefulWidget {
     required this.location,
     required this.price,
     required this.shuttlecockInfo,
+    required this.shuttlecockBrand,
     required this.gameInfo,
     required this.currentPlayers,
     required this.maxPlayers,
@@ -169,7 +171,7 @@ class _GameCard2State extends State<GameCard2> {
             _buildInfoColumn('เล่น 21 แต้ม', widget.gameInfo),
           ],
         ),
-        _buildInfoColumn('Yonex (model)', widget.shuttlecockInfo),
+        _buildInfoColumn(widget.shuttlecockBrand,widget.shuttlecockInfo),
         Row(
           children: [
             const Text('ผู้เล่น '),

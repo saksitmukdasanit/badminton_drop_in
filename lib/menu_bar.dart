@@ -78,6 +78,7 @@ class MenuBarPage extends StatelessWidget {
         '/saved-payment',
         '/favourite',
         '/apply-organizer',
+        '/login',
       ],
     ),
   ];

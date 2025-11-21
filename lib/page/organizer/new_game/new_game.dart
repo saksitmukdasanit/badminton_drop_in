@@ -113,7 +113,7 @@ class _MainContent extends StatelessWidget {
           title: 'All New',
           subtitle: 'สร้างใหม่ทั้งหมด',
           onTap: () {
-            context.push('/add-game/1');
+            context.push('/add-game/new');
           },
         ),
         _MainActionButton(

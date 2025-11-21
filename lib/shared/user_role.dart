@@ -113,3 +113,46 @@ final ThemeData organizerTheme = ThemeData(
   ),
   fontFamily: 'Poppins',
 );
+
+class AuthProvider extends ChangeNotifier {
+  String? _accessToken;
+  String? _redirectAfterLogin;
+
+  bool get isLoggedIn => _accessToken != null;
+  String? get accessToken => _accessToken;
+  String? get redirectAfterLogin => _redirectAfterLogin;
+
+  set redirectAfterLogin(String? value) {
+    _redirectAfterLogin = value;
+    // notifyListeners();
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับเช็ค Login อัตโนมัติ ---
+  Future<void> tryAutoLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!prefs.containsKey('accessToken')) {
+      return;
+    }
+    _accessToken = prefs.getString('accessToken');
+    notifyListeners();
+  }
+
+  Future<void> login(dynamic token) async {
+    _accessToken = token['accessToken'];
+    notifyListeners();
+    // --- NEW: บันทึก token ลงเครื่อง ---
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('accessToken', token['accessToken']);
+    await prefs.setString('refreshToken', token['refreshToken']);
+  }
+
+  Future<void> logout() async {
+    _accessToken = null;
+    _redirectAfterLogin = null;
+    notifyListeners();
+    // --- NEW: ลบ token ออกจากเครื่อง ---
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('accessToken');
+    await prefs.remove('refreshToken');
+  }
+}

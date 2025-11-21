@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 class CustomDropdown extends StatelessWidget {
   final String labelText;
   final String? initialValue;
-  final List<String> items;
-  final Function(String?) onChanged;
-  final String? Function(String?)? validator;
+  final List<dynamic> items;
+  final Function(dynamic) onChanged;
+  final String? Function(dynamic)? validator;
   final bool isRequired;
 
   const CustomDropdown({
@@ -20,7 +20,7 @@ class CustomDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
+    return DropdownButtonFormField<dynamic>(
       decoration: InputDecoration(
         label: labelText == ''
             ? null
@@ -49,8 +49,8 @@ class CustomDropdown extends StatelessWidget {
       ),
       hint: const Text('กรุณาเลือก'),
       initialValue: initialValue, // แก้ไขจาก initialValue เป็น value
-      items: items.map((String item) {
-        return DropdownMenuItem<String>(value: item, child: Text(item));
+      items: items.map((dynamic item) {
+        return DropdownMenuItem<dynamic>(value: item['code'].toString(), child: Text(item['value'] ?? ''));
       }).toList(),
       onChanged: onChanged,
       validator: validator,

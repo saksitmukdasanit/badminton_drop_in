@@ -1,11 +1,10 @@
-import 'dart:math';
-
 import 'package:badminton/component/Button.dart';
+import 'package:badminton/component/add_guest_dialog.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
-import 'package:badminton/page/user/player_list.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_sticky_header/flutter_sticky_header.dart';
@@ -21,10 +20,15 @@ class ManagePage extends StatefulWidget {
 }
 
 class ManagePageState extends State<ManagePage> {
-  late List<Player> players;
   bool isUse = true;
   int indexData = 0;
   bool _showDetailsOnMobile = false;
+
+  late Future<List<dynamic>> _futureMyGames;
+  List<dynamic> _myGamesData = [];
+  List<dynamic> _skillLevels = [];
+  final Map<int, bool> _updatingSkill =
+      {}; // Map to track loading state for each player
 
   void _backToListOnMobile() {
     setState(() {
@@ -34,7 +38,8 @@ class ManagePageState extends State<ManagePage> {
 
   @override
   void initState() {
-    players = _generateMockPlayers(56);
+    _futureMyGames = _fetchMyUpcomingGames();
+    _fetchSkillLevels();
     super.initState();
   }
 
@@ -43,19 +48,183 @@ class ManagePageState extends State<ManagePage> {
     super.dispose();
   }
 
-  List<Player> _generateMockPlayers(int count) {
-    return List.generate(count, (i) {
-      return Player(
-        id: i + 1,
-        nickname: 'แก้ว',
-        gender: 'หญิง',
-        skillLevel: skillLevels.keys.elementAt(
-          Random().nextInt(skillLevels.length),
-        ),
-        imageUrl:
-            'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=687&q=80',
-      );
+  Future<List<dynamic>> _fetchMyUpcomingGames() async {
+    try {
+      final response = await ApiProvider().get('/GameSessions/my-upcoming');
+      if (response != null && response['data'] is List) {
+        return response['data']; // คืนค่า List ของข้อมูลก๊วน
+      } else {
+        throw Exception('Invalid API response format');
+      }
+    } catch (e) {
+      // โยน Error ออกไปเพื่อให้ FutureBuilder จัดการ
+      rethrow;
+    }
+  }
+
+  Future<void> _fetchSkillLevels() async {
+    try {
+      final response = await ApiProvider().get('/organizer/skill-levels');
+      if (mounted && response['data'] is List) {
+        setState(() {
+          _skillLevels = (response['data'] as List).map((level) {
+            return {
+              "code": level['skillLevelId'].toString(),
+              "value": level['levelName'],
+            };
+          }).toList();
+        });
+      }
+    } catch (e) {
+      // Handle error silently or show a snackbar
+    }
+  }
+
+  Future<void> _cancelGameSession(int sessionId, String groupName) async {
+    try {
+      // เรียก API เพื่อยกเลิกก๊วน
+      await ApiProvider().post('/GameSessions/$sessionId/cancel-by-organizer');
+
+      // หากสำเร็จ แสดง Dialog แจ้งเตือนและอัปเดตข้อมูล
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'ยกเลิกก๊วนสำเร็จ',
+          subtitle: 'คุณได้ยกเลิก $groupName เรียบร้อยแล้ว',
+          btnLeft: 'ตกลง',
+          onConfirm: () {
+            context.pop(); // ปิด Dialog
+            // โหลดข้อมูลก๊วนใหม่
+            setState(() {
+              _futureMyGames = _fetchMyUpcomingGames();
+            });
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการยกเลิกก๊วน: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _updateSkillLevel(
+    int sessionId,
+    String participantType,
+    int participantId,
+    String newSkillLevelId,
+  ) async {
+    setState(() {
+      _updatingSkill[participantId] = true;
     });
+    try {
+      await ApiProvider().put(
+        // --- UPDATED: เปลี่ยน Endpoint ตามที่ร้องขอ ---
+        '/GameSessions/$sessionId/participants/$participantType/$participantId/skill-level',
+        data: {'skillLevelId': int.parse(newSkillLevelId)},
+      );
+
+      // --- CHANGED: อัปเดตข้อมูลใน State โดยตรง แทนการโหลดใหม่ทั้งหมด ---
+      if (mounted) {
+        setState(() {
+          // 1. ค้นหาเกมที่กำลังดูอยู่
+          final gameIndex = _myGamesData.indexWhere(
+            (g) => g['sessionId'] == sessionId,
+          );
+          if (gameIndex != -1) {
+            // 2. ค้นหาผู้เล่นในเกมนั้น
+            final participants =
+                _myGamesData[gameIndex]['participants'] as List;
+            final playerIndex = participants.indexWhere(
+              (p) => p['participantId'] == participantId,
+            );
+
+            if (playerIndex != -1) {
+              // 3. อัปเดตข้อมูลของผู้เล่นคนนั้น
+              final newSkill = _skillLevels.firstWhere(
+                (s) => s['code'] == newSkillLevelId,
+              );
+              _myGamesData[gameIndex]['participants'][playerIndex]['skillLevelId'] =
+                  int.parse(newSkillLevelId);
+              _myGamesData[gameIndex]['participants'][playerIndex]['skillLevelName'] =
+                  newSkill['value'];
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('อัปเดตระดับมือล้มเหลว: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updatingSkill.remove(participantId));
+      }
+    }
+  }
+
+  Future<void> _startGameSession(int sessionId) async {
+    try {
+      // เรียก API เพื่อเริ่มก๊วน
+      await ApiProvider().post('/GameSessions/$sessionId/start');
+
+      // หากสำเร็จ วิ่งไปหน้าจัดการก๊วน
+      if (mounted) {
+        context.push('/manage-game/$sessionId').then((_) {
+          // เมื่อกลับมาจากหน้า manage-game ให้ทำการรีเฟรชข้อมูลใหม่
+          setState(() {
+            _futureMyGames = _fetchMyUpcomingGames();
+          });
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการเปิดก๊วน: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAddGuestDialog(Map<String, dynamic> game) async {
+    final int sessionId = game['sessionId'];
+
+    // --- FIX: ป้องกันข้อผิดพลาด type 'String' is not a subtype of type 'num?' ---
+    double _parseFee(dynamic value) {
+      if (value is String) {
+        return double.tryParse(value) ?? 0.0;
+      } else if (value is num) {
+        return value.toDouble();
+      }
+      return 0.0;
+    }
+
+    final double courtFee = _parseFee(game['courtFeePerPerson']);
+    final double shuttleFee = _parseFee(game['shuttlecockFeePerPerson']);
+
+    final result = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AddGuestDialog(
+          sessionId: sessionId,
+          courtFee: courtFee,
+          shuttleFee: shuttleFee,
+        );
+      },
+    );
+
+    if (result == true) {
+      setState(() {
+        _futureMyGames = _fetchMyUpcomingGames();
+      });
+    }
   }
 
   @override
@@ -65,37 +234,79 @@ class ManagePageState extends State<ManagePage> {
       backgroundColor: Colors.transparent,
       appBar: AppBarSubMain(title: 'Manage', isBack: false),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [Color(0xFFFFFFFF), Color(0xFFD5DCF4)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth > 820) {
-              return _buildTabletLayout();
-            } else if (constraints.maxWidth > 600) {
-              return _buildTabletVerticalLayout();
-            } else {
-              return _buildMobileLayout();
+        // --- CHANGED: ครอบ LayoutBuilder ด้วย FutureBuilder ---
+        child: FutureBuilder<List<dynamic>>(
+          future: _futureMyGames,
+          builder: (context, snapshot) {
+            // --- 1. กรณี: กำลังโหลดข้อมูล ---
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
             }
+
+            // --- 2. กรณี: เกิด Error ---
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('เกิดข้อผิดพลาดในการดึงข้อมูล: ${snapshot.error}'),
+              );
+            }
+
+            // --- 3. กรณี: ไม่มีข้อมูล ---
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const Center(child: Text('ไม่พบก๊วนที่คุณกำลังจะไป'));
+            }
+
+            // --- 4. กรณี: มีข้อมูล ---
+            // นำข้อมูลที่ได้มาเก็บไว้ใน State
+            _myGamesData = snapshot.data!;
+
+            // สร้าง Layout เดิมโดยใช้ข้อมูลที่ดึงมาได้
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth > 820) {
+                  return _buildTabletLayout();
+                } else if (constraints.maxWidth > 600) {
+                  return _buildTabletVerticalLayout();
+                } else {
+                  return _buildMobileLayout();
+                }
+              },
+            );
           },
         ),
       ),
     );
   }
 
-  Widget _buildbottomBar(String status) {
+  Widget _buildbottomBar(Map<String, dynamic> game) {
+    final int status = game['status'] ?? 0; // FIX: ป้องกันกรณี status เป็น null
+
     switch (status) {
-      case 'S':
+      case 1:
+        // ถ้า status เป็น 1, ตรวจสอบเวลาที่เหลือ
+        final String sessionStartString = game['sessionStart'];
+        final DateTime startTime = DateTime.parse(sessionStartString);
+        final Duration timeUntilStart = startTime.difference(DateTime.now());
+
+        if (timeUntilStart.inHours > 3) {
+          // มากกว่า 3 ชั่วโมง, แสดงปุ่มยกเลิก/แก้ไข
+          return _buildBottomBar();
+        } else {
+          // 3 ชั่วโมงหรือน้อยกว่า, แสดงปุ่มเปิดก๊วน
+          return _buildBottomBarW();
+        }
+      case 2:
+        // ถ้า status เป็น 2, แสดงปุ่มจัดการก๊วน
         return _buildBottomBarS();
-      case 'W':
-        return _buildBottomBarW();
-      case 'WR' || 'C':
+      case 3:
         return _buildBottomBar();
-      case 'O':
+      case 4:
         return _buildBottomBar();
       default:
         return _buildBottomBar();
@@ -110,24 +321,22 @@ class ManagePageState extends State<ManagePage> {
           Expanded(
             child: CustomElevatedButton(
               text: 'ยกเลิกก๊วน',
-              backgroundColor: Color(0xFFFFFFFF),
-              foregroundColor: Color(0xFF0E9D7A),
+              backgroundColor: Color(0xFF0E9D7A),
+              foregroundColor: Color(0xFFFFFFFF),
               fontSize: 11,
               onPressed: () {
+                final game = _myGamesData[indexData];
+                final sessionId = game['sessionId'];
+                final groupName = game['groupName'];
+
                 showDialogMsg(
                   context,
                   title: 'ยืนยันการยกเลิกก๊วน',
-                  subtitle: 'คุณต้องการยกเลิก ก๊วนแมวเหมียว',
+                  subtitle: 'คุณต้องการยกเลิก $groupName',
                   isWarning: true,
                   isSlideAction: true,
                   onConfirm: () {
-                    showDialogMsg(
-                      context,
-                      title: 'ยืนยันการยกเลิก',
-                      subtitle: 'คุณได้ยกเลิก ก๊วนแมวเหมียว',
-                      btnLeft: 'ไปหน้าข้อมูลก๊วน',
-                      onConfirm: () {},
-                    );
+                    _cancelGameSession(sessionId, groupName);
                   },
                 );
               },
@@ -137,11 +346,21 @@ class ManagePageState extends State<ManagePage> {
           Expanded(
             child: CustomElevatedButton(
               text: 'แก้ไขข้อมูลก๊วน',
-              backgroundColor: Color(0xFF0E9D7A),
-              foregroundColor: Color(0xFFFFFFFF),
+              backgroundColor: Color(0xFFFFFFFF),
+              foregroundColor: Color(0xFF0E9D7A),
+
               fontSize: 11,
               onPressed: () {
-                context.push('/add-game/1');
+                context
+                    .push('/add-game/${_myGamesData[indexData]['sessionId']}')
+                    .then((result) {
+                      if (result == true) {
+                        // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
+                        setState(
+                          () => _futureMyGames = _fetchMyUpcomingGames(),
+                        );
+                      }
+                    });
               },
             ),
           ),
@@ -164,14 +383,15 @@ class ManagePageState extends State<ManagePage> {
                 showDialogMsg(
                   context,
                   title: 'ยืนยันการเปิดก๊วน',
-                  subtitle: 'คุณต้องการเปิด ก๊วนแมวเหมียว',
+                  subtitle:
+                      'คุณต้องการเปิดก๊วน "${_myGamesData[indexData]['groupName']}"',
                   // btnLeft: 'ยกเลิก',
                   btnRight: 'ยกเลิก',
                   btnRightBackColor: Color(0xFFFFFFFF),
                   btnRightForeColor: Color(0xFF0E9D7A),
-
                   isWarning: true,
-                  onConfirm: () {},
+                  onConfirm: () =>
+                      _startGameSession(_myGamesData[indexData]['sessionId']),
                 );
               },
             ),
@@ -186,25 +406,11 @@ class ManagePageState extends State<ManagePage> {
                   foregroundColor: Color(0xFF0E9D7A),
                   fontSize: 11,
                   onPressed: () {
-                    showDialogMsg(
-                      context,
-                      title: 'ยืนยันการยกเลิกก๊วน',
-                      subtitle: 'คุณต้องการยกเลิก ก๊วนแมวเหมียว',
-                      isWarning: true,
-                      isSlideAction: true,
-                      onConfirm: () {
-                        showDialogMsg(
-                          context,
-                          title: 'ยืนยันการยกเลิก',
-                          subtitle: 'คุณได้ยกเลิก ก๊วนแมวเหมียว',
-                          btnLeft: 'ไปหน้าข้อมูลก๊วน',
-                          onConfirm: () {},
-                        );
-                      },
-                    );
+                    _showAddGuestDialog(_myGamesData[indexData]);
                   },
                 ),
               ),
+
               SizedBox(width: 12),
               Expanded(
                 child: CustomElevatedButton(
@@ -214,7 +420,18 @@ class ManagePageState extends State<ManagePage> {
                   fontSize: 11,
                   enabled: true,
                   onPressed: () {
-                    context.push('/add-game/1');
+                    context
+                        .push(
+                          '/add-game/${_myGamesData[indexData]['sessionId']}',
+                        )
+                        .then((result) {
+                          if (result == true) {
+                            // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
+                            setState(
+                              () => _futureMyGames = _fetchMyUpcomingGames(),
+                            );
+                          }
+                        });
                   },
                 ),
               ),
@@ -236,19 +453,8 @@ class ManagePageState extends State<ManagePage> {
               text: 'จัดการก๊วน',
               fontSize: 16,
               onPressed: () {
-                showDialogMsg(
-                  context,
-                  title: 'ยืนยันการเปิดก๊วน',
-                  subtitle: 'คุณต้องการเปิด ก๊วนแมวเหมียว',
-                  // btnLeft: 'ยกเลิก',
-                  btnRight: 'ยกเลิก',
-                  btnRightBackColor: Color(0xFFFFFFFF),
-                  btnRightForeColor: Color(0xFF0E9D7A),
-
-                  isWarning: true,
-                  onConfirm: () {
-                    context.push('/manage-game/1');
-                  },
+                context.push(
+                  '/manage-game/${_myGamesData[indexData]['sessionId']}',
                 );
               },
             ),
@@ -263,25 +469,11 @@ class ManagePageState extends State<ManagePage> {
                   foregroundColor: Color(0xFF0E9D7A),
                   fontSize: 11,
                   onPressed: () {
-                    showDialogMsg(
-                      context,
-                      title: 'ยืนยันการยกเลิกก๊วน',
-                      subtitle: 'คุณต้องการยกเลิก ก๊วนแมวเหมียว',
-                      isWarning: true,
-                      isSlideAction: true,
-                      onConfirm: () {
-                        showDialogMsg(
-                          context,
-                          title: 'ยืนยันการยกเลิก',
-                          subtitle: 'คุณได้ยกเลิก ก๊วนแมวเหมียว',
-                          btnLeft: 'ไปหน้าข้อมูลก๊วน',
-                          onConfirm: () {},
-                        );
-                      },
-                    );
+                    _showAddGuestDialog(_myGamesData[indexData]);
                   },
                 ),
               ),
+
               SizedBox(width: 12),
               Expanded(
                 child: CustomElevatedButton(
@@ -290,7 +482,18 @@ class ManagePageState extends State<ManagePage> {
                   foregroundColor: Color(0xFFFFFFFF),
                   fontSize: 11,
                   onPressed: () {
-                    context.push('/add-game/1');
+                    context
+                        .push(
+                          '/add-game/${_myGamesData[indexData]['sessionId']}',
+                        )
+                        .then((result) {
+                          if (result == true) {
+                            // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
+                            setState(
+                              () => _futureMyGames = _fetchMyUpcomingGames(),
+                            );
+                          }
+                        });
                   },
                 ),
               ),
@@ -312,7 +515,7 @@ class ManagePageState extends State<ManagePage> {
                 child: _buildPlaying(
                   context,
                   title: 'ก๊วนที่กำลังมาถึง',
-                  listData: dataList,
+                  listData: _myGamesData,
                 ),
               ),
             ),
@@ -329,7 +532,7 @@ class ManagePageState extends State<ManagePage> {
             child: _buildPlaying(
               context,
               title: 'ก๊วนที่กำลังมาถึง',
-              listData: dataList,
+              listData: _myGamesData,
             ),
           ),
         ),
@@ -349,17 +552,19 @@ class ManagePageState extends State<ManagePage> {
                   ),
                 ),
                 SliverToBoxAdapter(
-                  child: GroupInfoCard(model: dataList[indexData]),
+                  child: GroupInfoCard(model: _myGamesData[indexData]),
                 ),
                 SliverToBoxAdapter(child: SizedBox(height: 16)),
                 SliverToBoxAdapter(
-                  child: ImageSlideshow(model: dataList[indexData]),
+                  child: ImageSlideshow(model: _myGamesData[indexData]),
                 ),
                 SliverToBoxAdapter(child: SizedBox(height: 16)),
-                SliverToBoxAdapter(child: DetailsCard()),
+                SliverToBoxAdapter(
+                  child: DetailsCard(model: _myGamesData[indexData]),
+                ),
                 SliverToBoxAdapter(child: SizedBox(height: 16)),
                 SliverToBoxAdapter(
-                  child: _buildbottomBar(dataList[indexData]['status']),
+                  child: _buildbottomBar(_myGamesData[indexData]),
                 ),
                 SliverToBoxAdapter(child: SizedBox(height: 16)),
                 SliverStickyHeader(
@@ -375,6 +580,9 @@ class ManagePageState extends State<ManagePage> {
                     child: _buildPlayer(
                       false,
                       partToBuild: PlayerWidgetPart.header,
+                      listData: _myGamesData[indexData]['participants'],
+                      minPlayer: _myGamesData[indexData]['currentParticipants'],
+                      maxPlayer: _myGamesData[indexData]['maxParticipants'],
                     ),
                   ),
 
@@ -391,6 +599,10 @@ class ManagePageState extends State<ManagePage> {
                       child: _buildPlayer(
                         false,
                         partToBuild: PlayerWidgetPart.content,
+                        listData: _myGamesData[indexData]['participants'],
+                        minPlayer:
+                            _myGamesData[indexData]['currentParticipants'],
+                        maxPlayer: _myGamesData[indexData]['maxParticipants'],
                       ),
                     ),
                   ),
@@ -413,7 +625,7 @@ class ManagePageState extends State<ManagePage> {
             child: _buildPlaying(
               context,
               title: 'ก๊วนที่กำลังมาถึง',
-              listData: dataList,
+              listData: _myGamesData,
             ),
           ),
         ),
@@ -422,13 +634,13 @@ class ManagePageState extends State<ManagePage> {
             padding: const EdgeInsets.fromLTRB(7, 16, 7, 16),
             child: ListView(
               children: [
-                GroupInfoCard(model: dataList[indexData]),
+                GroupInfoCard(model: _myGamesData[indexData]),
                 SizedBox(height: 16),
-                ImageSlideshow(model: dataList[indexData]),
+                ImageSlideshow(model: _myGamesData[indexData]),
                 SizedBox(height: 16),
-                DetailsCard(),
+                DetailsCard(model: _myGamesData[indexData]),
                 SizedBox(height: 16),
-                _buildbottomBar(dataList[indexData]['status']),
+                _buildbottomBar(_myGamesData[indexData]),
               ],
             ),
           ),
@@ -436,7 +648,12 @@ class ManagePageState extends State<ManagePage> {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
-            child: _buildPlayer(true),
+            child: _buildPlayer(
+              true,
+              listData: _myGamesData[indexData]['participants'],
+              minPlayer: _myGamesData[indexData]['currentParticipants'],
+              maxPlayer: _myGamesData[indexData]['maxParticipants'],
+            ),
           ),
         ),
       ],
@@ -471,15 +688,19 @@ class ManagePageState extends State<ManagePage> {
               ),
             ),
           ),
-          SliverToBoxAdapter(child: GroupInfoCard(model: dataList[indexData])),
-          SliverToBoxAdapter(child: SizedBox(height: 16)),
-          SliverToBoxAdapter(child: ImageSlideshow(model: dataList[indexData])),
-          SliverToBoxAdapter(child: SizedBox(height: 16)),
-          SliverToBoxAdapter(child: DetailsCard()),
+          SliverToBoxAdapter(
+            child: GroupInfoCard(model: _myGamesData[indexData]),
+          ),
           SliverToBoxAdapter(child: SizedBox(height: 16)),
           SliverToBoxAdapter(
-            child: _buildbottomBar(dataList[indexData]['status']),
+            child: ImageSlideshow(model: _myGamesData[indexData]),
           ),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverToBoxAdapter(
+            child: DetailsCard(model: _myGamesData[indexData]),
+          ),
+          SliverToBoxAdapter(child: SizedBox(height: 16)),
+          SliverToBoxAdapter(child: _buildbottomBar(_myGamesData[indexData])),
           SliverToBoxAdapter(child: SizedBox(height: 16)),
           SliverStickyHeader(
             // Header จะถูกสร้างจาก _buildPlayer โดยบอกให้สร้างแค่ส่วน header
@@ -491,7 +712,13 @@ class ManagePageState extends State<ManagePage> {
                   topRight: Radius.circular(16),
                 ),
               ),
-              child: _buildPlayer(false, partToBuild: PlayerWidgetPart.header),
+              child: _buildPlayer(
+                false,
+                partToBuild: PlayerWidgetPart.header,
+                listData: _myGamesData[indexData]['participants'],
+                minPlayer: _myGamesData[indexData]['currentParticipants'],
+                maxPlayer: _myGamesData[indexData]['maxParticipants'],
+              ),
             ),
 
             // Sliver จะถูกสร้างจาก _buildPlayer โดยบอกให้สร้างแค่ส่วน content
@@ -507,6 +734,9 @@ class ManagePageState extends State<ManagePage> {
                 child: _buildPlayer(
                   false,
                   partToBuild: PlayerWidgetPart.content,
+                  listData: _myGamesData[indexData]['participants'],
+                  minPlayer: _myGamesData[indexData]['currentParticipants'],
+                  maxPlayer: _myGamesData[indexData]['maxParticipants'],
                 ),
               ),
             ),
@@ -538,24 +768,32 @@ class ManagePageState extends State<ManagePage> {
             itemCount: listData!.length,
             itemBuilder: (context, index) {
               final game = listData[index];
+              final formattedDateTime = formatSessionStart(
+                game['sessionStart'],
+              );
               return Padding(
                 padding: const EdgeInsets.only(top: 10, bottom: 10),
                 child: GameCard2(
-                  teamName: game['teamName'],
-                  imageUrl: game['imageUrl'],
-                  day: game['day'],
-                  date: game['date'],
-                  time: game['time'],
-                  courtName: game['courtName'],
-                  location: game['location'],
-                  price: game['price'],
-                  shuttlecockInfo: game['shuttlecockInfo'],
-                  gameInfo: game['gameInfo'],
-                  currentPlayers: game['currentPlayers'],
-                  maxPlayers: game['maxPlayers'],
-                  organizerName: game['organizerName'],
-                  organizerImageUrl: game['organizerImageUrl'],
-                  isInitiallyBookmarked: game['isInitiallyBookmarked'],
+                  teamName: game['groupName'] ?? 'N/A',
+                  imageUrl: game['imageUrl'], // Placeholder
+                  day: formattedDateTime['day']!,
+                  date: '${game['dayOfWeek']} ${game['sessionDate']}',
+                  time: '${game['startTime']}-${game['endTime']}',
+                  courtName:
+                      game['courtName'] ??
+                      'N/A', // แสดงชื่อสนาม+ที่อยู่รวมกันไปก่อน
+                  location: game['location'], // ไม่มีข้อมูล location แยก
+                  price: game['price'], // ไม่มีข้อมูลราคา
+                  shuttlecockInfo: game['shuttlecockModelName'],
+                  shuttlecockBrand: game['shuttlecockBrandName'],
+                  gameInfo: game['gameTypeName'],
+                  currentPlayers: game['currentParticipants'] ?? 0,
+                  maxPlayers: game['maxParticipants'] ?? 0,
+                  organizerName: game['organizerName'], // ไม่มีข้อมูลผู้จัด
+                  organizerImageUrl:
+                      game['organizerImageUrl'] ?? "", // Placeholder
+                  isInitiallyBookmarked: false,
+                  // isInitiallyBookmarked: game['isInitiallyBookmarked'],
                   onCardTap: () {
                     _backToListOnMobile();
                     setState(() {
@@ -571,7 +809,13 @@ class ManagePageState extends State<ManagePage> {
     );
   }
 
-  _buildPlayer(bool isVertical, {PlayerWidgetPart? partToBuild}) {
+  _buildPlayer(
+    bool isVertical, {
+    PlayerWidgetPart? partToBuild,
+    dynamic listData,
+    int minPlayer = 0,
+    int maxPlayer = 0,
+  }) {
     // Widget ส่วน Header
     final headerWidget = Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -601,7 +845,7 @@ class ManagePageState extends State<ManagePage> {
                     ),
                     children: [
                       TextSpan(
-                        text: '56',
+                        text: minPlayer.toString(),
                         style: TextStyle(
                           color: Color(0xFF0E9D7A),
                           fontSize: 20,
@@ -609,7 +853,7 @@ class ManagePageState extends State<ManagePage> {
                         ),
                       ),
                       TextSpan(
-                        text: '/80',
+                        text: '/${maxPlayer.toString()}',
                         style: TextStyle(
                           color: Color(0xFF000000),
                           fontSize: 20,
@@ -634,18 +878,18 @@ class ManagePageState extends State<ManagePage> {
         isVertical
             ? Expanded(
                 child: ListView.builder(
-                  itemCount: players.length,
+                  itemCount: listData.length,
                   itemBuilder: (context, index) {
-                    return _buildPlayerRow(players[index]);
+                    return _buildPlayerRow(index, listData[index]);
                   },
                 ),
               )
             : ListView.builder(
-                itemCount: players.length,
+                itemCount: listData.length,
                 shrinkWrap: true,
                 physics: NeverScrollableScrollPhysics(),
                 itemBuilder: (context, index) {
-                  return _buildPlayerRow(players[index]);
+                  return _buildPlayerRow(index, listData[index]);
                 },
               ),
         if (isVertical) _buildPagination(),
@@ -725,7 +969,12 @@ class ManagePageState extends State<ManagePage> {
   }
 
   // Widget สำหรับแสดงข้อมูลผู้เล่นแต่ละแถว
-  Widget _buildPlayerRow(Player player) {
+  Widget _buildPlayerRow(int index, dynamic player) {
+    // --- ADDED: ตรวจสอบประเภทของข้อมูล player ---
+    // ป้องกัน Error กรณีที่ข้อมูลใน List ไม่ใช่ Map (อาจจะเป็น int หรือ null)
+    if (player is! Map<String, dynamic>) {
+      return ListTile(title: Text('ข้อมูลผู้เล่นไม่ถูกต้อง #${index + 1}'));
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
       child: Row(
@@ -733,7 +982,7 @@ class ManagePageState extends State<ManagePage> {
           Expanded(
             flex: 1,
             child: Text(
-              '${player.id}',
+              '${index + 1}',
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
                 fontWeight: FontWeight.w500,
@@ -741,16 +990,17 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 12,
-                  backgroundImage: NetworkImage(player.imageUrl),
-                ),
+                if ((player['profilePhotoUrl'] ?? "") != "")
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundImage: NetworkImage(player['profilePhotoUrl']),
+                  ),
                 const SizedBox(width: 8),
                 Text(
-                  player.nickname,
+                  player['nickname'],
                   style: TextStyle(
                     fontSize: getResponsiveFontSize(context, fontSize: 14),
                     fontWeight: FontWeight.w500,
@@ -760,9 +1010,9 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 1,
+            flex: 2,
             child: Text(
-              player.gender,
+              player['genderName'],
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
                 fontWeight: FontWeight.w500,
@@ -770,17 +1020,46 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 1,
-            child: Text(
-              player.skillLevel,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w500,
-              ),
+            flex: 2,
+            child: DropdownButton<String>(
+              value: player['skillLevelId']?.toString(),
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              items: _skillLevels.map<DropdownMenuItem<String>>((
+                dynamic skill,
+              ) {
+                return DropdownMenuItem<String>(
+                  value: skill['code'],
+                  child: Text(
+                    skill['value'],
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: getResponsiveFontSize(context, fontSize: 14),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  final int? sessionId = _myGamesData[indexData]['sessionId'];
+                  final String? participantType = player['participantType'];
+                  final int? participantId = player['participantId'];
+                  if (sessionId != null &&
+                      participantType != null &&
+                      participantId != null) {
+                    _updateSkillLevel(
+                      sessionId,
+                      participantType,
+                      participantId,
+                      newValue,
+                    );
+                  }
+                }
+              },
             ),
           ),
-          // Expanded(flex: 2, child: _buildSkillLevelDropdown(player)),
         ],
       ),
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
@@ -8,7 +9,6 @@ import 'package:badminton/component/image_picker_form.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 class EditTransferPage extends StatefulWidget {
   const EditTransferPage({super.key});
@@ -24,12 +24,12 @@ class EditTransferPageState extends State<EditTransferPage> {
   String image = '';
   double gapHeight = 20;
   String? _selectedBank;
-  XFile? _bookbankImage;
-  final List<String> _banks = [
-    'ธนาคารกสิกรไทย',
-    'ธนาคารไทยพาณิชย์',
-    'ธนาคารกรุงเทพ',
-    'ธนาคารกรุงไทย',
+  File? _bookbankImage;
+  final List<dynamic> _banks = [
+    {"code": 1, "value": 'ธนาคารกสิกรไทย'},
+    {"code": 2, "value": 'ธนาคารไทยพาณิชย์'},
+    {"code": 3, "value": 'ธนาคารกรุงเทพ'},
+    {"code": 4, "value": 'ธนาคารกรุงไทย'},
   ];
 
   final _formKey = GlobalKey<FormState>();
@@ -62,7 +62,7 @@ class EditTransferPageState extends State<EditTransferPage> {
     super.dispose();
   }
 
-  _uploadImage(file) async {}
+  _uploadImage(List<File> file) async {}
 
   void _submitForm() {
     if (_formKey.currentState!.validate()) {
@@ -146,7 +146,7 @@ class EditTransferPageState extends State<EditTransferPage> {
               ImagePickerFormField(
                 labelText: 'รูป Bookbank',
                 isRequired: true,
-                onImageSelected: (XFile? image) {
+                onImageSelected: (File? image) {
                   // รับไฟล์ที่เลือกกลับมาเก็บใน State ของหน้านี้
                   setState(() {
                     _bookbankImage = image;

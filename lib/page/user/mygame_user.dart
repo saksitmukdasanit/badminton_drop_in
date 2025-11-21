@@ -88,6 +88,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
             location: game['location'],
             price: game['price'],
             shuttlecockInfo: game['shuttlecockInfo'],
+            shuttlecockBrand: '',
             gameInfo: game['gameInfo'],
             currentPlayers: game['currentPlayers'],
             maxPlayers: game['maxPlayers'],
@@ -96,7 +97,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
             isInitiallyBookmarked: game['isInitiallyBookmarked'],
             onCardTap: () {
               final bookingDetails = BookingDetails(
-                code: '1',
+                code: 1,
                 teamName: game['teamName'],
                 imageUrl: game['imageUrl'],
                 day: game['day'],
@@ -106,19 +107,21 @@ class MyGameUserPageState extends State<MyGameUserPage> {
                 location: game['location'],
                 price: game['price'],
                 shuttlecockInfo: game['shuttlecockInfo'],
+                shuttlecockBrand: 'shuttlecockBrand',
                 gameInfo: game['gameInfo'],
+                courtNumbers:'',
                 currentPlayers: game['currentPlayers'],
                 maxPlayers: game['maxPlayers'],
                 organizerName: game['organizerName'],
                 organizerImageUrl: game['organizerImageUrl'],
-                address: '123/456 สนามแบดมินตัน ABC, กรุงเทพ 10240',
+                notes: '',
                 courtImageUrls: [
                   'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
                   'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
                   'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
                   'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
                 ],
-                status: 'W',
+                status: 2,
               );
               context.push('/booking-confirm-game', extra: bookingDetails);
             },

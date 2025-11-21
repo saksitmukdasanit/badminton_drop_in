@@ -2,6 +2,7 @@ import 'package:badminton/component/user_profile_dialog.dart';
 import 'package:badminton/model/game_card_model.dart';
 import 'package:badminton/shared/url_launcher.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 final Map<String, Color> skillLevels = {
   'P+': Colors.red,
@@ -13,13 +14,13 @@ final Map<String, Color> skillLevels = {
 };
 
 final List<Map<String, dynamic>> dayColors = [
-  {"code": "sun", "display": Color(0xFFFFB3B3)}, // แดงอ่อน
-  {"code": "mon", "display": Color(0xFFFFF2B3)}, // เหลืองอ่อน
-  {"code": "tue", "display": Color(0xFFFFD6E8)}, // ชมพูอ่อน
-  {"code": "wed", "display": Color(0xFFB3FFB3)}, // เขียวอ่อน
-  {"code": "thu", "display": Color(0xFFFFE0B3)}, // ส้มอ่อน
-  {"code": "fri", "display": Color(0xFFCCE5FF)}, // ฟ้าอ่อน
-  {"code": "sat", "display": Color(0xFFE0CCFF)}, // ม่วงอ่อน
+  {"code": "Sun", "display": Color(0xFFFFB3B3)}, // แดงอ่อน
+  {"code": "Mon", "display": Color(0xFFFFF2B3)}, // เหลืองอ่อน
+  {"code": "Tue", "display": Color(0xFFFFD6E8)}, // ชมพูอ่อน
+  {"code": "Wed", "display": Color(0xFFB3FFB3)}, // เขียวอ่อน
+  {"code": "Thu", "display": Color(0xFFFFE0B3)}, // ส้มอ่อน
+  {"code": "Fri", "display": Color(0xFFCCE5FF)}, // ฟ้าอ่อน
+  {"code": "Sat", "display": Color(0xFFE0CCFF)}, // ม่วงอ่อน
 ];
 
 final List<Map<String, dynamic>> statusColors = [
@@ -37,6 +38,23 @@ final List<Map<String, dynamic>> statusColors = [
   }, // ชมพูอ่อน
   {"code": "C", 'display': 'ยกเลิก', "color": Color(0xFF64646D)}, // เขียวอ่อน
 ];
+
+Map<String, String> formatSessionStart(String sessionStart) {
+  try {
+    final dateTime = DateTime.parse(
+      sessionStart,
+    ).toLocal(); // แปลงเป็นเวลาท้องถิ่น
+    final dayOfWeek = DateFormat(
+      'E',
+      'en_US',
+    ).format(dateTime); // วันย่อ (เช่น พ.)
+    final date = DateFormat('dd/MM/yyyy').format(dateTime);
+    final time = DateFormat('HH:mm').format(dateTime); // เวลา 24 ชม.
+    return {'day': dayOfWeek, 'date': date, 'time': time};
+  } catch (e) {
+    return {'day': 'N/A', 'date': 'N/A', 'time': 'N/A'};
+  }
+}
 
 // ฟังก์ชันสำหรับคำนวณขนาดตัวอักษรตามความกว้างหน้าจอ
 double getResponsiveFontSize(BuildContext context, {double fontSize = 18}) {
@@ -251,7 +269,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
     "isInitiallyBookmarked": true,
-    "status":"",
+    "status": "",
   },
   {
     "teamName": 'ตีเล่นๆ พี่ไม่ว่า',
@@ -271,7 +289,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": false,
-    "status":"S",
+    "status": "S",
   },
   {
     "teamName": 'The Smashers',
@@ -291,7 +309,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": false,
-    "status":"W",
+    "status": "W",
   },
   {
     "teamName": 'สายบู๊',
@@ -311,7 +329,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": true,
-    "status":"C",
+    "status": "C",
   },
   {
     "teamName": 'SPEED & SPIN',
@@ -331,7 +349,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
     "isInitiallyBookmarked": false,
-    "status":"O",
+    "status": "O",
   },
   {
     "teamName": 'ตีจริงเจ็บจริง',
@@ -351,7 +369,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": false,
-    "status":"WR",
+    "status": "WR",
   },
   {
     "teamName": 'มือใหม่ หัดหวด',
@@ -371,7 +389,7 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": true,
-    "status":"S",
+    "status": "S",
   },
   {
     "teamName": 'ลุยไม่ยั้ง',
@@ -391,6 +409,6 @@ List<dynamic> dataList = [
     "organizerImageUrl":
         'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
     "isInitiallyBookmarked": true,
-    "status":"",
+    "status": "",
   },
 ];

@@ -47,8 +47,8 @@ class LoadingImageNetwork extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: fit,
-      height: height,
-      width: width,
+      height: height ?? 75,
+      width: width ?? 75,
       color: color,
       placeholder: (_, __) => TweenAnimationBuilder(
         duration: const Duration(seconds: 1),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
@@ -23,7 +24,11 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
   bool loadingImage = false;
   String image = '';
   double gapHeight = 20;
-  final List<String> _items = ['ชาย', 'หญิง', 'ไม่ระบุ'];
+  final List<dynamic> _items = [
+    {"code": 1, "value": 'ชาย'},
+    {"code": 2, "value": 'หญิง'},
+    {"code": 3, "value": 'ไม่ระบุ'},
+  ];
   String? _selectedValue;
   bool isChangePhone = false;
 
@@ -70,7 +75,7 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
     super.dispose();
   }
 
-  _uploadImage(file) async {}
+  _uploadImage(List<File> file) async {}
 
   void _submitForm() {
     if (_formKey.currentState!.validate()) {

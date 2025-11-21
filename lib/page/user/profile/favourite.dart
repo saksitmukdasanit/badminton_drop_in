@@ -76,6 +76,7 @@ class FavouritePageState extends State<FavouritePage> {
               location: 'ตลิ่งชัน กรุงเทพ',
               price: '100 บาท',
               shuttlecockInfo: '20 บาท/ลูก',
+              shuttlecockBrand: '',
               gameInfo: '2 เซ็ท',
               currentPlayers: 56,
               maxPlayers: 70,

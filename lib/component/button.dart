@@ -14,6 +14,7 @@ class CustomElevatedButton extends StatelessWidget {
   final bool enabled;
   final IconData? icon;
   final Color iconBackgroundColor;
+  final bool isLoading;
 
   const CustomElevatedButton({
     super.key,
@@ -29,12 +30,13 @@ class CustomElevatedButton extends StatelessWidget {
     this.enabled = false,
     this.icon,
     this.iconBackgroundColor = Colors.white,
+    this.isLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return ElevatedButton(
-      onPressed: !enabled ? onPressed : null,
+      onPressed: (isLoading || !enabled) ? onPressed : null,
       style: ElevatedButton.styleFrom(
         padding: padding,
         backgroundColor: backgroundColor,
@@ -44,37 +46,55 @@ class CustomElevatedButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(borderRadius),
         ),
       ),
-      child: icon != null
-          ? Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: getResponsiveFontSize(
-                      context,
-                      fontSize: fontSize,
-                    ),
-                    fontWeight: fontWeight,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(2.0),
-                  decoration: BoxDecoration(
-                    color: iconBackgroundColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: backgroundColor,size: fontSize +4,),
-                ),
-              ],
-            )
-          : Text(
-              text,
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: fontSize),
-                fontWeight: fontWeight,
+      child: isLoading
+          // ถ้า isLoading เป็น true: แสดงวงกลมหมุนๆ
+          ? SizedBox(
+              height: getResponsiveFontSize(context, fontSize: fontSize) + 4,
+              width: getResponsiveFontSize(context, fontSize: fontSize) + 4,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(foregroundColor),
               ),
-            ),
+            )
+          // ถ้า isLoading เป็น false: แสดงผลลัพธ์เดิม
+          : (icon != null
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: getResponsiveFontSize(
+                            context,
+                            fontSize: fontSize,
+                          ),
+                          fontWeight: fontWeight,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(2.0),
+                        decoration: BoxDecoration(
+                          color: iconBackgroundColor,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          icon,
+                          color: backgroundColor,
+                          size: fontSize + 4,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: getResponsiveFontSize(
+                        context,
+                        fontSize: fontSize,
+                      ),
+                      fontWeight: fontWeight,
+                    ),
+                  )),
     );
   }
 }

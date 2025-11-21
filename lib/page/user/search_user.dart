@@ -4,6 +4,7 @@ import 'package:badminton/component/filter_option.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -16,21 +17,24 @@ class SearchUserPage extends StatefulWidget {
 }
 
 class SearchUserPageState extends State<SearchUserPage> {
+  late Future<List<dynamic>> _upcomingGamesFuture;
   late TextEditingController searchController;
   Map<String, List<String>>? _appliedFilters;
   String? _selectedItem;
-  final List<String> _items = [
-    'ล่าสุด',
-    'ยอดนิยม',
-    'วันที่',
-    'ใกล้ฉัน',
-    'ค่าสนาม',
-    'ค่าลูก',
+
+  final List<dynamic> _items = [
+    {"code": 1, "value": 'ล่าสุด'},
+    {"code": 2, "value": 'ยอดนิยม'},
+    {"code": 3, "value": 'วันที่'},
+    {"code": 4, "value": 'ใกล้ฉัน'},
+    {"code": 5, "value": 'ค่าสนาม'},
+    {"code": 6, "value": 'ค่าลูก'},
   ];
 
   @override
   void initState() {
     searchController = TextEditingController();
+    _upcomingGamesFuture = _fetchUpcomingGames();
     super.initState();
   }
 
@@ -39,6 +43,22 @@ class SearchUserPageState extends State<SearchUserPage> {
     searchController.dispose();
     super.dispose();
   }
+
+  Future<List<dynamic>> _fetchUpcomingGames() async {
+    try {
+      final response = await ApiProvider().get('/GameSessions/upcoming');
+      if (response['status'] == 200) {
+        return response['data']; // คืนค่า List ของข้อมูลก๊วน
+      } else {
+        throw Exception('Invalid API response format');
+      }
+    } catch (e) {
+      // โยน Error ออกไปเพื่อให้ FutureBuilder จัดการ
+      throw Exception('Failed to load upcoming games: $e');
+    }
+  }
+
+  
 
   Future<void> _showFilter(BuildContext context) async {
     final result = await showModalBottomSheet(
@@ -106,60 +126,104 @@ class SearchUserPageState extends State<SearchUserPage> {
             ),
 
             Expanded(
-              child: ListView.builder(
-                itemCount: dataList.length,
-                itemBuilder: (context, index) {
-                  final game = dataList[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 10, bottom: 10),
-                    child: GameCard2(
-                      teamName: game['teamName'],
-                      imageUrl: game['imageUrl'],
-                      day: game['day'],
-                      date: game['date'],
-                      time: game['time'],
-                      courtName: game['courtName'],
-                      location: game['location'],
-                      price: game['price'],
-                      shuttlecockInfo: game['shuttlecockInfo'],
-                      gameInfo: game['gameInfo'],
-                      currentPlayers: game['currentPlayers'],
-                      maxPlayers: game['maxPlayers'],
-                      organizerName: game['organizerName'],
-                      organizerImageUrl: game['organizerImageUrl'],
-                      isInitiallyBookmarked: game['isInitiallyBookmarked'],
-                      onCardTap: () {
-                        final bookingDetails = BookingDetails(
-                          code: '1',
-                          teamName: game['teamName'],
-                          imageUrl: game['imageUrl'],
-                          day: game['day'],
-                          date: game['date'],
-                          time: game['time'],
-                          courtName: game['courtName'],
-                          location: game['location'],
-                          price: game['price'],
-                          shuttlecockInfo: game['shuttlecockInfo'],
-                          gameInfo: game['gameInfo'],
-                          currentPlayers: game['currentPlayers'],
-                          maxPlayers: game['maxPlayers'],
-                          organizerName: game['organizerName'],
-                          organizerImageUrl: game['organizerImageUrl'],
-                          address: '123/456 สนามแบดมินตัน ABC, กรุงเทพ 10240',
-                          courtImageUrls: [
-                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-                          ],
-                          status: '',
-                        );
-                        context.push('/booking-confirm', extra: bookingDetails);
-                      },
-                      onTapOrganizer: () => showUserProfileDialog(context),
-                      onTapPlayers: () =>
-                          context.push('/player-list/${game['teamName']}'),
-                    ),
+              child: FutureBuilder<List<dynamic>>(
+                future: _upcomingGamesFuture, // ใช้ Future ที่เราสร้างไว้
+                builder: (context, snapshot) {
+                  // --- กรณี 1: กำลังโหลดข้อมูล ---
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  // --- กรณี 2: เกิด Error ---
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Text('เกิดข้อผิดพลาด: ${snapshot.error}'),
+                    );
+                  }
+                  // --- กรณี 3: ไม่มีข้อมูล ---
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const Center(
+                      child: Text('ไม่พบก๊วนที่กำลังจะมาถึง'),
+                    );
+                  }
+
+                  // --- กรณี 4: มีข้อมูล ---
+                  final games = snapshot.data!;
+                  return ListView.builder(
+                    itemCount: games.length,
+                    itemBuilder: (context, index) {
+                      final game = games[index];
+                      // แปลงวันที่เวลา
+                      final formattedDateTime = formatSessionStart(
+                        game['sessionStart'],
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 10, bottom: 10),
+                        child: GameCard2(
+                          // --- ใช้ข้อมูลจาก API ---
+                          teamName: game['groupName'] ?? 'N/A',
+                          imageUrl: game['imageUrl'], // Placeholder
+                          day: formattedDateTime['day']!,
+                          date: '${game['dayOfWeek']} ${game['sessionDate']}',
+                          time: '${game['startTime']}-${game['endTime']}',
+                          courtName:
+                              game['courtName'] ??
+                              'N/A', // แสดงชื่อสนาม+ที่อยู่รวมกันไปก่อน
+                          location:
+                              game['location'], // ไม่มีข้อมูล location แยก
+                          price: game['price'], // ไม่มีข้อมูลราคา
+                          shuttlecockInfo: game['shuttlecockModelName'],
+                          shuttlecockBrand: game['shuttlecockBrandName'],
+                          gameInfo: game['gameTypeName'],
+                          currentPlayers: game['currentParticipants'] ?? 0,
+                          maxPlayers: game['maxParticipants'] ?? 0,
+                          organizerName:
+                              game['organizerName'], // ไม่มีข้อมูลผู้จัด
+                          organizerImageUrl:
+                              game['organizerImageUrl'] ?? "", // Placeholder
+                          isInitiallyBookmarked: false,
+                          onCardTap: () {
+                            final imageUrlsFromApi =
+                                game['courtImageUrls'] as List<dynamic>? ??
+                                []; // ดึงมาเป็น List<dynamic> และป้องกันค่า null
+                            final List<String> courtImageUrls =
+                                List<String>.from(
+                                  imageUrlsFromApi,
+                                ); // แปลงเป็น List<String>
+                            final bookingDetails = BookingDetails(
+                              code: game['sessionId'],
+                              teamName: game['groupName'],
+                              imageUrl: game['imageUrl'],
+                              day: formattedDateTime['day']!,
+                              date:
+                                  '${game['dayOfWeek']} ${game['sessionDate']}',
+                              time: '${game['startTime']}-${game['endTime']}',
+                              courtName: game['courtName'],
+                              location: game['location'],
+                              price: game['price'],
+                              shuttlecockInfo: game['shuttlecockModelName'],
+                              shuttlecockBrand: game['shuttlecockBrandName'],
+                              gameInfo: game['gameTypeName'],
+                              courtNumbers: game['courtNumbers'],
+                              currentPlayers: game['currentParticipants'] ?? 0,
+                              maxPlayers: game['maxParticipants'] ?? 0,
+                              organizerName: game['organizerName'],
+                              organizerImageUrl: game['organizerImageUrl'],
+                              courtImageUrls: courtImageUrls,
+                              status: game['status'],
+                              notes: game['notes'],
+                            );
+                            context.push(
+                              '/booking-confirm',
+                              extra: bookingDetails,
+                            );
+                          },
+                          onTapOrganizer: () => showUserProfileDialog(context),
+                          onTapPlayers: () => context.push(
+                            '/player-list/${game['sessionId']}',
+                          ), // ใช้ sessionId
+                        ),
+                      );
+                    },
                   );
                 },
               ),

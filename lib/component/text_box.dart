@@ -8,7 +8,10 @@ class CustomTextFormField extends StatelessWidget {
   final bool readOnly;
   final bool isRequired;
   final bool isEmail;
+  final bool isPhone;
   final TextEditingController? controller;
+  final IconData? prefixIconData;
+  final VoidCallback? onPrefixIconPressed;
   final IconData? suffixIconData;
   final VoidCallback? onSuffixIconPressed;
   final String? Function(String?)? validator;
@@ -17,6 +20,7 @@ class CustomTextFormField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final int? minLines;
   final int? maxLines;
+  final bool obscureText;
 
   const CustomTextFormField({
     super.key,
@@ -26,7 +30,10 @@ class CustomTextFormField extends StatelessWidget {
     this.readOnly = false,
     this.isRequired = false,
     this.isEmail = false,
+    this.isPhone = false,
     this.controller,
+    this.prefixIconData,
+    this.onPrefixIconPressed,
     this.suffixIconData,
     this.onSuffixIconPressed,
     this.validator,
@@ -35,16 +42,18 @@ class CustomTextFormField extends StatelessWidget {
     this.onChanged,
     this.minLines,
     this.maxLines,
+    this.obscureText = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      obscureText: obscureText,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       minLines: minLines,
-      maxLines: maxLines,
+      maxLines: obscureText ? 1 : (maxLines ?? 1),
       enabled: enabled,
       readOnly: readOnly,
       onChanged: onChanged,
@@ -76,6 +85,12 @@ class CustomTextFormField extends StatelessWidget {
           borderRadius: BorderRadius.circular(12.0),
           borderSide: BorderSide(color: Colors.grey.shade400),
         ),
+        prefixIcon: prefixIconData != null
+            ? IconButton(
+                icon: Icon(prefixIconData),
+                onPressed: onPrefixIconPressed, // <-- ใช้ฟังก์ชันที่รับเข้ามา
+              )
+            : null,
         suffixIcon: suffixIconData != null
             ? IconButton(
                 icon: Icon(suffixIconData),
@@ -87,7 +102,7 @@ class CustomTextFormField extends StatelessWidget {
           validator ??
           (String? value) {
             if (isRequired && (value == null || value.trim().isEmpty)) {
-              return 'กรุณากรอกข้อมูลช่องนี้';
+              return 'กรุณากรอกข้อมูล$labelText';
             }
             if (isEmail && value != null && value.isNotEmpty) {
               final bool emailValid = RegExp(
@@ -97,6 +112,16 @@ class CustomTextFormField extends StatelessWidget {
                 return 'รูปแบบอีเมลไม่ถูกต้อง';
               }
             }
+
+            if (isPhone && value != null && value.isNotEmpty) {
+              if (value.isEmpty) {
+                return 'กรุณากรอกเบอร์โทรศัพท์';
+              }
+              if (value.length != 10) {
+                return 'เบอร์โทรศัพท์ต้องมี 10 หลัก';
+              }
+            }
+
             return null;
           },
     );

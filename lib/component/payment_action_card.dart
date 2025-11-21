@@ -23,10 +23,10 @@ class _PaymentActionCardState extends State<PaymentActionCard> {
   Timer? _timer;
   String? _selectedPaymentMethod;
   Duration _remainingTime = const Duration(minutes: 10);
-  final List<String> _paymentMethods = [
-    'Credit/Debit Card',
-    'Mobile Banking',
-    'QR Code',
+  final List<dynamic> _paymentMethods = [
+    {"code": 1, "value": 'Credit/Debit Card'},
+    {"code": 2, "value": 'Mobile Banking'},
+    {"code": 3, "value": 'QR Code'},
   ];
   final _formKeyCard = GlobalKey<FormState>();
   late TextEditingController _cardNumberController;
@@ -242,7 +242,11 @@ class _PaymentActionCardState extends State<PaymentActionCard> {
         CustomDropdown(
           labelText: 'เลือกธนาคาร',
           // initialValue: _selectedPaymentMethod,
-          items: ['KBank', 'SCB', 'BBL'],
+          items: [
+            {"code": 1, "value": 'KBank'},
+            {"code": 2, "value": 'SCB'},
+            {"code": 3, "value": 'BBL'},
+          ],
           onChanged: (val) {},
         ),
       ],

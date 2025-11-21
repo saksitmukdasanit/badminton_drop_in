@@ -36,13 +36,13 @@ class HistoryUserPage extends StatefulWidget {
 class HistoryUserPageState extends State<HistoryUserPage> {
   late TextEditingController searchController;
   String? _selectedItem;
-  final List<String> _items = [
-    'ล่าสุด',
-    'ยอดนิยม',
-    'วันที่',
-    'ใกล้ฉัน',
-    'ค่าสนาม',
-    'ค่าลูก',
+  final List<dynamic> _items = [
+    {"code": 1, "value": 'ล่าสุด'},
+    {"code": 2, "value": 'ยอดนิยม'},
+    {"code": 3, "value": 'วันที่'},
+    {"code": 4, "value": 'ใกล้ฉัน'},
+    {"code": 5, "value": 'ค่าสนาม'},
+    {"code": 6, "value": 'ค่าลูก'},
   ];
   late List<BookingDetails> bookingDetails;
   @override
@@ -62,9 +62,10 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     final random = Random();
     return List.generate(count, (i) {
       return BookingDetails(
-        code: '${i + 1}',
+        code: i + 1,
         teamName: 'ก๊วนแมวเหมียว',
-        imageUrl: 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+        imageUrl:
+            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
         day: 'wed',
         date: '16/05/2025 18.00-21.00 น.',
         time: 'time',
@@ -72,18 +73,16 @@ class HistoryUserPageState extends State<HistoryUserPage> {
         location: 'location',
         price: '210',
         shuttlecockInfo: 'shuttlecockInfo',
+        shuttlecockBrand: 'shuttlecockBrand',
         gameInfo: 'gameInfo',
+        courtNumbers:'',
         currentPlayers: 56,
         maxPlayers: 60,
         organizerName: 'สมยศ คงยิ่ง',
-        organizerImageUrl: 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-        address: '123/456 สนามแบดมินตัน ABC, กรุงเทพ 10240',
-        status: [
-          'S',
-          'WR',
-          'O',
-          'C',
-        ][random.nextInt(['S', 'WR', 'O', 'C'].length)],
+        organizerImageUrl:
+            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+        status: [1, 2, 3, 4][random.nextInt([1, 2, 3, 4].length)],
+        notes: '',
         courtImageUrls: [
           'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
           'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',

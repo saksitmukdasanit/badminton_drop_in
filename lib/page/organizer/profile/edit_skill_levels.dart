@@ -9,11 +9,17 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart'; // <<< 1. Import 
 
 // Model สำหรับเก็บข้อมูลของแต่ละระดับฝีมือ
 class SkillLevel {
+  int? skillLevelId;
+  final int levelRank;
   final TextEditingController nameController;
   Color selectedColor;
 
-  SkillLevel({required String name, this.selectedColor = Colors.white})
-    : nameController = TextEditingController(text: name);
+  SkillLevel({
+    this.skillLevelId,
+    required this.levelRank,
+    required String name,
+    this.selectedColor = Colors.white,
+  }) : nameController = TextEditingController(text: name);
 
   // ฟังก์ชันสำหรับ dispose controller เมื่อไม่ใช้งานแล้ว
   void dispose() {
@@ -50,6 +56,7 @@ class _EditSkillLevelsPageState extends State<EditSkillLevelsPage> {
     _skillLevels = List.generate(
       count,
       (index) => SkillLevel(
+         levelRank: index + 1,
         name: index == 0 ? 'มือใหม่' : 'ระดับ ${index + 1}',
         // กำหนดสีเริ่มต้นแบบสุ่มหรือแบบไล่สีก็ได้
         selectedColor: HSLColor.fromAHSL(
@@ -153,7 +160,18 @@ class _EditSkillLevelsPageState extends State<EditSkillLevelsPage> {
             CustomDropdown(
               labelText: '',
               initialValue: _numberOfLevels,
-              items: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+              items: [
+                {"code": 1, "value": '1'},
+                {"code": 2, "value": '2'},
+                {"code": 3, "value": '3'},
+                {"code": 4, "value": '4'},
+                {"code": 5, "value": '5'},
+                {"code": 6, "value": '6'},
+                {"code": 7, "value": '7'},
+                {"code": 8, "value": '8'},
+                {"code": 9, "value": '9'},
+                {"code": 10, "value": '10'},
+              ],
               onChanged: (value) {
                 setState(() {
                   _numberOfLevels = value ?? '0';

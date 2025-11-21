@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class BookingDetails {
-  final String code;
+  final int code;
   final String teamName;
   final String imageUrl;
   final String day;
@@ -17,16 +17,18 @@ class BookingDetails {
   final String time;
   final String courtName;
   final String location;
-  final String address;
   final String price;
   final String shuttlecockInfo;
+  final String shuttlecockBrand;
   final String gameInfo;
+  final String courtNumbers;
   final int currentPlayers;
   final int maxPlayers;
   final String organizerName;
   final String organizerImageUrl;
   final List<String> courtImageUrls;
-  final String status;
+  final String notes;
+  final int status;
 
   BookingDetails({
     required this.code,
@@ -37,15 +39,17 @@ class BookingDetails {
     required this.time,
     required this.courtName,
     required this.location,
-    required this.address,
     required this.price,
     required this.shuttlecockInfo,
+    required this.shuttlecockBrand,
     required this.gameInfo,
+    required this.courtNumbers,
     required this.currentPlayers,
     required this.maxPlayers,
     required this.organizerName,
     required this.organizerImageUrl,
     required this.courtImageUrls,
+    required this.notes,
     required this.status,
   });
 }
@@ -100,13 +104,15 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
   Widget _buildbottomBar() {
     switch (widget.details.status) {
-      case 'S':
+      case 1:
+        return _buildBottomBar();
+      case 6:
         return _buildBottomBarS();
-      case 'W':
+      case 2:
         return _buildBottomBarW();
-      case 'WR' || 'C':
+      case 3 || 4:
         return _buildBottomBarWRC();
-      case 'O':
+      case 5:
         return _buildBottomBarO();
       default:
         return _buildBottomBar();
@@ -191,10 +197,6 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                       UrlLauncherService.openMapByQuery(
                         widget.details.courtName,
                       );
-                      // UrlLauncherService.openMapByLatLng(
-                      //   13.8389595795865,
-                      //   100.59509910167397,
-                      // );
                     },
                     icon: Icon(
                       Icons.location_on,
@@ -205,7 +207,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                 ],
               ),
               Text(
-                widget.details.address,
+                widget.details.location,
                 style: TextStyle(
                   color: Color(0xFF64646D),
                   fontSize: getResponsiveFontSize(context, fontSize: 14),
@@ -260,14 +262,16 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _buildText('ค่าสนาม ${widget.details.price}'),
-                  _buildText('RSL Silver ${widget.details.shuttlecockInfo}'),
+                  _buildText(
+                    ' ${widget.details.shuttlecockBrand} ${widget.details.shuttlecockInfo}',
+                  ),
                 ],
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildText('เล่น 21 แต้ม (${widget.details.gameInfo})'),
-                  _buildText('สนามที่ 4, 5, 6'),
+                  _buildText('${widget.details.gameInfo}'),
+                  _buildText('สนามที่ ${widget.details.courtNumbers}'),
                 ],
               ),
               Row(
@@ -295,7 +299,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   ),
                 ],
               ),
-              Text('note : มาเล่นแบดมินตันกับเพื่อนในก๊วนที่วงเวีย...'),
+              Text('note : ${widget.details.notes}'),
             ],
           ),
           const SizedBox(height: 130),
