@@ -2,6 +2,7 @@
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -15,21 +16,89 @@ class HistoryOrganizerPage extends StatefulWidget {
 
 class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   late TextEditingController searchController;
-  // State สำหรับจัดการการแสดงผลบนมือถือ
-  bool _showDetailsOnMobile = false;
-  late List<dynamic> history;
+  // State สำหรับเก็บรายการที่เลือก
+  dynamic _selectedItem;
+  List<dynamic> history = [];
+  Map<String, dynamic>? _sessionDetail;
+  bool _isDetailLoading = false;
+  Map<String, dynamic>? _analyticsData;
+  bool _isAnalyticsLoading = false;
+  bool isLoading = false;
 
-  void _backToListOnMobile() {
+  void _backToList() {
     setState(() {
-      _showDetailsOnMobile = !_showDetailsOnMobile;
+      _selectedItem = null;
+      _sessionDetail = null;
+      _analyticsData = null;
     });
   }
 
   @override
   void initState() {
     searchController = TextEditingController();
-    history = _generateMockHistory(10);
+    _fetchHistory();
     super.initState();
+  }
+
+  Future<void> _fetchHistory() async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final response = await ApiProvider().get('/GameSessions/my-history');
+      if (response['status'] == 200) {
+        setState(() {
+          history = response['data'] ?? [];
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchAnalytics(int sessionId) async {
+    setState(() {
+      _isAnalyticsLoading = true;
+      _analyticsData = null;
+    });
+    try {
+      final response = await ApiProvider().get('/GameSessions/$sessionId/analytics');
+      if (mounted && response['status'] == 200) {
+        setState(() {
+          _analyticsData = response['data'];
+        });
+      }
+    } catch (e) {
+      // Handle error
+    } finally {
+      if (mounted) setState(() => _isAnalyticsLoading = false);
+    }
+  }
+
+  Future<void> _fetchSessionDetail(int sessionId) async {
+    setState(() {
+      _isDetailLoading = true;
+      _sessionDetail = null;
+    });
+    try {
+      final response = await ApiProvider().get('/GameSessions/$sessionId');
+      if (mounted && response['status'] == 200) {
+        setState(() {
+          _sessionDetail = response['data'];
+        });
+      }
+    } catch (e) {
+      // Handle error
+    } finally {
+      if (mounted) setState(() => _isDetailLoading = false);
+    }
   }
 
   @override
@@ -38,56 +107,28 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     super.dispose();
   }
 
-  _generateMockHistory(int count) {
-    return List.generate(count, (i) {
-      return (
-        id: i + 1,
-        datetime: '21/04/25\n18:00 น.',
-        title: 'ก๊วนเหมียวเหมียว',
-        income: '2460',
-        expenses: '2400',
-        accrued: '60',
-      );
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBarSubMain(title: 'ประวัติการจัดก๊วน', isBack: false),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth > 820) {
-            // --- Layout สำหรับจอใหญ่ (Tablet) ---
+          if (constraints.maxWidth > 1000) {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(flex: 3, child: historyList(context)),
                 Expanded(
                   flex: 4,
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        vertical: 16.0,
-                        horizontal: 8,
-                      ),
-                      child: badmintonSummaryPage(context),
-                    ),
-                  ),
+                  child: _selectedItem != null
+                      ? _buildDetailsColumn(context)
+                      : const Center(child: Text('กรุณาเลือกรายการ')),
                 ),
                 Expanded(
                   flex: 4,
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        top: 16,
-                        bottom: 16,
-                        left: 0,
-                        right: 8,
-                      ),
-                      child: badmintonSummaryPage2(context),
-                    ),
-                  ),
+                  child: _selectedItem != null
+                      ? _buildAnalyticsColumn(context)
+                      : const SizedBox(),
                 ),
               ],
             );
@@ -95,23 +136,19 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 3, child: historyList(context)),
-                Expanded(flex: 4, child: detailsView(context, onBack: null)),
+                Expanded(flex: 4, child: historyList(context)),
+                Expanded(
+                  flex: 6,
+                  child: _selectedItem != null
+                      ? detailsView(context, item: _selectedItem, onBack: null)
+                      : const Center(child: Text('กรุณาเลือกรายการ')),
+                ),
               ],
             );
-          } else {
-            // --- Layout สำหรับจอเล็ก (Mobile) ---
-            // ใช้ AnimatedSwitcher เพื่อสร้าง Animation สลับหน้า
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: _showDetailsOnMobile
-                  ? detailsView(
-                      context,
-                      onBack: _backToListOnMobile,
-                    ) // หน้ารายละเอียด
-                  : historyList(context), // หน้ารายการ
-            );
           }
+          return _selectedItem != null
+              ? detailsView(context, item: _selectedItem, onBack: _backToList)
+              : historyList(context);
         },
       ),
     );
@@ -149,25 +186,51 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
               textHistory(2, 'ค้างจ่าย', 12, FontWeight.w700),
             ],
           ),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: history.length,
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () => _backToListOnMobile(),
-                child: Row(
-                  children: [
-                    textHistory(2, '21/04/25\n18:00 น.', 8, FontWeight.w300),
-                    textHistory(3, 'ก๊วนเหมียวเหมียว', 8, FontWeight.w300),
-                    textHistory(2, '2460', 8, FontWeight.w300),
-                    textHistory(2, '2400', 8, FontWeight.w300),
-                    textHistory(2, '60', 8, FontWeight.w300),
-                  ],
-                ),
-              );
-            },
-          ),
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (history.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Center(child: Text('ไม่พบข้อมูล')),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: history.length,
+              itemBuilder: (context, index) {
+                final item = history[index];
+                final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
+                final dateStr = '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}\n${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+                final isSelected = item == _selectedItem;
+
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedItem = item;
+                    });
+                    _fetchAnalytics(item['gameSessionId']);
+                    _fetchSessionDetail(item['gameSessionId']);
+                  },
+                  child: Container(
+                    color: isSelected ? Colors.grey[200] : Colors.transparent,
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      children: [
+                        textHistory(2, dateStr, 10, FontWeight.w300),
+                        textHistory(3, item['groupName'] ?? '-', 10, FontWeight.w300),
+                        textHistory(2, '${item['totalIncome'] ?? 0}', 10, FontWeight.w300),
+                        textHistory(2, '${item['paidAmount'] ?? 0}', 10, FontWeight.w300),
+                        textHistory(2, '${item['unpaidAmount'] ?? 0}', 10, FontWeight.w300),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           const SizedBox(height: 16),
         ],
       ),
@@ -193,15 +256,14 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     );
   }
 
-  Widget detailsView(BuildContext context, {Function()? onBack}) {
-    final bool isMobile = onBack != null;
+  Widget detailsView(BuildContext context, {required dynamic item, Function()? onBack}) {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // ปุ่ม Back สำหรับ Mobile
-            if (isMobile)
+            // ปุ่ม Back
+            if (onBack != null)
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -210,22 +272,66 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                   onPressed: onBack,
                 ),
               ),
-            badmintonSummaryPage(context),
-            badmintonSummaryPage2(context),
+            if (_isDetailLoading)
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_sessionDetail != null)
+              badmintonSummaryPage(context, _sessionDetail)
+            else
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Center(child: Text('ไม่สามารถโหลดข้อมูลรายละเอียดได้')),
+              ),
+            badmintonSummaryPage2(context, _analyticsData, _isAnalyticsLoading),
           ],
         ),
       ),
     );
   }
 
-  Widget badmintonSummaryPage(BuildContext context) {
+  Widget _buildDetailsColumn(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            if (_isDetailLoading)
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_sessionDetail != null)
+              badmintonSummaryPage(context, _sessionDetail)
+            else
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Center(child: Text('ไม่สามารถโหลดข้อมูลรายละเอียดได้')),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsColumn(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: badmintonSummaryPage2(context, _analyticsData, _isAnalyticsLoading),
+      ),
+    );
+  }
+
+  Widget badmintonSummaryPage(BuildContext context, dynamic model) {
     return Column(
       children: [
-        GroupInfoCard(model: dataList[0]),
+        GroupInfoCard(model: model),
         SizedBox(height: 16),
-        ImageSlideshow(model: dataList[0]),
+        ImageSlideshow(model: model),
         SizedBox(height: 16),
-        DetailsCard(),
+        DetailsCard(model: model),
         SizedBox(height: 16),
         ActionButtons(),
         SizedBox(height: 16),
@@ -233,9 +339,15 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     );
   }
 
-  Widget badmintonSummaryPage2(BuildContext context) {
+  Widget badmintonSummaryPage2(BuildContext context, Map<String, dynamic>? analytics, bool isLoading) {
+    if (isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(20.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
     return Column(
-      children: const [SummaryCard(), SizedBox(height: 16), GameTimingCard()],
+      children: [SummaryCard(data: analytics), SizedBox(height: 16), GameTimingCard(games: analytics?['matchHistory'])],
     );
   }
 }
@@ -246,7 +358,7 @@ class GroupInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final formattedDateTime = formatSessionStart(model['sessionStart']);
+    final formattedDateTime = formatSessionStart(model['date'] ?? model['sessionStart'] ?? model['sessionDate'] ?? '');
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -260,7 +372,7 @@ class GroupInfoCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
             color: const Color(0xFF6B7280), // สีเทาเข้ม
             child: Text(
-              model['groupName'],
+              model['groupName'] ?? '-',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -275,10 +387,10 @@ class GroupInfoCard extends StatelessWidget {
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                model['courtName'],
+                model['venueData'] != null ? model['venueData']['name'] : (model['courtName'] ?? model['venueName'] ?? '-'),
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
               ),
-              subtitle: Text(model['location'], style: TextStyle(fontSize: 16)),
+              subtitle: Text(model['venueData'] != null ? model['venueData']['address'] : (model['location'] ?? '-'), style: TextStyle(fontSize: 16)),
               trailing: Icon(
                 Icons.location_on,
                 color: Color(0Xff0E9D7A),
@@ -292,7 +404,7 @@ class GroupInfoCard extends StatelessWidget {
             child: Chip(
               label: Text(
                 // --- (แก้ไข) ใช้ข้อมูลจาก parameter ---
-                '${model['sessionDate']} ${model['startTime']} ${model['endTime']}',
+                '${formattedDateTime['date']} ${formattedDateTime['time']} น.',
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.black,
@@ -301,6 +413,7 @@ class GroupInfoCard extends StatelessWidget {
               ),
               backgroundColor: dayColors.firstWhere(
                 (d) => d['code'] == formattedDateTime['day'],
+                orElse: () => {'code': 'N/A', 'display': Colors.grey},
               )['display'],
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
@@ -323,6 +436,15 @@ class ImageSlideshow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String? imageUrl;
+    if (model['photoUrls'] is List && (model['photoUrls'] as List).isNotEmpty) {
+      imageUrl = model['photoUrls'][0];
+    } else if (model['courtImageUrls'] is List && (model['courtImageUrls'] as List).isNotEmpty) {
+      imageUrl = model['courtImageUrls'][0];
+    } else {
+      imageUrl = model['imageUrl'];
+    }
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias, // ทำให้รูปภาพอยู่ในขอบเขตของการ์ด
@@ -330,7 +452,7 @@ class ImageSlideshow extends StatelessWidget {
       child: Column(
         children: [
           // Placeholder สำหรับรูปภาพ
-          Image.network(model['imageUrl'], fit: BoxFit.cover),
+          if (imageUrl != null) Image.network(imageUrl, fit: BoxFit.cover) else Container(height: 200, color: Colors.grey, child: Center(child: Icon(Icons.image, size: 50, color: Colors.white))),
         ],
       ),
     );
@@ -383,14 +505,13 @@ class DetailsCard extends StatelessWidget {
                   children: [
                     _buildText(
                       context,
-                      'ผู้เล่น ${model['currentParticipants']}/${model['maxParticipants']} คน',
+                      'ผู้เล่น ${model['currentParticipants'] ?? 0}/${model['maxParticipants'] ?? 0} คน',
                     ),
                     _buildText(context, 'สำรอง 00/10 คน'),
                   ],
                 ),
                 GestureDetector(
-                  onTap: () =>
-                      context.push('/player-list/${model['groupName']}'),
+                  onTap: () => context.push('/player-list/${model['gameSessionId'] ?? model['sessionId']}'),
                   child: Text(
                     'ดูผู้เล่น',
                     style: TextStyle(
@@ -402,7 +523,7 @@ class DetailsCard extends StatelessWidget {
                 ),
               ],
             ),
-            Text('note : ${model['notes']}'),
+            Text('note : ${model['notes'] ?? '-'}'),
 
             // รายละเอียดค่าใช้จ่ายและผู้เล่น
             const Divider(height: 32),
@@ -412,7 +533,7 @@ class DetailsCard extends StatelessWidget {
               children: [
                 const Text('รายได้', style: TextStyle(fontSize: 18)),
                 Text(
-                  '2460/2460 บาท',
+                  '${model['paidAmount'] ?? 0}/${model['totalIncome'] ?? 0} บาท',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -486,7 +607,8 @@ class ActionButtons extends StatelessWidget {
 }
 
 class SummaryCard extends StatelessWidget {
-  const SummaryCard({super.key});
+  final Map<String, dynamic>? data;
+  const SummaryCard({super.key, this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -517,46 +639,46 @@ class SummaryCard extends StatelessWidget {
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                _buildSummaryRow(context, 'ก๊วน', 'แมวเหมียว'),
-                _buildSummaryRow(context, 'วันที่', '15 ตุลาคม พ.ศ. 2568'),
+                _buildSummaryRow(context, 'ก๊วน', data?['groupName'] ?? '-'),
+                _buildSummaryRow(context, 'วันที่', data?['date'] != null ? formatSessionStart(data!['date'])['date']! : '-'),
                 _buildSummaryRow(
                   context,
                   'ตีทั้งหมด',
-                  '50',
+                  '${data?['totalGames'] ?? 0}',
                   unit: 'เกม',
                   trailingTitle: 'ใช้ลูก',
-                  trailingValue: '52',
+                  trailingValue: '${data?['totalShuttlecocks'] ?? 0}',
                   trailingUnit: 'ลูก',
                 ),
                 _buildSummaryRow(
                   context,
                   'เวลาเริ่มตี',
-                  '19.05',
-                  unit: 'นาที',
+                  (data?['totalPlayTimeStart']?.toString().isNotEmpty ?? false) ? data!['totalPlayTimeStart'] : '-',
+                  unit: 'น.',
                   trailingTitle: 'เวลาสิ้นสุดการตี',
-                  trailingValue: '22.15',
-                  trailingUnit: 'นาที',
+                  trailingValue: (data?['totalPlayTimeEnd']?.toString().isNotEmpty ?? false) ? data!['totalPlayTimeEnd'] : '-',
+                  trailingUnit: 'น.',
                 ),
                 _buildSummaryRow(
                   context,
                   'เวลาตีต่อเกมเฉลี่ย',
-                  '15.05',
+                  '${data?['averagePlayTimePerGame'] ?? 0}',
                   unit: 'นาที',
                 ),
                 _buildSummaryRow(
                   context,
                   'เกมที่ใช้เวลานานสุด',
-                  'A+B vs C+D',
+                  data?['longestGame']?['matchName'] ?? '-',
                   trailingTitle: 'ใช้เวลา',
-                  trailingValue: '20.30',
+                  trailingValue: '${data?['longestGame']?['duration'] ?? 0}',
                   trailingUnit: 'นาที',
                 ),
                 _buildSummaryRow(
                   context,
                   'เกมที่ใช้เวลาน้อยสุด',
-                  'A+B vs C+D',
+                  data?['shortestGame']?['matchName'] ?? '-',
                   trailingTitle: 'ใช้เวลา',
-                  trailingValue: '20.30',
+                  trailingValue: '${data?['shortestGame']?['duration'] ?? 0}',
                   trailingUnit: 'นาที',
                 ),
               ],
@@ -626,11 +748,33 @@ class SummaryCard extends StatelessWidget {
 }
 
 // --- Widget ย่อย: การ์ดเกมที่ใช้เวลานานที่สุด ---
-class GameTimingCard extends StatelessWidget {
-  const GameTimingCard({super.key});
+class GameTimingCard extends StatefulWidget {
+  final List<dynamic>? games;
+  const GameTimingCard({super.key, this.games});
+
+  @override
+  State<GameTimingCard> createState() => _GameTimingCardState();
+}
+
+class _GameTimingCardState extends State<GameTimingCard> {
+  int _currentPage = 1;
+  final int _itemsPerPage = 5;
 
   @override
   Widget build(BuildContext context) {
+    final games = widget.games ?? [];
+    final totalPages = (games.length / _itemsPerPage).ceil();
+
+    if (_currentPage > totalPages) _currentPage = totalPages > 0 ? totalPages : 1;
+    if (_currentPage < 1) _currentPage = 1;
+
+    final startIndex = (_currentPage - 1) * _itemsPerPage;
+    final endIndex = startIndex + _itemsPerPage;
+    final currentGames = games.sublist(
+      startIndex < games.length ? startIndex : 0,
+      endIndex < games.length ? endIndex : games.length,
+    );
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -639,7 +783,7 @@ class GameTimingCard extends StatelessWidget {
         child: Column(
           children: [
             const Text(
-              'เกมที่ใช้เวลานานที่สุด',
+              'รายการเกมทั้งหมด',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
             ),
             const SizedBox(height: 20),
@@ -655,24 +799,41 @@ class GameTimingCard extends StatelessWidget {
             ),
             const Divider(height: 24),
             // รายการเกม
-            ...List.generate(8, (index) => _buildGameRow(context, index)),
+            if (currentGames.isNotEmpty)
+              ...currentGames.map((game) => _buildGameRow(context, game)).toList()
+            else
+              const Padding(padding: EdgeInsets.all(16), child: Text('ไม่มีข้อมูลเกม')),
             // Pagination
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                4,
-                (index) => TextButton(
-                  onPressed: () {},
-                  style: TextButton.styleFrom(
-                    foregroundColor: index == 0 ? Colors.white : Colors.black,
-                    backgroundColor: index == 0
-                        ? Colors.blue
-                        : Colors.transparent,
+            if (totalPages > 1)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(
+                    totalPages,
+                    (index) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _currentPage = index + 1;
+                          });
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: _currentPage == index + 1 ? Colors.white : Colors.black,
+                          backgroundColor: _currentPage == index + 1
+                              ? const Color(0xFF0E9D7A)
+                              : Colors.transparent,
+                          minimumSize: const Size(36, 36),
+                          padding: EdgeInsets.zero,
+                          shape: const CircleBorder(),
+                        ),
+                        child: Text('${index + 1}'),
+                      ),
+                    ),
                   ),
-                  child: Text('${index + 1}'),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -692,7 +853,7 @@ class GameTimingCard extends StatelessWidget {
   }
 
   // Helper สำหรับสร้างแต่ละแถวของเกม
-  Widget _buildGameRow(BuildContext context, int index) {
+  Widget _buildGameRow(BuildContext context, dynamic game) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12.0),
       child: Row(
@@ -700,7 +861,7 @@ class GameTimingCard extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Text(
-              '01, 1, 23',
+              '${game['gameNumber'] ?? '-'}, ${game['courtName'] ?? '-'}, ${game['shuttlesUsed'] ?? '-'}',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 10),
@@ -708,7 +869,7 @@ class GameTimingCard extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(flex: 3, child: _buildTeam(context, ['แชมป์', 'บิว'])),
+          Expanded(flex: 3, child: _buildTeam(context, game['teamA'] ?? [])),
           Expanded(
             flex: 1,
             child: Text(
@@ -719,11 +880,11 @@ class GameTimingCard extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(flex: 3, child: _buildTeam(context, ['มิก', 'ปุ้ย'])),
+          Expanded(flex: 3, child: _buildTeam(context, game['teamB'] ?? [])),
           Expanded(
             flex: 2,
             child: Text(
-              '00.00',
+              game['duration'] ?? '00.00',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 10),
@@ -737,12 +898,12 @@ class GameTimingCard extends StatelessWidget {
   }
 
   // Helper สำหรับสร้าง Widget แสดงชื่อผู้เล่นในทีม
-  Widget _buildTeam(BuildContext context, List<String> players) {
+  Widget _buildTeam(BuildContext context, List<dynamic> players) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: players
           .map(
-            (name) => Container(
+            (name) => Flexible(child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 2),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               child: Text(
@@ -754,7 +915,7 @@ class GameTimingCard extends StatelessWidget {
                   decorationColor: Color(0xFF0E9D7A),
                 ),
               ),
-            ),
+            )),
           )
           .toList(),
     );

@@ -85,18 +85,24 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   Player? _playerForExpenses;
   bool _isStartGame = false;
+  int _currentParticipants = 0;
+  int _maxParticipants = 0;
+  Timer? _sessionTimer;
+  Duration _sessionDuration = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _fetchLiveState(); // 2. เรียกข้อมูลครั้งแรกเพื่อแสดงผลทันที
     _fetchSkillLevels(); // NEW: ดึงข้อมูลระดับมือเมื่อเข้าหน้า
+    _fetchSessionDetails();
     _initSignalR(); // 3. เริ่มการเชื่อมต่อ SignalR
   }
 
   @override
   void dispose() {
     _timers.forEach((key, timer) => timer.cancel());
+    _sessionTimer?.cancel();
     // --- REFACTORED: Leave group before stopping the connection ---
     if (_hubConnection != null) {
       // 4. บอก Server ว่าจะออกจากกลุ่มของ Session นี้
@@ -126,6 +132,20 @@ class _ManageGamePage extends State<ManageGamePage> {
       }
     } catch (e) {
       // ไม่ต้องแสดง error ก็ได้ เพราะหน้านี้ยังทำงานต่อได้
+    }
+  }
+
+  Future<void> _fetchSessionDetails() async {
+    try {
+      final response = await ApiProvider().get('/GameSessions/${widget.id}');
+      if (mounted && response['data'] != null) {
+        setState(() {
+          _currentParticipants = response['data']['currentParticipants'] ?? 0;
+          _maxParticipants = response['data']['maxParticipants'] ?? 0;
+        });
+      }
+    } catch (e) {
+      // Handle error
     }
   }
 
@@ -388,6 +408,12 @@ class _ManageGamePage extends State<ManageGamePage> {
       reserveTeams = newReserveTeams; // NEW: อัปเดตทีมสำรอง
       readyTeams = newReadyTeams; // อัปเดต readyTeams ให้ตรงกับ playingCourts
       _groupName = liveState['groupName']; // หากมีข้อมูลชื่อก๊วนใน API
+
+      // --- FIX: อัปเดตจำนวนผู้เข้าร่วมจากข้อมูลจริงที่มีอยู่ ---
+      _currentParticipants = waitingPlayers.length;
+      if (liveState['maxParticipants'] != null) {
+        _maxParticipants = liveState['maxParticipants'];
+      }
     });
   }
 
@@ -726,6 +752,25 @@ class _ManageGamePage extends State<ManageGamePage> {
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
     return "$twoDigitMinutes:$twoDigitSeconds";
+  }
+
+  String _formatSessionDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitHours = twoDigits(duration.inHours);
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$twoDigitHours:$twoDigitMinutes:$twoDigitSeconds";
+  }
+
+  void _startSessionTimer() {
+    _sessionTimer?.cancel();
+    _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _sessionDuration += const Duration(seconds: 1);
+        });
+      }
+    });
   }
 
   // ... ใน _ManageGamePageState
@@ -2006,7 +2051,7 @@ class _ManageGamePage extends State<ManageGamePage> {
             text,
             style: TextStyle(
               fontSize: 18,
-              color: isEnabled ? Color(0xFF243F94) : Colors.grey[400],
+              color: text == "จบการแข่งขัน" ? Color(0xFFDB2C2C) : isEnabled ? Color(0xFF243F94) : Colors.grey[400],
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -2021,27 +2066,27 @@ class _ManageGamePage extends State<ManageGamePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
             child: Text.rich(
               TextSpan(
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 children: [
-                  TextSpan(text: 'เข้าร่วมแล้ว '),
+                  const TextSpan(text: 'เข้าร่วมแล้ว '),
                   TextSpan(
-                    text: '62/70',
-                    style: TextStyle(color: Colors.green),
+                    text: '$_currentParticipants/$_maxParticipants',
+                    style: const TextStyle(color: Colors.green),
                   ),
-                  TextSpan(text: ' คน'),
+                  const TextSpan(text: ' คน'),
                 ],
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(24, 0, 24, 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
             child: Text(
-              'เวลา 00:00:00 น.',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              'เวลา ${_formatSessionDuration(_sessionDuration)} น.',
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
           ),
           const Divider(height: 1),
@@ -2085,6 +2130,7 @@ class _ManageGamePage extends State<ManageGamePage> {
                         setState(() {
                           _isStartGame = true;
                         });
+                        _startSessionTimer();
                       },
                     );
                   },

@@ -9,6 +9,7 @@ import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_sticky_header/flutter_sticky_header.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 enum PlayerWidgetPart { header, content }
 
@@ -227,6 +228,110 @@ class ManagePageState extends State<ManagePage> {
     }
   }
 
+   void _showQrScannerDialog() {
+    // Controller สำหรับจัดการกล้อง
+    final MobileScannerController controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal, // ความเร็วในการตรวจจับ
+      facing: CameraFacing.back, // ใช้กล้องหลัง
+    );
+
+    bool isScanCompleted = false; // ตัวแปรป้องกันการสแกนซ้ำซ้อน
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: 300,
+            height: 350,
+            child: Column(
+              children: [
+                // --- Header ของ Dialog ---
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Scan QR Code',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                // --- พื้นที่แสดงกล้อง ---
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: MobileScanner(
+                        controller: controller,
+                        // onDetect จะถูกเรียกเมื่อสแกนเจอ QR Code
+                        onDetect: (capture) {
+                          // ป้องกันการทำงานซ้ำซ้อนถ้าสแกนติดกันเร็วๆ
+                          if (isScanCompleted) return;
+
+                          final List<Barcode> barcodes = capture.barcodes;
+                          if (barcodes.isNotEmpty &&
+                              barcodes.first.rawValue != null) {
+                            isScanCompleted = true;
+                            final String scannedData = barcodes.first.rawValue!;
+
+                            // --- NEW: Call Check-in API ---
+                            // --- FIX: แก้ไข Endpoint และ Body ให้ตรงกับ API ---
+                            ApiProvider()
+                                .post(
+                                  '/gamesessions/${_myGamesData[indexData]['id']}/checkin',
+                                  data: {
+                                    // "scannedData" คือ key ที่ API ต้องการ
+                                    "scannedData": scannedData,
+                                  },
+                                )
+                                .then((response) {
+                                  Navigator.of(context).pop();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(response['message']),
+                                    ),
+                                  );
+                                })
+                                .catchError((error) {
+                                  Navigator.of(context).pop();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Check-in ล้มเหลว: $error'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      // หยุดการทำงานของกล้องเมื่อ Dialog ถูกปิด
+      controller.dispose();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -420,18 +525,19 @@ class ManagePageState extends State<ManagePage> {
                   fontSize: 11,
                   enabled: true,
                   onPressed: () {
-                    context
-                        .push(
-                          '/add-game/${_myGamesData[indexData]['sessionId']}',
-                        )
-                        .then((result) {
-                          if (result == true) {
-                            // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
-                            setState(
-                              () => _futureMyGames = _fetchMyUpcomingGames(),
-                            );
-                          }
-                        });
+                    _showQrScannerDialog();
+                    // context
+                    //     .push(
+                    //       '/add-game/${_myGamesData[indexData]['sessionId']}',
+                    //     )
+                    //     .then((result) {
+                    //       if (result == true) {
+                    //         // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
+                    //         setState(
+                    //           () => _futureMyGames = _fetchMyUpcomingGames(),
+                    //         );
+                    //       }
+                    //     });
                   },
                 ),
               ),
@@ -482,18 +588,19 @@ class ManagePageState extends State<ManagePage> {
                   foregroundColor: Color(0xFFFFFFFF),
                   fontSize: 11,
                   onPressed: () {
-                    context
-                        .push(
-                          '/add-game/${_myGamesData[indexData]['sessionId']}',
-                        )
-                        .then((result) {
-                          if (result == true) {
-                            // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
-                            setState(
-                              () => _futureMyGames = _fetchMyUpcomingGames(),
-                            );
-                          }
-                        });
+                    _showQrScannerDialog();
+                    // context
+                    //     .push(
+                    //       '/add-game/${_myGamesData[indexData]['sessionId']}',
+                    //     )
+                    //     .then((result) {
+                    //       if (result == true) {
+                    //         // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
+                    //         setState(
+                    //           () => _futureMyGames = _fetchMyUpcomingGames(),
+                    //         );
+                    //       }
+                    //     });
                   },
                 ),
               ),

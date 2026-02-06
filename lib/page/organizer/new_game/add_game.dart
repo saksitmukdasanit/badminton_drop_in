@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:badminton/component/app_bar.dart';
@@ -16,7 +17,8 @@ import 'package:intl/intl.dart';
 
 class AddGamePage extends StatefulWidget {
   final String code;
-  const AddGamePage({super.key, required this.code});
+  final Object? extra; // รับข้อมูล extra (sessionData, initialDate)
+  const AddGamePage({super.key, required this.code, this.extra});
 
   @override
   AddGamePageState createState() => AddGamePageState();
@@ -74,8 +76,11 @@ class AddGamePageState extends State<AddGamePage> {
     _openCourtsController = TextEditingController();
     _notesController = TextEditingController();
     _courtSearchFocusNode.addListener(_onCourtSearchFocusChange);
-    _fetchMasterData();
     super.initState();
+    // ย้ายการเรียก API ไปหลัง build เฟรมแรก เพื่อความปลอดภัย
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchMasterData();
+    });
   }
 
   @override
@@ -104,13 +109,15 @@ class AddGamePageState extends State<AddGamePage> {
     if (_courtSearchFocusNode.hasFocus) {
       // หน่วงเวลาเล็กน้อยเพื่อให้คีย์บอร์ดขึ้นมาก่อน
       Future.delayed(const Duration(milliseconds: 300), () {
-        // สั่งให้เลื่อนหน้าจอเพื่อให้แน่ใจว่าช่องค้นหาสนามมองเห็นได้
-        Scrollable.ensureVisible(
-          _courtSearchFocusNode.context!,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          alignment: 0.1, // เลื่อนให้ช่องอยู่เหนือคีย์บอร์ดเล็กน้อย
-        );
+        if (mounted && _courtSearchFocusNode.context != null) {
+          // สั่งให้เลื่อนหน้าจอเพื่อให้แน่ใจว่าช่องค้นหาสนามมองเห็นได้
+          Scrollable.ensureVisible(
+            _courtSearchFocusNode.context!,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: 0.1, // เลื่อนให้ช่องอยู่เหนือคีย์บอร์ดเล็กน้อย
+          );
+        }
       });
     }
   }
@@ -119,104 +126,176 @@ class AddGamePageState extends State<AddGamePage> {
     try {
       // ใช้ Future.wait เพื่อเรียก API ทั้งหมดพร้อมกัน
       final responses = await Future.wait([
-        ApiProvider().get('/Dropdowns/gametypes'),
-        ApiProvider().get('/Dropdowns/pairingmethods'),
-        ApiProvider().get('/Dropdowns/shuttlecockbrands'),
-        ApiProvider().get('/Dropdowns/facilities'),
+        ApiProvider().get('/Dropdowns/gametypes').catchError((_) => []),
+        ApiProvider().get('/Dropdowns/pairingmethods').catchError((_) => []),
+        ApiProvider().get('/Dropdowns/shuttlecockbrands').catchError((_) => []),
+        ApiProvider().get('/Dropdowns/facilities').catchError((_) => []),
         // ถ้าเป็นการแก้ไข (code != 'new') ให้ดึงข้อมูลเกมมาด้วย
         if (widget.code != 'new')
-          ApiProvider().get('/GameSessions/${widget.code}'),
-      ]);
+          ApiProvider().get('/GameSessions/${widget.code}').catchError((_) => null),
+      ]).timeout(const Duration(seconds: 10), onTimeout: () {
+        throw TimeoutException('การเชื่อมต่อหมดเวลา');
+      });
+
 
       // นำข้อมูล Master Data มาใส่ใน State
+      if (!mounted) return;
       setState(() {
-        _gameTypes = responses[0];
-        _pairingMethods = responses[1];
-        _shuttleBrands = responses[2];
-        _facilitiesFromApi = responses[3] as List;
+        _gameTypes = (responses[0] as List?) ?? [];
+        _pairingMethods = (responses[1] as List?) ?? [];
+        _shuttleBrands = (responses[2] as List?) ?? [];
+        _facilitiesFromApi = (responses[3] as List?) ?? [];
         _facilities = {
-          for (var item in _facilitiesFromApi) item['value']: false,
+          for (var item in _facilitiesFromApi)
+            if (item['value'] != null) // ป้องกัน key เป็น null
+              item['value']: false,
         };
       });
 
-      // --- ตรวจสอบและใส่ข้อมูลเดิม (กรณีแก้ไข) ---
+      // --- เตรียมข้อมูลที่จะนำมาแสดง (Game Data) ---
+      dynamic rawGameData; // ใช้ dynamic เพื่อรับค่าก่อน ป้องกัน Cast Error
+
+      // กรณี 1: แก้ไข (Edit) - ดึงจาก API
       if (widget.code != 'new' && responses.length > 4) {
-        final gameData = responses[4]['data'];
-        final shuttlecockModelId = gameData['shuttlecockModelId']?.toString();
-
-        if (gameData != null) {
-          // --- NEW: โหลดข้อมูลรุ่นลูกแบดก่อน แล้วค่อย setState ---
-          if (gameData['shuttlecockBrandId'] != null) {
-            await _callReadShuttlecockmodels(
-              gameData['shuttlecockBrandId']?.toString(),
-            );
-          }
-
-          setState(() {
-            _teamNameController.text = gameData['groupName'] ?? '';
-            // _courtSearchController.text = gameData['courtName'] ?? '';
-            _dateController.text = gameData['sessionDate'] ?? '';
-            _startTimeController.text = gameData['startTime'] ?? '';
-            _endTimeController.text = gameData['endTime'] ?? '';
-            _selectedGameType = gameData['gameTypeId']?.toString();
-            _slotsController.text =
-                gameData['maxParticipants']?.toString() ?? '';
-            _selectedQueueType = gameData['pairingMethodId']?.toString();
-            _shuttleChargeMethod = gameData['costingMethod'];
-            _shuttlePriceController.text =
-                gameData['shuttlecockFeePerPerson']?.toString() ?? '';
-            _shuttleCostController.text =
-                gameData['shuttlecockCostPerUnit']?.toString() ?? '';
-            _selectedShuttleBrand = gameData['shuttlecockBrandId']?.toString();
-            _selectedShuttleModel =
-                shuttlecockModelId; // ใช้ค่าที่เก็บไว้ก่อนหน้า
-            _courtPriceController.text =
-                gameData['courtFeePerPerson']?.toString() ?? '';
-            _courtTotalCostController.text =
-                gameData['totalCourtCost']?.toString() ?? '';
-            _openCourtsController.text =
-                gameData['numberOfCourts']?.toString() ?? '';
-            _notesController.text = gameData['notes'] ?? '';
-            if (gameData['photoUrls'] is List) {
-              _gameImages.addAll(List<String>.from(gameData['photoUrls']));
-            }
-
-            // --- ส่วนที่เพิ่ม: ดึงข้อมูล VenueData มาใส่ใน _selectedPlace ---
-            if (gameData['venueData'] != null) {
-              final venue = gameData['venueData'];
-              _courtSearchController.text = venue['name'] ?? '';
-              _selectedPlace = {
-                'placeId': venue['googlePlaceId'],
-                'name': venue['name'],
-                'address': venue['address'],
-                'lat': venue['latitude']?.toString(),
-                'lng': venue['longitude']?.toString(),
-              };
-            }
-
-            // --- ส่วนที่เพิ่ม: ดึงข้อมูล Facilities ที่เลือกไว้ ---
-            if (gameData['facilityIds'] is List) {
-              final List<int> selectedFacilityIds = List<int>.from(
-                gameData['facilityIds'],
-              );
-              for (var facility in _facilitiesFromApi) {
-                if (selectedFacilityIds.contains(facility['code'])) {
-                  _facilities[facility['value']] = true;
-                }
-              }
-            }
-
-            // --- ส่วนที่เพิ่ม: ดึงข้อมูล Court Numbers ---
-            if (gameData['courtNumbers'] is String) {
-              _updateCourtFields(
-                gameData['numberOfCourts'].toString(),
-                gameData['courtNumbers'],
-              );
-            }
-          });
+        final responseData = responses[4];
+        if (responseData is Map) {
+          rawGameData = responseData['data'];
         }
       }
-    } catch (e) {
+      // กรณี 2: สร้างใหม่จากประวัติ (New from History) - ดึงจาก extra
+      else if (widget.code == 'new' && widget.extra != null) {
+        // ใช้การตรวจสอบและ Cast แบบปลอดภัยป้องกัน Error
+        if (widget.extra is Map) {
+          // ดึงค่าออกมาตรงๆ โดยไม่ Cast เป็น Map<String, dynamic> ทันที
+          rawGameData = (widget.extra as Map)['sessionData'];
+        }
+      }
+
+      if (rawGameData != null && rawGameData is Map) {
+        // แปลงเป็น Map<String, dynamic> อย่างปลอดภัย (ป้องกัน Type Error)
+        final Map<String, dynamic> data = Map<String, dynamic>.from(rawGameData);
+        
+        final shuttlecockModelId = data['shuttlecockModelId']?.toString();
+
+        // --- NEW: โหลดข้อมูลรุ่นลูกแบดแบบ Background (ไม่รอ await) ---
+        // เพื่อป้องกันหน้าจอค้างถ้า API นี้ตอบช้า
+        if (data['shuttlecockBrandId'] != null) {
+          _callReadShuttlecockmodels(
+            data['shuttlecockBrandId']?.toString(),
+            initialModelId: shuttlecockModelId, // ส่ง ID ไปตั้งค่าทีหลัง
+          );
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _teamNameController.text = data['groupName'] ?? '';
+          // _courtSearchController.text = data['courtName'] ?? '';
+
+          // --- จัดการวันที่ (Date) ---
+          // ถ้ามี initialDate ส่งมา (จาก Logic วันถัดไป) ให้ใช้ค่าใหม่
+          if (widget.extra != null && widget.extra is Map) {
+            final extraMap = widget.extra as Map;
+            if (extraMap['initialDate'] != null && extraMap['initialDate'] is DateTime) {
+              final DateTime initDate = extraMap['initialDate'];
+              _dateController.text = DateFormat('dd/MM/yyyy').format(initDate);
+            } else {
+              _dateController.text = _formatDateForDisplay(data['sessionDate']);
+            }
+          } else {
+            // ถ้าไม่มี ให้ใช้ค่าเดิมจาก sessionData (ต้องแปลง format)
+            _dateController.text = _formatDateForDisplay(data['sessionDate']);
+          }
+
+          // --- จัดการเวลา (Time) ---
+          // ตัดวินาทีออกถ้ามี (HH:mm:ss -> HH:mm)
+          if (data['startTime'] != null) {
+            _startTimeController.text =
+                _formatTimeForDisplay(data['startTime']);
+          }
+          if (data['endTime'] != null) {
+            _endTimeController.text =
+                _formatTimeForDisplay(data['endTime']);
+          }
+
+          // --- Validate Dropdown Values ---
+          // ตรวจสอบว่าค่าที่ได้มา มีอยู่ในรายการ Master Data หรือไม่ ถ้าไม่มีให้เป็น null
+          _selectedGameType = data['gameTypeId']?.toString();
+          if (!_checkItemExists(_gameTypes, _selectedGameType)) _selectedGameType = null;
+
+          _slotsController.text =
+              data['maxParticipants']?.toString() ?? '';
+          
+          _selectedQueueType = data['pairingMethodId']?.toString();
+          if (!_checkItemExists(_pairingMethods, _selectedQueueType)) _selectedQueueType = null;
+
+          _shuttleChargeMethod = data['costingMethod'];
+          _shuttlePriceController.text =
+              data['shuttlecockFeePerPerson']?.toString() ?? '';
+          _shuttleCostController.text =
+              data['shuttlecockCostPerUnit']?.toString() ?? '';
+          _selectedShuttleBrand = data['shuttlecockBrandId']?.toString();
+          
+          // ถ้าไม่มี Brand (ไม่ได้โหลดรุ่น) ให้ใส่ค่าเลย แต่ถ้ามี Brand ให้รอ _callReadShuttlecockmodels จัดการ
+          if (data['shuttlecockBrandId'] == null) {
+             _selectedShuttleModel = shuttlecockModelId;
+          }
+
+          _courtPriceController.text =
+              data['courtFeePerPerson']?.toString() ?? '';
+          _courtTotalCostController.text =
+              data['totalCourtCost']?.toString() ?? '';
+          _openCourtsController.text =
+              data['numberOfCourts']?.toString() ?? '';
+          _notesController.text = data['notes'] ?? '';
+          if (data['photoUrls'] is List) {
+            _gameImages.addAll(List<String>.from(data['photoUrls']));
+          }
+
+          // --- ส่วนที่เพิ่ม: ดึงข้อมูล VenueData มาใส่ใน _selectedPlace ---
+          if (data['venueData'] != null) {
+            final venue = data['venueData'];
+            _courtSearchController.text = venue['name'] ?? '';
+            _selectedPlace = {
+              'placeId': venue['googlePlaceId'],
+              'name': venue['name'],
+              'address': venue['address'],
+              'lat': venue['latitude']?.toString(),
+              'lng': venue['longitude']?.toString(),
+            };
+          }
+
+          // --- ส่วนที่เพิ่ม: ดึงข้อมูล Facilities ที่เลือกไว้ ---
+          if (data['facilityIds'] is List) {
+            final List<int> selectedFacilityIds = List<int>.from(
+              data['facilityIds'],
+            );
+            for (var facility in _facilitiesFromApi) {
+              if (selectedFacilityIds.contains(facility['code'])) {
+                _facilities[facility['value']] = true;
+              }
+            }
+          }
+
+          // --- ส่วนที่เพิ่ม: ดึงข้อมูล Court Numbers (รวมใน setState เลย) ---
+          if (data['courtNumbers'] is String) {
+            final String courtNums = data['courtNumbers'];
+            final int count = int.tryParse(data['numberOfCourts']?.toString() ?? '0') ?? 0;
+            
+            // เคลียร์และสร้าง Controller ใหม่
+            for (var controller in _courtNumberControllers) {
+              controller.dispose();
+            }
+            _courtNumberControllers.clear();
+
+            final List<String> values = courtNums.split(',');
+            for (int i = 0; i < count; i++) {
+              final initialText = i < values.length ? values[i] : '';
+              _courtNumberControllers.add(TextEditingController(text: initialText));
+            }
+          }
+        });
+      }
+    } catch (e, stacktrace) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -227,18 +306,45 @@ class AddGamePageState extends State<AddGamePage> {
       }
     } finally {
       // เมื่อโหลดข้อมูลเสร็จสิ้น (ทั้งสำเร็จและล้มเหลว) ให้ปิด loading
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        // เพิ่ม delay เล็กน้อยเพื่อให้แน่ใจว่า UI พร้อม render
+        await Future.delayed(const Duration(milliseconds: 100));
+        setState(() => _isLoading = false);
+        
+      }
     }
   }
 
-  Future<void> _callReadShuttlecockmodels(shuttlecockbrandsId) async {
-    final responses = await ApiProvider().get(
-      '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
-    );
+  // Helper function เพื่อเช็คว่าค่ามีใน Dropdown list หรือไม่
+  bool _checkItemExists(List<dynamic> items, String? value) {
+    if (value == null) return false;
+    // สมมติว่า items เป็น List<Map> และมี key 'value' หรือ 'id'
+    // ปรับแก้ตามโครงสร้างจริงของ API Dropdown
+    return items.any((item) => item['value'].toString() == value || item['id'].toString() == value || item['code'].toString() == value);
+  }
 
-    setState(() {
-      _shuttleModels = responses;
-    });
+  // เพิ่ม parameter initialModelId เพื่อตั้งค่าหลังจากโหลดเสร็จ
+  Future<void> _callReadShuttlecockmodels(dynamic shuttlecockbrandsId, {String? initialModelId}) async {
+    try {
+      final responses = await ApiProvider().get(
+        '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
+      ).timeout(const Duration(seconds: 10)); // เพิ่ม Timeout กันเหนียว
+
+      if (mounted) {
+        setState(() {
+          if (responses is List) {
+            _shuttleModels = responses;
+          } else {
+            _shuttleModels = [];
+          }
+          // ตั้งค่ารุ่นลูกแบดหลังจากโหลดรายการเสร็จแล้ว
+          if (initialModelId != null) {
+            _selectedShuttleModel = initialModelId;
+          }
+        });
+      }
+    } catch (e) {
+    }
   }
 
   void _updateCourtFields(String value, [String? initialValues]) {
@@ -249,6 +355,7 @@ class AddGamePageState extends State<AddGamePage> {
     if (count == _courtNumberControllers.length && initialValues == null)
       return;
 
+    if (!mounted) return;
     setState(() {
       // เคลียร์ controller เก่าทั้งหมดเพื่อป้องกันปัญหา
       for (var controller in _courtNumberControllers) {
@@ -330,6 +437,29 @@ class AddGamePageState extends State<AddGamePage> {
     }
   }
 
+  // แปลงจาก yyyy-MM-dd (API) เป็น dd/MM/yyyy (Display)
+  String _formatDateForDisplay(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return '';
+    try {
+      final DateTime date = DateTime.parse(dateStr);
+      return DateFormat('dd/MM/yyyy').format(date);
+    } catch (e) {
+      return dateStr;
+    }
+  }
+
+  // แปลงจาก HH:mm:ss (API) เป็น HH:mm (Display)
+  String _formatTimeForDisplay(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return '';
+    try {
+      final parts = timeStr.split(':');
+      if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
+      return timeStr;
+    } catch (e) {
+      return timeStr;
+    }
+  }
+
   Future<void> _onImagePicked(List<File> imageFile) async {
     // จำกัดให้มีรูปได้ไม่เกิน 5 รูป
     if (_gameImages.length >= 5) {
@@ -345,7 +475,7 @@ class AddGamePageState extends State<AddGamePage> {
         folderName: "Game",
       );
 
-      if (response.length > 0) {
+      if (response is List && response.isNotEmpty) {
         if (mounted) {
           setState(() {
             for (var r in response) {
@@ -356,7 +486,7 @@ class AddGamePageState extends State<AddGamePage> {
       } else {
         if (mounted) {
           final errorMessage =
-              response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+              (response is Map ? response['message'] : null) ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: Colors.orange,
@@ -386,10 +516,10 @@ class AddGamePageState extends State<AddGamePage> {
 
   Future<void> _submitForm() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_selectedPlace == null && _courtSearchController.text.isEmpty) {
+    if (_selectedPlace == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('กรุณาเลือกสนาม')));
+      ).showSnackBar(const SnackBar(content: Text('กรุณาเลือกสนามจากรายการค้นหา')));
       return;
     }
 
@@ -577,39 +707,43 @@ class AddGamePageState extends State<AddGamePage> {
           controller: _teamNameController,
         ),
         const SizedBox(height: 16),
-        GooglePlaceAutoCompleteTextField(
-          focusNode: _courtSearchFocusNode,
-          textEditingController: _courtSearchController,
-          googleAPIKey: "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc",
-          inputDecoration: InputDecoration(
-            labelText: "ค้นหาสนาม",
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.0),
+        SizedBox(
+          width: double.infinity,
+          child: GooglePlaceAutoCompleteTextField(
+            focusNode: _courtSearchFocusNode,
+            textEditingController: _courtSearchController,
+            googleAPIKey: "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc",
+            inputDecoration: InputDecoration(
+              labelText: "ค้นหาสนาม",
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12.0),
+              ),
             ),
+            debounceTime: 400,
+            countries: ["th"], // จำกัดการค้นหาในประเทศไทย
+            isLatLngRequired: true,
+            getPlaceDetailWithLatLng: (prediction) {
+              // Callback เมื่อผู้ใช้เลือกสถานที่
+              setState(() {
+                _selectedPlace = {
+                  'placeId': prediction.placeId, // <<< NEW: เก็บ Place ID
+                  'name': prediction.description,
+                  'address':
+                      prediction.description, // ใช้ description สำหรับที่อยู่ด้วย
+                  'lat': prediction.lat,
+                  'lng': prediction.lng,
+                };
+              });
+              print("Selected Place: ${prediction.description}");
+            },
+            itemClick: (prediction) {
+              _courtSearchController.text = prediction.description ?? '';
+              _courtSearchController.selection = TextSelection.fromPosition(
+                TextPosition(offset: prediction.description?.length ?? 0),
+              );
+            },
+            seperatedBuilder: const Divider(), // เพิ่มบรรทัดนี้เพื่อป้องกัน Error ในบางเวอร์ชัน
           ),
-          debounceTime: 400,
-          countries: ["th"], // จำกัดการค้นหาในประเทศไทย
-          isLatLngRequired: true,
-          getPlaceDetailWithLatLng: (prediction) {
-            // Callback เมื่อผู้ใช้เลือกสถานที่
-            setState(() {
-              _selectedPlace = {
-                'placeId': prediction.placeId, // <<< NEW: เก็บ Place ID
-                'name': prediction.description,
-                'address':
-                    prediction.description, // ใช้ description สำหรับที่อยู่ด้วย
-                'lat': prediction.lat,
-                'lng': prediction.lng,
-              };
-            });
-            print("Selected Place: ${prediction.description}");
-          },
-          itemClick: (prediction) {
-            _courtSearchController.text = prediction.description ?? '';
-            _courtSearchController.selection = TextSelection.fromPosition(
-              TextPosition(offset: prediction.description?.length ?? 0),
-            );
-          },
         ),
         const SizedBox(height: 16),
         CustomTextFormField(

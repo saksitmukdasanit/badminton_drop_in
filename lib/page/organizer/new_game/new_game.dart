@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/page/organizer/new_game/from_history.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,10 +14,92 @@ class NewGamePage extends StatefulWidget {
 
 class NewGamePageState extends State<NewGamePage> {
   late Future<dynamic> futureModel;
+  Map<int, dynamic> _latestGames = {}; // เก็บข้อมูลก๊วนล่าสุดของแต่ละวัน (1=Mon, 7=Sun)
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    try {
+      final response = await ApiProvider().get('/GameSessions/my-history');
+      List<dynamic> listData = [];
+      if (response is List) {
+        listData = response;
+      } else if (response is Map && response['data'] is List) {
+        listData = response['data'];
+      }
+
+      Map<int, dynamic> tempLatest = {};
+
+      for (var data in listData) {
+        if (data['date'] != null) {
+          DateTime date = DateTime.parse(data['date']);
+          int weekday = date.weekday;
+          
+          // เก็บข้อมูลล่าสุดของวันนั้นๆ
+          if (!tempLatest.containsKey(weekday)) {
+            tempLatest[weekday] = data;
+          } else {
+            DateTime existingDate = DateTime.parse(tempLatest[weekday]['date']);
+            if (date.isAfter(existingDate)) {
+              tempLatest[weekday] = data;
+            }
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _latestGames = tempLatest;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching history: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _onDaySelected(int weekday) async {
+    final game = _latestGames[weekday];
+    // ถ้ามีประวัติ (เคยสร้างแล้ว) ให้ไปหน้า AddGame พร้อมข้อมูล
+    if (game != null) {
+      // แสดง Loading ด้วย State แทน showDialog เพื่อป้องกันจอดำ/ค้าง
+      setState(() => _isLoading = true);
+
+      try {
+        // ดึงข้อมูลรายละเอียด
+        final response = await ApiProvider().get('/GameSessions/${game['gameSessionId']}');
+
+        Map<String, dynamic>? sessionData;
+        if (response is Map) {
+          sessionData = response['data'] ?? response;
+        }
+
+        if (sessionData != null && mounted) {
+           DateTime now = DateTime.now();
+           // คำนวณวันถัดไปของสัปดาห์
+           int daysUntil = (weekday - now.weekday + 7) % 7;
+           if (daysUntil == 0) daysUntil = 7;
+           DateTime nextDate = now.add(Duration(days: daysUntil));
+
+           context.push('/add-game/new', extra: {
+             'sourceSessionId': game['gameSessionId'],
+             'initialDate': nextDate,
+             'sessionData': sessionData,
+           });
+        }
+      } catch (e) {
+        debugPrint('Error: $e');
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } 
+    // ถ้ายังไม่เคยสร้าง (+NEW) ไม่ต้องทำอะไร (แสดงหน้า MainContent ปกติ)
   }
 
   @override
@@ -68,12 +152,16 @@ class NewGamePageState extends State<NewGamePage> {
 
   // --- Layout สำหรับจอใหญ่ ---
   Widget _buildTabletLayout() {
-    return const Row(
+    return Row(
       children: [
         // 1. เมนูเลือกวัน (ด้านข้าง)
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-          child: _DaySelector(isVertical: true),
+          child: _DaySelector(
+            isVertical: true,
+            latestGames: _latestGames,
+            onDaySelected: _onDaySelected,
+          ),
         ),
         // 2. เนื้อหาหลัก (ตรงกลาง)
         Expanded(child: Center(child: _MainContent())),
@@ -83,12 +171,16 @@ class NewGamePageState extends State<NewGamePage> {
 
   // --- Layout สำหรับจอเล็ก ---
   Widget _buildMobileLayout() {
-    return const Column(
+    return Column(
       children: [
         // 1. เมนูเลือกวัน (ด้านบน, เลื่อนได้)
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-          child: _DaySelector(isVertical: false),
+          child: _DaySelector(
+            isVertical: false,
+            latestGames: _latestGames,
+            onDaySelected: _onDaySelected,
+          ),
         ),
         // 2. เนื้อหาหลัก
         Expanded(child: Center(child: _MainContent())),
@@ -120,7 +212,11 @@ class _MainContent extends StatelessWidget {
           icon: Icons.history,
           title: 'From History',
           subtitle: 'สร้างซ้ำจากที่เคย\nสร้างไว้แล้ว',
-          onTap: () {},
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const FromHistoryPage()),
+            );
+          },
         ),
       ],
     );
@@ -130,36 +226,38 @@ class _MainContent extends StatelessWidget {
 // --- Widget ย่อย: เมนูเลือกวัน ---
 class _DaySelector extends StatelessWidget {
   final bool isVertical;
-  const _DaySelector({required this.isVertical});
+  final Map<int, dynamic> latestGames;
+  final Function(int) onDaySelected;
+
+  const _DaySelector({
+    required this.isVertical,
+    required this.latestGames,
+    required this.onDaySelected,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // ข้อมูลวันจำลอง
-    final List<Map<String, dynamic>> days = [
-      {'code': 'Mon', 'day': 'M', 'isNew': false},
-      {'code': 'Tue', 'day': 'T', 'isNew': false},
-      {'code': 'Wed', 'day': 'W', 'isNew': false},
-      {'code': 'Thu', 'day': 'T', 'isNew': false},
-      {'code': 'Fri', 'day': 'F', 'isNew': false},
-      {'code': 'Sat', 'day': 'S', 'isNew': true}, // วันที่มี badge +NEW
-      {'code': 'Sun', 'day': 'S', 'isNew': false},
-    ];
+    final List<String> dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
     // สร้าง list ของ widget ปุ่มวัน
-    final dayWidgets = days
-        .map(
-          (day) => Padding(
-            padding: isVertical
-                ? const EdgeInsets.symmetric(vertical: 8.0)
-                : const EdgeInsets.symmetric(horizontal: 8.0),
-            child: _DayIcon(
-              label: day['day'],
-              isNew: day['isNew'],
-              onTap: () {},
-            ),
-          ),
-        )
-        .toList();
+    final dayWidgets = List.generate(7, (index) {
+      int weekday = index + 1; // 1=Mon, 7=Sun
+      bool hasHistory = latestGames.containsKey(weekday);
+      // ถ้ามีประวัติ -> สีน้ำเงิน (isNew=false)
+      // ถ้าไม่มีประวัติ -> +NEW (isNew=true)
+      bool isNew = !hasHistory;
+
+      return Padding(
+        padding: isVertical
+            ? const EdgeInsets.symmetric(vertical: 8.0)
+            : const EdgeInsets.symmetric(horizontal: 8.0),
+        child: _DayIcon(
+          label: dayLabels[index],
+          isNew: isNew,
+          onTap: () => onDaySelected(weekday),
+        ),
+      );
+    });
 
     const titleWidget = Text(
       'สร้างก๊วนด่วน',

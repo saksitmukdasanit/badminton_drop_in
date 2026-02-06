@@ -315,7 +315,7 @@ class _MyAppState extends State<MyApp> {
               path: '/add-game/:id',
               builder: (context, state) {
                 final String bookingId = state.pathParameters['id']!;
-                return AddGamePage(code: bookingId);
+                return AddGamePage(code: bookingId, extra: state.extra);
               },
             ),
             //---- Manage ---
