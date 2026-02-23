@@ -36,6 +36,7 @@ import 'package:badminton/page/user/profile/saved_payment.dart';
 import 'package:badminton/page/user/profile/profile_user.dart';
 import 'package:badminton/page/user/search_user.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/navigator_key.dart'; // --- FIX: Import navigator_key เพื่อใช้ Global Key ตัวเดียวกับ ApiProvider ---
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -94,7 +95,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   // MyApp({super.key});
-  final navigatorKey = GlobalKey<NavigatorState>();
+  // final navigatorKey = GlobalKey<NavigatorState>(); // --- FIX: ลบบรรทัดนี้ทิ้ง เพื่อไม่ให้สร้าง Key ใหม่ทับตัว Global ---
 
   late final GoRouter _router;
 
@@ -337,7 +338,10 @@ class _MyAppState extends State<MyApp> {
             ),
             GoRoute(
               path: '/history-organizer-payment',
-              builder: (context, state) => const HistoryOrganizerPaymentPage(),
+              builder: (context, state) {
+                final sessionId = state.extra as int? ?? 0;
+                return HistoryOrganizerPaymentPage(sessionId: sessionId);
+              },
             ),
 
             //---- โปรโฟล์---

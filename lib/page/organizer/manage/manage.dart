@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_sticky_header/flutter_sticky_header.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum PlayerWidgetPart { header, content }
 
@@ -53,7 +54,9 @@ class ManagePageState extends State<ManagePage> {
     try {
       final response = await ApiProvider().get('/GameSessions/my-upcoming');
       if (response != null && response['data'] is List) {
-        return response['data']; // คืนค่า List ของข้อมูลก๊วน
+        final data = response['data'] as List;
+        _cleanupOldSessionData(data); // ล้างข้อมูลเก่าที่ไม่พบในรายการนี้
+        return data; // คืนค่า List ของข้อมูลก๊วน
       } else {
         throw Exception('Invalid API response format');
       }
@@ -81,10 +84,47 @@ class ManagePageState extends State<ManagePage> {
     }
   }
 
+  // --- NEW: ฟังก์ชันล้างข้อมูล SharedPreferences ที่ไม่อยู่ในรายการก๊วนปัจจุบัน ---
+  Future<void> _cleanupOldSessionData(List<dynamic> activeSessions) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+
+      // สร้าง Set ของ Session ID ที่มีอยู่จริง (Active) เพื่อใช้ตรวจสอบ
+      // เพิ่มการเช็ค null เพื่อความปลอดภัย
+      final activeSessionIds = activeSessions
+          .where((s) => s['sessionId'] != null)
+          .map((s) => s['sessionId'].toString())
+          .toSet();
+
+      for (String key in keys) {
+        // ตรวจสอบ Key ที่เกี่ยวข้องกับ Paused Players
+        if (key.startsWith('pausedPlayers_')) {
+          // ดึง Session ID ออกมาจาก Key (รองรับทั้งแบบมี timestamp และไม่มี)
+          String sessionId = key.replaceFirst('pausedPlayers_', '');
+          if (sessionId.startsWith('timestamp_')) {
+            sessionId = sessionId.replaceFirst('timestamp_', '');
+          }
+          // ถ้า Session ID นี้ไม่อยู่ในรายการก๊วนปัจจุบัน ให้ลบทิ้งทันที
+          if (!activeSessionIds.contains(sessionId)) {
+            await prefs.remove(key);
+          }
+        }
+      }
+    } catch (e) {
+      // ดักจับ Error เงียบๆ เพื่อไม่ให้กระทบการทำงานหลัก
+      debugPrint('Error cleaning up old session data: $e');
+    }
+  }
+
   Future<void> _cancelGameSession(int sessionId, String groupName) async {
     try {
       // เรียก API เพื่อยกเลิกก๊วน
       await ApiProvider().post('/GameSessions/$sessionId/cancel-by-organizer');
+
+      // --- NEW: ลบข้อมูล SharedPreferences ที่ค้างอยู่ของก๊วนนี้ ---
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('pausedPlayers_$sessionId');
 
       // หากสำเร็จ แสดง Dialog แจ้งเตือนและอัปเดตข้อมูล
       if (mounted) {
@@ -175,8 +215,9 @@ class ManagePageState extends State<ManagePage> {
 
       // หากสำเร็จ วิ่งไปหน้าจัดการก๊วน
       if (mounted) {
-        context.push('/manage-game/$sessionId').then((_) {
+        context.push('/manage-game/$sessionId').then((result) {
           // เมื่อกลับมาจากหน้า manage-game ให้ทำการรีเฟรชข้อมูลใหม่
+          print('---------$result');
           setState(() {
             _futureMyGames = _fetchMyUpcomingGames();
           });
@@ -559,9 +600,13 @@ class ManagePageState extends State<ManagePage> {
               text: 'จัดการก๊วน',
               fontSize: 16,
               onPressed: () {
-                context.push(
-                  '/manage-game/${_myGamesData[indexData]['sessionId']}',
-                );
+                context
+                    .push('/manage-game/${_myGamesData[indexData]['sessionId']}')
+                    .then((result) {
+                  setState(() {
+                    _futureMyGames = _fetchMyUpcomingGames();
+                  });
+                });
               },
             ),
           ),
@@ -616,14 +661,12 @@ class ManagePageState extends State<ManagePage> {
       duration: const Duration(milliseconds: 300),
       child: _showDetailsOnMobile
           ? detailsView(context, onBack: _backToListOnMobile) // หน้ารายละเอียด
-          : Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
-                child: _buildPlaying(
-                  context,
-                  title: 'ก๊วนที่กำลังมาถึง',
-                  listData: _myGamesData,
-                ),
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
+              child: _buildPlaying(
+                context,
+                title: 'ก๊วนที่กำลังมาถึง',
+                listData: _myGamesData,
               ),
             ),
     );

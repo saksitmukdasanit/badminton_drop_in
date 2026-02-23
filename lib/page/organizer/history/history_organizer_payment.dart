@@ -1,7 +1,10 @@
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/dialog.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/widget/expense_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class _RowData {
   final String key1;
@@ -11,22 +14,9 @@ class _RowData {
   _RowData(this.key1, this.value1, this.key2, this.value2);
 }
 
-enum AdjustmentType { addition, subtraction }
-
-class ExpenseAdjustment {
-  final String name;
-  final double amount;
-  final AdjustmentType type;
-
-  ExpenseAdjustment({
-    required this.name,
-    required this.amount,
-    required this.type,
-  });
-}
-
 class HistoryOrganizerPaymentPage extends StatefulWidget {
-  const HistoryOrganizerPaymentPage({super.key});
+  final int sessionId;
+  const HistoryOrganizerPaymentPage({super.key, required this.sessionId});
 
   @override
   State<HistoryOrganizerPaymentPage> createState() =>
@@ -37,20 +27,223 @@ class _HistoryOrganizerPaymentPageState
     extends State<HistoryOrganizerPaymentPage> {
   // State สำหรับควบคุมการแสดงผลของ Panel ด้านขวา
   bool _isPanelVisible = false;
+  bool _isLoading = true;
+  Map<String, dynamic>? _sessionData;
+  List<dynamic> _participants = [];
+  
+  // State สำหรับ Panel ขวา
+  dynamic _selectedPlayer;
+  dynamic _selectedPlayerBill;
+  bool _isBillLoading = false;
+
   late TextEditingController _expenseNameController;
   late TextEditingController _expenseAmountController;
 
-  void _showPaymentPanel() {
+  void _showPaymentPanel(dynamic player) async {
     setState(() {
-      _isPanelVisible = !_isPanelVisible;
+      _selectedPlayer = player;
+      _isPanelVisible = true;
+      _isBillLoading = true;
+      _selectedPlayerBill = null;
     });
+
+    try {
+      // ดึงข้อมูลบิลของผู้เล่นที่เลือก
+      final pType = player['participantType'] ?? 'Member'; // เดาค่าเริ่มต้น
+      final pId = player['participantId'] ?? player['userId'] ?? player['id'];
+      
+      // เปลี่ยนเป็น bill-preview เพื่อดูข้อมูลก่อน (เหมือนหน้า ManageGame)
+      final response = await ApiProvider().get('/participants/$pType/$pId/bill-preview');
+      if (mounted) {
+        setState(() {
+          _selectedPlayerBill = response['data'];
+          _isBillLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isBillLoading = false;
+        });
+      }
+    }
+  }
+
+  void _hidePaymentPanel() {
+    setState(() {
+      _isPanelVisible = false;
+      _selectedPlayer = null;
+      _selectedPlayerBill = null;
+    });
+  }
+
+  // ฟังก์ชันสำหรับจัดการการจ่ายเงิน (ยิง API ครั้งเดียว)
+  Future<void> _handlePayment(String paymentMethod, List<ExpenseAdjustment> adjustments) async {
+    if (_selectedPlayer == null) return;
+
+    setState(() => _isBillLoading = true);
+
+    try {
+      final pType = _selectedPlayer['participantType'] ?? 'Member';
+      final pId = _selectedPlayer['participantId'] ?? _selectedPlayer['userId'] ?? _selectedPlayer['id'];
+
+      // ดึงยอดที่จ่ายไปแล้ว
+      final double paidAmount = num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0;
+
+      // --- NEW: ถ้ามีบิลเก่าอยู่แล้ว ให้ยกเลิกก่อน เพื่อไม่ให้ยอดทบกัน ---
+      if (_selectedPlayerBill != null && _selectedPlayerBill['billId'] != null) {
+        try {
+          await ApiProvider().put('/bills/${_selectedPlayerBill['billId']}/cancel');
+        } catch (e) {
+          print('Error cancelling old bill: $e'); // ไม่ต้อง throw error ปล่อยผ่านไปสร้างบิลใหม่ได้
+        }
+      }
+      
+      // 1. เตรียมข้อมูล Line Items (ค่าสนาม, ค่าธรรมเนียม, ค่าลูกแบด, รายการปรับปรุง)
+      List<Map<String, dynamic>> customLineItems = [];
+      
+      final courtFeePerPerson = num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
+      final shuttleFeePerPerson = num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
+      final gamesPlayed = num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0;
+
+      if (courtFeePerPerson > 0) {
+        customLineItems.add({'description': 'ค่าคอร์ท', 'amount': courtFeePerPerson});
+      }
+      customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': 10.0});
+
+      double shuttleTotal = gamesPlayed * shuttleFeePerPerson;
+      if (shuttleTotal > 0) {
+        customLineItems.add({'description': 'ค่าลูกแบด ($gamesPlayed เกม)', 'amount': shuttleTotal});
+      }
+
+      for (var adj in adjustments) {
+        double amount = adj.amount;
+        if (adj.type == AdjustmentType.subtraction) amount = -amount;
+        customLineItems.add({'description': adj.name, 'amount': amount});
+      }
+
+      // 2. เรียก API Checkout เพื่อสร้างบิลจริง
+      final checkoutRes = await ApiProvider().post(
+        '/participants/$pType/$pId/checkout',
+        data: {'customLineItems': customLineItems},
+      );
+      
+      final finalBill = checkoutRes['data'];
+      final int billId = finalBill['billId'];
+      final double totalAmount = (finalBill['totalAmount'] ?? 0).toDouble();
+
+      // --- NEW: คำนวณยอดที่ต้องจ่ายเพิ่ม (ส่วนต่าง) ---
+      final double dueAmount = totalAmount - paidAmount;
+
+      // 3. จัดการการจ่ายเงิน
+      if (paymentMethod == 'QR Code' && dueAmount > 0) {
+        // กรณี QR Code: แสดง QR สำหรับยอดส่วนต่างเท่านั้น
+        if (mounted) {
+          setState(() => _isBillLoading = false); // หยุดโหลดเพื่อแสดง Dialog
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => _buildQrPaymentDialog(context, dueAmount, billId, totalAmount),
+          );
+        }
+      } else {
+        // กรณีเงินสด หรือยอด <= 0 (คืนเงิน/เท่าเดิม): บันทึกเลย
+        // ส่งยอดเต็มไปบันทึก เพื่อให้บิลสมบูรณ์
+        await _confirmPaymentAPI(billId, paymentMethod, totalAmount);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการชำระเงิน')));
+      }
+    } finally {
+      if (mounted) setState(() => _isBillLoading = false);
+    }
+  }
+
+  // --- NEW: ฟังก์ชันยิง API จ่ายเงิน ---
+  Future<void> _confirmPaymentAPI(int billId, String method, double amount) async {
+    try {
+      await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
+
+      if (mounted) {
+        _hidePaymentPanel();
+        _fetchSessionData();
+        
+        showDialogMsg(
+          context,
+          title: 'บันทึกสำเร็จ',
+          subtitle: 'อัปเดตข้อมูลการชำระเงินเรียบร้อยแล้ว',
+          btnLeft: 'ตกลง',
+          btnLeftBackColor: const Color(0xFF0E9D7A),
+          btnLeftForeColor: Colors.white,
+          onConfirm: () {},
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBillLoading = false);
+    }
+  }
+
+  // --- NEW: Dialog QR Code ---
+  Widget _buildQrPaymentDialog(BuildContext context, double dueAmount, int billId, double totalBillAmount) {
+    final qrData = "PromptPay:08x-xxx-xxxx:$dueAmount"; 
+
+    return AlertDialog(
+      title: const Text('สแกนจ่ายส่วนต่าง'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 200,
+            height: 200,
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+            alignment: Alignment.center,
+            child: QrImageView(data: qrData, version: QrVersions.auto, size: 200.0),
+          ),
+          const SizedBox(height: 16),
+          Text('ยอดที่ต้องชำระเพิ่ม: ${dueAmount.toStringAsFixed(0)} บาท', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            setState(() => _isBillLoading = true);
+            _confirmPaymentAPI(billId, 'QR Code', totalBillAmount);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0E9D7A), foregroundColor: Colors.white),
+          child: const Text('ยืนยันการชำระเงิน'),
+        ),
+      ],
+    );
   }
 
   @override
   void initState() {
+    super.initState();
     _expenseNameController = TextEditingController();
     _expenseAmountController = TextEditingController();
-    super.initState();
+    _fetchSessionData();
+  }
+
+  Future<void> _fetchSessionData() async {
+    setState(() => _isLoading = true);
+    try {
+      // เปลี่ยนไปเรียก API financials แทน
+      final response = await ApiProvider().get('/GameSessions/${widget.sessionId}/financials');
+      if (mounted && response['status'] == 200) {
+        setState(() {
+          _sessionData = response['data'];
+          // สมมติว่า API ส่ง participants มาใน sessionData หรือต้องดึงแยก
+          // ถ้า API /GameSessions/{id} ส่ง participants มาด้วย:
+          _participants = _sessionData?['participants'] ?? [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -62,9 +255,14 @@ class _HistoryOrganizerPaymentPageState
 
   @override
   Widget build(BuildContext context) {
+    final shuttlecockRate = _sessionData?['shuttlecockFeePerPerson'] ?? 0;
+    final courtFee = _sessionData?['courtFeePerPerson'] ?? 0;
+
     return Scaffold(
       appBar: AppBarSubMain(title: 'ประวัติการจัดก๊วน'),
-      body: LayoutBuilder(
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : LayoutBuilder(
         builder: (context, constraints) {
           double menuWidth = _isPanelVisible ? 350 : constraints.maxWidth;
           if (constraints.maxWidth > 820) {
@@ -75,12 +273,15 @@ class _HistoryOrganizerPaymentPageState
                   flex: 3,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
-                    child: CostsSummary(),
+                    child: CostsSummary(sessionData: _sessionData),
                   ),
                 ),
                 Expanded(
                   flex: 4,
                   child: PlayerListCard(
+                    participants: _participants,
+                    shuttlecockRate: shuttlecockRate,
+                    courtFee: courtFee,
                     onPlayerTap: _showPaymentPanel,
                     isScrollable: true,
                   ),
@@ -90,7 +291,7 @@ class _HistoryOrganizerPaymentPageState
                   flex: 4,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
-                    child: _paymentPanel(context),
+                    child: _isPanelVisible ? _paymentPanel(context) : const SizedBox(),
                   ),
                 ),
               ],
@@ -113,12 +314,15 @@ class _HistoryOrganizerPaymentPageState
                             flex: 3,
                             child: Padding(
                               padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
-                              child: CostsSummary(),
+                              child: CostsSummary(sessionData: _sessionData),
                             ),
                           ),
                         Expanded(
                           flex: 4,
                           child: PlayerListCard(
+                            participants: _participants,
+                            shuttlecockRate: shuttlecockRate,
+                            courtFee: courtFee,
                             onPlayerTap: _showPaymentPanel,
                             isScrollable: true,
                           ),
@@ -144,10 +348,15 @@ class _HistoryOrganizerPaymentPageState
                 if (!_isPanelVisible)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: CostsSummary(),
+                    child: CostsSummary(sessionData: _sessionData),
                   ),
                 if (!_isPanelVisible)
-                  PlayerListCard(onPlayerTap: _showPaymentPanel),
+                  PlayerListCard(
+                    participants: _participants,
+                    shuttlecockRate: shuttlecockRate,
+                    courtFee: courtFee,
+                    onPlayerTap: _showPaymentPanel,
+                  ),
                 if (_isPanelVisible)
                   Padding(
                     padding: const EdgeInsets.all(16),
@@ -162,6 +371,10 @@ class _HistoryOrganizerPaymentPageState
   }
 
   Widget _paymentPanel(BuildContext context) {
+    final playerName = _selectedPlayer != null 
+        ? (_selectedPlayer['nickname'] ?? _selectedPlayer['name'] ?? '-') 
+        : '-';
+
     return Card(
       color: Color(0xFFFFFFFF),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -176,14 +389,24 @@ class _HistoryOrganizerPaymentPageState
                 children: [
                   const SizedBox(height: 16),
                   // --- ส่วนหัว ---
-                  const Text(
-                    'สรุปค่าใช้จ่าย บิว (อุรัสยา แสนดี)',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    'สรุปค่าใช้จ่าย $playerName',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
 
                   // --- ส่วนค่าสนาม ---
-                  ExpensePanelWidget(),
+                  if (_isBillLoading)
+                    const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())
+                  else
+                    ExpensePanelWidget(
+                      billData: _selectedPlayerBill,
+                      courtFee: num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
+                      shuttlecockFee: num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
+                      totalGames: num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0,
+                      paidAmount: num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0,
+                      onConfirmPayment: _handlePayment, // ส่งฟังก์ชันจัดการจ่ายเงินเข้าไป
+                    ),
                 ],
               ),
               Positioned(
@@ -191,7 +414,7 @@ class _HistoryOrganizerPaymentPageState
                 right: 0,
                 child: IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: _showPaymentPanel,
+                  onPressed: _hidePaymentPanel,
                 ),
               ),
             ],
@@ -203,41 +426,44 @@ class _HistoryOrganizerPaymentPageState
 }
 
 class CostsSummary extends StatelessWidget {
-  const CostsSummary({super.key});
+  final Map<String, dynamic>? sessionData;
+  const CostsSummary({super.key, this.sessionData});
 
   @override
   Widget build(BuildContext context) {
-    // ข้อมูลจำลองสำหรับแต่ละ Card
-    const courtCosts = {
-      'ผู้เล่น': '24 คน',
-      'ต้นทุนค่าสนาม': '2000 บาท',
-      'ค่าสนาม/คน': '100 บาท',
-      'ยอดรวม': '2400 บาท',
-      'ชำระแล้ว': '20 คน',
-      'เป็นเงิน': '2000 บาท',
-      'รอชำระ': '4 คน',
-      'เป็นเงิน ': '400 บาท',
+    final data = sessionData ?? {};
+    
+    // แปลงข้อมูลจาก API เป็น Map สำหรับแสดงผล
+    final courtCosts = {
+      'ผู้เล่น': '${data['currentParticipants'] ?? 0} คน',
+      'ต้นทุนค่าสนาม': '${data['totalCourtCost'] ?? 0} บาท', // ใช้ totalCourtCost (ต้นทุน)
+      'ค่าสนาม/คน': '${data['courtFeePerPerson'] ?? 0} บาท',
+      'ยอดรวม': '${data['totalCourtIncome'] ?? 0} บาท', // ใช้ totalCourtIncome (รายได้)
+      // 'ชำระแล้ว': '20 คน', // ข้อมูลนี้อาจต้องคำนวณจาก participants list
+      // 'เป็นเงิน': '2000 บาท',
+      // 'รอชำระ': '4 คน',
+      // 'เป็นเงิน ': '400 บาท',
     };
 
-    const shuttlecockCosts = {
-      'ทุนค่าลูก/ลูก': '76 บาท',
-      'ทุนค่าลูก/ขีด': '19 บาท',
-      'ใช้รวม(ลูก)': '100 ลูก',
-      'ใช้รวม(ขีด)': '400 ขีด',
-      'ราคา/ขีด': '20 บาท',
-      'ยอดรวม': '8000 บาท',
-      'ชำระแล้ว': '188 ขีด',
-      'เป็นเงิน': '3760 บาท',
-      'รอชำระ': '20 ขีด',
-      'เป็นเงิน ': '400 บาท',
+    final shuttlecockCosts = {
+      'ทุนค่าลูก/ลูก': '${data['shuttlecockFeePerPerson'] ?? 0} บาท', // เช็ค key อีกที
+      // 'ทุนค่าลูก/ขีด': '19 บาท',
+      'ใช้รวม(ลูก)': '${data['totalShuttlecocks'] ?? 0} ลูก',
+      // 'ใช้รวม(ขีด)': '400 ขีด',
+      // 'ราคา/ขีด': '20 บาท',
+      'ยอดรวม': '${data['totalShuttlecockFee'] ?? 0} บาท',
+      // 'ชำระแล้ว': '188 ขีด',
+      // 'เป็นเงิน': '3760 บาท',
+      // 'รอชำระ': '20 ขีด',
+      // 'เป็นเงิน ': '400 บาท',
     };
 
-    const totalSummary = {
-      'ได้รับเงินผ่านแอป': '6230 บาท',
-      'เงินสด': '330 บาท',
-      'รายรับ': '6560 บาท',
-      'ค่าบริการแอป': '120 บาท',
-      'คงเหลือ': '6440 บาท',
+    final totalSummary = {
+      // 'ได้รับเงินผ่านแอป': '6230 บาท',
+      // 'เงินสด': '330 บาท',
+      'รายรับ': '${data['totalIncome'] ?? 0} บาท',
+      // 'ค่าบริการแอป': '120 บาท',
+      'คงเหลือ': '${(data['totalIncome'] ?? 0) - (data['totalExpense'] ?? 0)} บาท', // สมมติ
     };
 
     return SingleChildScrollView(
@@ -411,13 +637,19 @@ class _SummaryCard extends StatelessWidget {
 
 // --- Widget ย่อย: รายชื่อผู้เล่น (กลาง) ---
 class PlayerListCard extends StatelessWidget {
-  final VoidCallback onPlayerTap; // Callback ที่จะถูกเรียกเมื่อกดที่รายชื่อ
+  final Function(dynamic) onPlayerTap; // Callback ส่ง player กลับไป
+  final List<dynamic> participants;
+  final dynamic shuttlecockRate;
+  final dynamic courtFee;
   final bool isScrollable;
   final EdgeInsetsGeometry padding;
 
   const PlayerListCard({
     super.key,
     required this.onPlayerTap,
+    this.participants = const [],
+    this.shuttlecockRate = 0,
+    this.courtFee = 0,
     this.isScrollable = false,
     this.padding = const EdgeInsets.fromLTRB(16, 16, 16, 16),
   });
@@ -427,21 +659,44 @@ class PlayerListCard extends StatelessWidget {
     final playerListView = ListView.builder(
       shrinkWrap: !isScrollable,
       physics: isScrollable ? null : const NeverScrollableScrollPhysics(),
-      itemCount: 14,
+      itemCount: participants.length,
       itemBuilder: (context, index) {
+        final p = participants[index];
+        final name = p['nickname'] ?? p['name'] ?? '-';
+        final games = '${p['gamesPlayed'] ?? 0}';
+
+        final gamesNum = num.tryParse(games) ?? 0;
+        final rateNum = num.tryParse('$shuttlecockRate') ?? 0;
+        final courtNum = num.tryParse('$courtFee') ?? 0;
+        final totalNum = gamesNum * rateNum;
+        String formatNum(num n) => n % 1 == 0 ? n.toInt().toString() : n.toString();
+        final gameDisplay = '${formatNum(gamesNum)} x ${formatNum(rateNum)} = ${formatNum(totalNum)}';
+
+        final total = '${p['totalCost'] ?? 0}';
+        final paid = '${p['paidAmount'] ?? 0}';
+        final unpaid = '${p['unpaidAmount'] ?? 0}';
+
+        final totalCostNum = num.tryParse(total) ?? 0;
+        // FIX: หักค่าธรรมเนียม 10 บาทออกจากสูตรคำนวณ เพื่อให้ช่อง "อื่นๆ" เป็น 0 ในกรณีปกติ
+        final othersNum = totalCostNum - (totalNum + courtNum + 10);
+        final others = formatNum(othersNum);
+
+        final unpaidNum = num.tryParse(unpaid) ?? 0;
+        final rowColor = unpaidNum > 0 ? Colors.red : Colors.green;
+
         return GestureDetector(
-          onTap: onPlayerTap,
+          onTap: () => onPlayerTap(p),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: Row(
               children: [
-                text(2, '00', 14, FontWeight.w300),
-                text(3, 'แก้ว', 14, FontWeight.w300),
-                text(2, '4', 14, FontWeight.w300),
-                text(3, 'x 20 = 120', 14, FontWeight.w300),
-                text(2, '220', 14, FontWeight.w300),
-                text(2, '120', 14, FontWeight.w300),
-                text(2, '100', 14, FontWeight.w300),
+                text(2, '${index + 1}', 14, FontWeight.w300, color: rowColor),
+                text(3, name, 14, FontWeight.w300, color: rowColor),
+                text(5, gameDisplay, 12, FontWeight.w300, color: rowColor),
+                text(2, total, 14, FontWeight.w300, color: rowColor),
+                text(2, paid, 14, FontWeight.w300, color: rowColor),
+                text(2, others, 14, FontWeight.w300, color: rowColor),
+                text(2, unpaid, 14, FontWeight.w300, color: rowColor),
               ],
             ),
           ),
@@ -470,10 +725,10 @@ class PlayerListCard extends StatelessWidget {
                     'สรุปค่าใช้จ่ายผู้เล่น',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  Text(
-                    '32/70 คน',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+                  // Text(
+                  //   '32/70 คน',
+                  //   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  // ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -481,10 +736,10 @@ class PlayerListCard extends StatelessWidget {
                 children: [
                   text(2, 'no', 14, FontWeight.w700),
                   text(3, 'ชื่อเล่น', 14, FontWeight.w700),
-                  text(2, 'เกมส์', 14, FontWeight.w700),
-                  text(3, 'qty', 14, FontWeight.w700),
+                  text(5, 'เกมส์', 14, FontWeight.w700),
                   text(2, 'ยอด', 14, FontWeight.w700),
                   text(2, 'จ่าย', 14, FontWeight.w700),
+                  text(2, 'อื่นๆ', 14, FontWeight.w700),
                   text(2, 'ค้าง', 14, FontWeight.w700),
                 ],
               ),
@@ -498,13 +753,13 @@ class PlayerListCard extends StatelessWidget {
     );
   }
 
-  Widget text(int flex, String text, double fontSize, FontWeight fontWeight) {
+  Widget text(int flex, String text, double fontSize, FontWeight fontWeight, {Color? color}) {
     return Expanded(
       flex: flex,
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: fontSize, fontWeight: fontWeight),
+        style: TextStyle(fontSize: fontSize, fontWeight: fontWeight, color: color),
       ),
     );
   }

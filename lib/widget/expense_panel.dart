@@ -25,7 +25,22 @@ class ExpenseAdjustment {
 }
 
 class ExpensePanelWidget extends StatefulWidget {
-  const ExpensePanelWidget({super.key});
+  final dynamic billData;
+  final Function(String paymentMethod, List<ExpenseAdjustment> adjustments)? onConfirmPayment;
+  final double courtFee; // NEW: รับค่าสนามเริ่มต้น
+  final double shuttlecockFee; // NEW: รับราคาลูกแบด
+  final int totalGames; // NEW: รับจำนวนเกมที่เล่น
+  final double paidAmount; // NEW: รับยอดที่จ่ายไปแล้ว
+
+  const ExpensePanelWidget({
+    super.key,
+    this.billData,
+    this.onConfirmPayment,
+    this.courtFee = 0.0,
+    this.shuttlecockFee = 0.0,
+    this.totalGames = 0,
+    this.paidAmount = 0.0,
+  });
 
   @override
   State<ExpensePanelWidget> createState() => _ExpensePanelWidgetState();
@@ -39,14 +54,15 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
 
   String? _selectedPaymentMethod;
   final List<dynamic> _paymentMethods = [
-    {"code": 1, "value": 'QR Code'},
-    {"code": 2, "value": 'เงินสด'},
+    {"code": 'QR Code', "value": 'QR Code'},
+    {"code": 'Cash', "value": 'เงินสด'},
   ];
 
   @override
   void initState() {
     _expenseNameController = TextEditingController();
     _expenseAmountController = TextEditingController();
+    _initData();
     super.initState();
   }
 
@@ -55,6 +71,36 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
     _expenseNameController.dispose();
     _expenseAmountController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ExpensePanelWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.billData != widget.billData) {
+      _initData();
+    }
+  }
+
+  void _initData() {
+    _adjustments.clear();
+
+    if (widget.billData != null && widget.billData['lineItems'] != null) {
+      final items = widget.billData['lineItems'] as List;
+      for (var item in items) {
+        final desc = item['description'] ?? '';
+        // FIX: กรองค่าธรรมเนียมและค่าลูกแบดรูปแบบต่างๆ ออกจากรายการปรับปรุง (Adjustments)
+        // เพื่อไม่ให้แสดงซ้ำซ้อนในรายการที่แก้ไขได้
+        if (desc != 'ค่าคอร์ท' && desc != 'ค่าธรรมเนียม' && !desc.startsWith('ค่าลูกแบด')) {
+          final amount = (item['amount'] ?? 0.0).toDouble();
+          _adjustments.add(ExpenseAdjustment(
+            name: desc,
+            amount: amount.abs(),
+            type: amount >= 0 ? AdjustmentType.addition : AdjustmentType.subtraction,
+          ));
+        }
+      }
+    }
+    setState(() {});
   }
 
   // --- ฟังก์ชันสำหรับเพิ่ม/ลดรายการ ---
@@ -86,8 +132,49 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   }
 
   // --- คำนวณยอดรวมใหม่ ---
+  double get _apiCourtFee {
+    if (widget.billData == null || widget.billData['lineItems'] == null) return widget.courtFee; // Use fallback
+    final items = widget.billData['lineItems'] as List;
+    final item = items.firstWhere(
+      (i) => i['description'] == 'ค่าคอร์ท',
+      orElse: () => null,
+    );
+    
+    if (item != null) {
+      return (item['amount'] ?? 0.0).toDouble();
+    }
+    return widget.courtFee; // Use fallback if item not found
+  }
+
+  // --- NEW: ดึงค่าธรรมเนียมจาก API ---
+  double get _apiServiceFee {
+    if (widget.billData == null || widget.billData['lineItems'] == null) return 0.0;
+    final items = widget.billData['lineItems'] as List;
+    final item = items.firstWhere(
+      (i) => i['description'] == 'ค่าธรรมเนียม',
+      orElse: () => null,
+    );
+    return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
+  }
+
+  double get _apiShuttleFee {
+    if (widget.billData == null || widget.billData['lineItems'] == null) return 0.0;
+    final items = widget.billData['lineItems'] as List;
+    final item = items.firstWhere(
+      // FIX: ใช้ startsWith เพราะ Server อาจส่งมาว่า "ค่าลูกแบด (4 เกม)" หรือ "ค่าลูกแบด (เหมาจ่าย)"
+      (i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'),
+      orElse: () => null,
+    );
+    return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
+  }
+
   double get _totalShuttlecockFee {
-    double total = 20.0; // ค่าลูกตั้งต้น
+    // FIX: ใช้ค่าคำนวณเองเป็นหลัก (Games * Fee) เพราะ API bill-preview อาจส่งค่า Default มา
+    double total = widget.totalGames * widget.shuttlecockFee;
+    if (total == 0) {
+       total = _apiShuttleFee;
+    }
+
     for (var adj in _adjustments) {
       if (adj.type == AdjustmentType.addition) {
         total += adj.amount;
@@ -127,9 +214,9 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('ค่าสนาม', '120 บาท'),
-            _buildInfoRow('ค่าธรรมเนียม', '10 บาท'),
-            _buildInfoRow('ราคารวม', '130 บาท', isBold: true),
+            _buildInfoRow('ค่าสนาม', '${_apiCourtFee.toStringAsFixed(0)} บาท'),
+            _buildInfoRow('ค่าธรรมเนียม', '${_apiServiceFee.toStringAsFixed(0)} บาท'), // FIX: ใช้ค่าจาก API
+            _buildInfoRow('ราคารวม', '${(_apiCourtFee + _apiServiceFee).toStringAsFixed(0)} บาท', isBold: true), // FIX: คำนวณรวมจาก API
             const SizedBox(height: 16),
             const Text(
               'ชำระผ่าน',
@@ -187,23 +274,31 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInfoRow('ค่าลูก', '20 บาท'),
+              // แสดงค่าลูกแบดที่คำนวณจากจำนวนเกม
+            // FIX: แสดงยอดจาก API
+            _buildInfoRow(
+              'ค่าลูก (${widget.totalGames} เกม)', 
+              '${(widget.totalGames * widget.shuttlecockFee > 0 ? widget.totalGames * widget.shuttlecockFee : _apiShuttleFee).toStringAsFixed(0)} บาท'
+            ),
               ..._adjustments.asMap().entries.map((entry) {
                 ExpenseAdjustment adj = entry.value;
                 bool isAddition = adj.type == AdjustmentType.addition;
                 return _buildInfoRowExpenses(
                   adj.name,
-                  '${adj.amount.toStringAsFixed(0)} บาท',
-                  color: isAddition ? Colors.green : Colors.red,
+                  '${isAddition ? '+' : '-'}${adj.amount.toStringAsFixed(0)} บาท',
+                  color: isAddition ? Colors.black : Colors.green,
                   idx: entry.key,
                 );
               }),
-
+              
               _buildInfoRow(
-                'ราคารวม',
+                'รวมค่าใช้จ่ายส่วนตัว',
                 '${_totalShuttlecockFee.toStringAsFixed(0)} บาท',
                 isBold: true,
               ),
+              const Divider(height: 24),
+              _buildGrandTotalSection(),
+
               const SizedBox(height: 16),
               // --- ฟอร์มสำหรับกรอกข้อมูล ---
               CustomTextFormField(
@@ -284,7 +379,16 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                   text: _selectedPaymentMethod == 'QR Code'
                       ? 'แสดง QR Code'
                       : 'จ่ายเงินสด',
-                  onPressed: () {},
+                  onPressed: () {
+                    if (_selectedPaymentMethod == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
+                      );
+                      return;
+                    }
+                    // ส่งข้อมูลกลับไปให้หน้าหลักจัดการ (Batch Submission)
+                    widget.onConfirmPayment?.call(_selectedPaymentMethod!, _adjustments);
+                  },
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
                   padding: EdgeInsetsGeometry.all(12),
@@ -297,12 +401,47 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
     );
   }
 
+  Widget _buildGrandTotalSection() {
+      double grandTotal = _apiCourtFee + _apiServiceFee + _totalShuttlecockFee;
+      double paid = widget.paidAmount;
+      double due = grandTotal - paid;
+      
+      if (paid <= 0) {
+         // เปลี่ยนเป็นสีแดงและข้อความ "ยอดที่ต้องชำระ" เพื่อให้ชัดเจนว่ายังค้างจ่าย
+         return _buildInfoRow('ยอดที่ต้องชำระ', '${grandTotal.toStringAsFixed(0)} บาท', fontSize: 20, isBold: true, color: Colors.red);
+      }
+
+      return Column(
+          children: [
+              _buildInfoRow('ยอดสุทธิทั้งหมด', '${grandTotal.toStringAsFixed(0)} บาท', fontSize: 16),
+              _buildInfoRow('จ่ายแล้ว', '${paid.toStringAsFixed(0)} บาท', fontSize: 16, color: Colors.green),
+              
+              // แสดงเฉพาะเมื่อมียอดส่วนต่าง (ไม่เท่ากับ 0)
+              if (due.abs() >= 1) ...[
+                const SizedBox(height: 4),
+                _buildInfoRow(
+                    due > 0 ? 'ต้องจ่ายเพิ่ม' : 'ต้องคืนเงิน', 
+                    '${due.abs().toStringAsFixed(0)} บาท', 
+                    fontSize: 22, 
+                    isBold: true, 
+                    color: due > 0 ? Colors.red : Colors.blue
+                ),
+              ] else ...[
+                 // กรณีจ่ายครบแล้ว (0 บาท) แสดงสถานะว่าครบถ้วน
+                 const SizedBox(height: 4),
+                 _buildInfoRow('สถานะ', 'ชำระครบถ้วน', fontSize: 18, isBold: true, color: Colors.green),
+              ]
+          ],
+      );
+  }
+
   // Helper สำหรับสร้างแถวข้อมูล
   Widget _buildInfoRow(
     String title,
     String value, {
     double fontSize = 20,
     bool isBold = false,
+    Color? color,
   }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -312,6 +451,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: color,
           ),
         ),
         Text(
@@ -319,6 +459,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: color,
           ),
         ),
       ],

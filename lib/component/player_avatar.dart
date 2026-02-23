@@ -10,11 +10,12 @@ Color _colorFromHex(String? hexColor) {
   return Color(int.parse('FF$hexCode', radix: 16));
 }
 
-// (แนะนำ) ฟังก์ชันจัดรูปแบบเวลา
-String _formatTotalPlayTime(Duration duration) {
-  final hours = duration.inHours;
-  final minutes = duration.inMinutes.remainder(60);
-  return '${hours}h ${minutes}m';
+// ฟังก์ชันจัดรูปแบบเวลา (MM:SS)
+String _formatDuration(Duration duration) {
+  String twoDigits(int n) => n.toString().padLeft(2, '0');
+  String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+  String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+  return "$twoDigitMinutes:$twoDigitSeconds";
 }
 
 class PlayerAvatar extends StatelessWidget {
@@ -26,16 +27,16 @@ class PlayerAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     // FIX: ใช้สีจาก player.skillLevelColor โดยตรง
     final color = _colorFromHex(player.skillLevelColor);
+    // คำนวณสีตัวอักษร (ขาว/ดำ) ตามความสว่างของพื้นหลัง
+    final textColor =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+        ? Colors.white
+        : Colors.black87;
+
     return Card(
-      // shape: CircleBorder(
-      //   // ทำให้ Card เป็นวงกลม
-      //   side: BorderSide(
-      //     color: Colors.white,
-      //     width: 3,
-      //   ),
-      // ),
       clipBehavior: Clip.antiAlias, // ตัด child ให้เป็นวงกลมตาม Card
       elevation: 4,
+      margin: EdgeInsets.zero, // ลบ margin เพื่อให้จัด layout ภายนอกได้ง่าย
       child: Column(
         children: [
           // --- Column 1: LV และสีพื้นหลัง ---
@@ -47,8 +48,8 @@ class PlayerAvatar extends StatelessWidget {
               // FIX: ใช้ชื่อระดับจาก player.skillLevelName
               player.skillLevelName ?? 'N/A',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.black87,
+              style: TextStyle(
+                color: textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
               ),
@@ -80,20 +81,63 @@ class PlayerAvatar extends StatelessWidget {
           Container(
             color: color,
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
             child: Column(
               children: [
                 Text(
                   player.name,
-                  style: const TextStyle(
-                    color: Colors.black,
+                  style: TextStyle(
+                    color: textColor,
                     fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    fontSize: 14,
                   ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
-                Text(
-                  '${player.gamesPlayed ?? 0}: | ${_formatTotalPlayTime(player.totalPlayTime ?? Duration.zero)}',
-                  style: const TextStyle(color: Colors.black54, fontSize: 10),
+                const SizedBox(height: 2),
+                // --- NEW: แสดง Stats แบบ Badge ภายใน Card ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    // Badge จำนวนเกม
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'G: ${player.gamesPlayed ?? 0}',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    // Badge เวลาที่รอ (สีน้ำเงินเข้ม ตัวหนังสือเหลือง)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.shade900,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'W: ${_formatDuration(player.totalPlayTime ?? Duration.zero)}',
+                        style: const TextStyle(
+                          color: Colors.yellowAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

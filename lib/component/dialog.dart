@@ -5,6 +5,7 @@ class CustomAlertDialog extends StatelessWidget {
   final Widget icon;
   final String title;
   final String? subtitle;
+  final Color? subtitleColor;
   final List<Widget> actions;
   final bool showCloseIcon;
 
@@ -13,6 +14,7 @@ class CustomAlertDialog extends StatelessWidget {
     required this.icon,
     required this.title,
     this.subtitle,
+    this.subtitleColor,
     required this.actions,
     this.showCloseIcon = true,
   });
@@ -46,7 +48,7 @@ class CustomAlertDialog extends StatelessWidget {
                       subtitle!,
                       style: TextStyle(
                         fontSize: 16,
-                        color: Color(0XFF393941),
+                        color: subtitleColor ?? const Color(0XFF393941),
                         fontWeight: FontWeight.w400,
                       ),
                       textAlign: TextAlign.center,
@@ -80,6 +82,7 @@ Future<void> showDialogMsg(
   BuildContext context, {
   required String title,
   required String subtitle,
+  Color? subtitleColor,
   String btnLeft = 'ยืนยัน',
   String btnRight = '',
   Color btnLeftBackColor = const Color(0xFF0E9D7A),
@@ -120,6 +123,7 @@ Future<void> showDialogMsg(
               ),
         title: title,
         subtitle: subtitle,
+        subtitleColor: subtitleColor,
         actions: [
           if (!isSlideAction)
             Expanded(

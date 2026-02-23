@@ -100,6 +100,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   static const Color paidColor = Colors.green;
   bool isHistory = false;
   bool isHistoryFinance = false;
+  // State สำหรับข้อมูลการเงินจริง
+  List<dynamic> _financeHistoryList = [];
+  dynamic _selectedFinanceSession;
+  Map<String, dynamic>? _financeAnalytics;
+  bool _isFinanceLoading = false;
 
   @override
   void initState() {
@@ -115,6 +120,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
     _generateSkillLevels(int.parse(_numberOfLevels));
     _fetchData();
+    _fetchFinanceHistory(); // ดึงข้อมูลประวัติการเงิน
     super.initState();
     _topMenuItems = [
       ProfileMenuItem(
@@ -304,6 +310,48 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  // --- ฟังก์ชันดึงข้อมูลประวัติการเงิน ---
+  Future<void> _fetchFinanceHistory() async {
+    setState(() => _isFinanceLoading = true);
+    try {
+      final response = await ApiProvider().get('/GameSessions/my-history');
+      if (mounted && response['status'] == 200) {
+        setState(() {
+          _financeHistoryList = response['data'] ?? [];
+          _isFinanceLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isFinanceLoading = false);
+    }
+  }
+
+  // --- ฟังก์ชันดึงรายละเอียด Session และ Analytics เมื่อกดเลือกรายการ ---
+  Future<void> _fetchFinanceSessionDetail(int sessionId) async {
+    try {
+      // ดึงรายละเอียด Session
+      final sessionRes = await ApiProvider().get('/GameSessions/$sessionId');
+      // ดึง Analytics
+      final analyticsRes = await ApiProvider().get('/GameSessions/$sessionId/analytics');
+
+      if (mounted) {
+        setState(() {
+          if (sessionRes['status'] == 200) {
+            _selectedFinanceSession = sessionRes['data'];
+          }
+          if (analyticsRes['status'] == 200) {
+            _financeAnalytics = analyticsRes['data'];
+          }
+        });
+      }
+    } catch (e) {
+      // Handle error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('โหลดข้อมูลรายละเอียดไม่สำเร็จ: $e')));
       }
     }
   }
@@ -1730,43 +1778,18 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                             {"3": 'เดือนนี้'},
                             {"4": 'ทั้งหมด'},
                           ],
-                          incomeHistory: [
-                            HistoryItem(
-                              date: '21/04/25',
-                              time: '13:03 PM',
-                              amount: '3000',
-                              totalAmount: '4500',
-                              groupName: 'ก๊วนแบดหรรษา',
-                            ),
-                            HistoryItem(
-                              date: '21/04/25',
-                              time: '13:03 PM',
-                              amount: '3000',
-                              totalAmount: '4500',
-                              groupName: 'ก๊วนแบดหรรษา',
-                            ),
-                            HistoryItem(
-                              date: '21/04/25',
-                              time: '13:03 PM',
-                              amount: '3000',
-                              totalAmount: '4500',
-                              groupName: 'ก๊วนแบดหรรษา',
-                            ),
-                            HistoryItem(
-                              date: '21/04/25',
-                              time: '13:03 PM',
-                              amount: '3000',
-                              totalAmount: '4500',
-                              groupName: 'ก๊วนแบดหรรษา',
-                            ),
-                            HistoryItem(
-                              date: '21/04/25',
-                              time: '13:03 PM',
-                              amount: '3000',
-                              totalAmount: '4500',
-                              groupName: 'ก๊วนแบดหรรษา',
-                            ),
-                          ],
+                          // แปลงข้อมูลจาก API เป็น HistoryItem
+                          incomeHistory: _financeHistoryList.map((item) {
+                            final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
+                            return HistoryItem(
+                              date: '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}',
+                              time: '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}',
+                              amount: '${item['paidAmount'] ?? 0}',
+                              totalAmount: '${item['totalIncome'] ?? 0}',
+                              groupName: item['groupName'] ?? '-',
+                              originalData: item,
+                            );
+                          }).toList(),
                           withdrawalHistoryView: const Center(
                             child: Text('ประวัติเงินออกแสดงที่นี่'),
                           ),
@@ -1775,16 +1798,22 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                             // Fetch new data based on the selected time range
                           },
                           onIncomeItemAmountTap: (item) {
-                            print('Tapped on amount of: ${item.groupName}');
                             setState(() {
+                              _selectedFinanceSession = item.originalData;
                               isHistoryFinance = true;
                             });
+                            if (item.originalData['gameSessionId'] != null) {
+                              _fetchFinanceSessionDetail(item.originalData['gameSessionId']);
+                            }
                           },
                           onIncomeItemGroupTap: (item) {
-                            print('Tapped on group: ${item.groupName}');
                             setState(() {
+                              _selectedFinanceSession = item.originalData;
                               isHistory = true;
                             });
+                            if (item.originalData['gameSessionId'] != null) {
+                              _fetchFinanceSessionDetail(item.originalData['gameSessionId']);
+                            }
                           },
                         ),
                       ),
@@ -1995,28 +2024,36 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   }
 
   Widget badmintonSummaryPage(BuildContext context) {
+    // ใช้ข้อมูลจริงจาก _selectedFinanceSession
+    final model = _selectedFinanceSession ?? {};
     return Column(
       children: [
-        GroupInfoCard(model: dataList[0]),
+        GroupInfoCard(model: model),
         SizedBox(height: 16),
-        ImageSlideshow(model: dataList[0]),
+        ImageSlideshow(model: model),
         SizedBox(height: 16),
-        DetailsCard(),
+        DetailsCard(model: model),
         SizedBox(height: 16),
-        ActionButtons(),
+        ActionButtons(model: model),
         SizedBox(height: 16),
       ],
     );
   }
 
   Widget badmintonSummaryPage2(BuildContext context) {
+    // ส่งข้อมูล Analytics จริงไปแสดงผล
     return Column(
-      children: const [SummaryCard(), SizedBox(height: 16), GameTimingCard()],
+      children: [
+        SummaryCard(data: _financeAnalytics),
+        SizedBox(height: 16),
+        GameTimingCard(games: _financeAnalytics?['matchHistory'] is List ? _financeAnalytics!['matchHistory'] : [])
+      ],
     );
   }
 
   Widget detailsViewHistoryFinance(BuildContext context, {Function()? onBack}) {
     final bool isMobile = onBack != null;
+    final shuttlecockRate = _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
@@ -2030,10 +2067,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               onPressed: onBack,
             ),
           ),
-        CostsSummary(),
+        CostsSummary(sessionData: _selectedFinanceSession),
         PlayerListCard(
           padding: EdgeInsetsGeometry.symmetric(vertical: 16),
-          onPlayerTap: () {},
+          shuttlecockRate: shuttlecockRate,
+          onPlayerTap: (p) {},
         ),
       ],
     );
@@ -2044,6 +2082,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     Function()? onBack,
   }) {
     final bool isMobile = onBack != null;
+    final shuttlecockRate = _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
@@ -2062,11 +2101,12 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.max,
           children: [
-            Expanded(child: CostsSummary()),
+            Expanded(child: CostsSummary(sessionData: _selectedFinanceSession)),
             Expanded(
               child: PlayerListCard(
                 padding: EdgeInsetsGeometry.only(left: 5),
-                onPlayerTap: () {},
+                shuttlecockRate: shuttlecockRate,
+                onPlayerTap: (p) {},
               ),
             ),
           ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
+import 'package:badminton/component/add_guest_dialog.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/model/player.dart';
 import 'package:badminton/component/player_avatar.dart';
@@ -11,6 +12,8 @@ import 'package:signalr_netcore/signalr_client.dart'; // 1. Import SignalR
 import 'dart:convert'; // สำหรับ json decoding (ถ้าจำเป็น)
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qr_flutter/qr_flutter.dart'; // ต้องมี package นี้
 
 enum CourtStatus { waiting, playing, paused }
 
@@ -48,6 +51,10 @@ extension PlayerFromJson on Player {
       skillLevelName: json['skillLevelName'], // FIX: ดึงชื่อระดับจาก API
       skillLevelColor: json['skillLevelColor'], // FIX: ดึงสีจาก API
       skillLevelId: json['skillLevelId'], // NEW: ดึง skillLevelId มาด้วย
+      gamesPlayed: json['totalGamesPlayed'],
+      totalPlayTime: json['checkedInTime'] != null
+          ? DateTime.now().difference(DateTime.parse(json['checkedInTime']))
+          : Duration.zero,
     );
   }
 }
@@ -81,14 +88,27 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   Player? _viewingPlayer;
   // --- NEW: Debouncer for API calls ---
-  final Map<int, Timer> _teamDebounceTimers = {}; // Key: team.id, Value: Timer
+  // REMOVED: final Map<int, Timer> _teamDebounceTimers = {};
 
   Player? _playerForExpenses;
   bool _isStartGame = false;
   int _currentParticipants = 0;
   int _maxParticipants = 0;
+  double _courtFee = 0.0;
+  double _shuttleFee = 0.0;
   Timer? _sessionTimer;
   Duration _sessionDuration = Duration.zero;
+  bool _isQueueMode =
+      true; // NEW: ตัวแปรเก็บสถานะโหมดการจัดทีม (Default: จัดตามคิว)
+  bool _isSortBySkill = false; // NEW: ตัวแปรเก็บสถานะการเรียงลำดับ
+  bool _isMixedMode =
+      true; // NEW: ตัวแปรเก็บสถานะโหมดจับคู่ (Default: จัดแบบผสม)
+  final Map<String, Map<String, dynamic>> _playerExtraData =
+      {}; // NEW: เก็บข้อมูลเพิ่มเติม (Games, Time)
+  final Set<String> _pausedPlayerIds = {}; // NEW: เก็บ ID ผู้เล่นที่ถูกหยุดเกม
+  final Set<String> _endedPlayerIds = {}; // NEW: เก็บ ID ผู้เล่นที่จบเกมแล้ว
+  Timer? _waitingTimeRefreshTimer; // NEW: Timer สำหรับอัปเดตเวลาที่รอ
+  bool _isProcessing = false; // NEW: ตัวแปรป้องกันการกดปุ่มซ้ำ (Debounce/Lock)
 
   @override
   void initState() {
@@ -96,24 +116,100 @@ class _ManageGamePage extends State<ManageGamePage> {
     _fetchLiveState(); // 2. เรียกข้อมูลครั้งแรกเพื่อแสดงผลทันที
     _fetchSkillLevels(); // NEW: ดึงข้อมูลระดับมือเมื่อเข้าหน้า
     _fetchSessionDetails();
+    _loadPreferences(); // NEW: โหลดค่าที่บันทึกไว้
     _initSignalR(); // 3. เริ่มการเชื่อมต่อ SignalR
+    _startWaitingTimeTimer(); // NEW: เริ่ม Timer อัปเดตเวลาที่รอ
   }
 
   @override
   void dispose() {
+    _fabMenuOverlay?.remove(); // ป้องกัน Overlay ค้างเมื่อกด Back ออกจากหน้า
     _timers.forEach((key, timer) => timer.cancel());
     _sessionTimer?.cancel();
+    _waitingTimeRefreshTimer?.cancel(); // NEW: ยกเลิก Timer
     // --- REFACTORED: Leave group before stopping the connection ---
     if (_hubConnection != null) {
-      // 4. บอก Server ว่าจะออกจากกลุ่มของ Session นี้
-      _hubConnection!.invoke("LeaveGameSessionGroup", args: [widget.id]);
       // 5. ปิดการเชื่อมต่อ SignalR
       _hubConnection!.stop();
     }
-    _teamDebounceTimers.forEach(
-      (_, timer) => timer.cancel(),
-    ); // ยกเลิก Debounce Timers
+    // REMOVED: _teamDebounceTimers.cancel
     super.dispose();
+  }
+
+  // NEW: ฟังก์ชันสำหรับเริ่ม Timer อัปเดตเวลาที่รอ
+  void _startWaitingTimeTimer() {
+    _waitingTimeRefreshTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          for (var player in waitingPlayers) {
+            final waitingSince = _playerExtraData[player.id]?['waitingSince'] as DateTime?;
+            if (waitingSince != null) {
+              player.totalPlayTime = DateTime.now().difference(waitingSince);
+            }
+          }
+        });
+      }
+    });
+  }
+
+  // --- NEW: โหลดและบันทึกค่า Preference ---
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isQueueMode = prefs.getBool('isQueueMode') ?? true;
+      _isMixedMode = prefs.getBool('isMixedMode') ?? true;
+
+      final pausedList =
+          prefs.getStringList('pausedPlayers_${widget.id}') ?? [];
+      _pausedPlayerIds.addAll(pausedList);
+
+      final endedList = prefs.getStringList('endedPlayers_${widget.id}') ?? [];
+      _endedPlayerIds.addAll(endedList);
+
+      // NEW: ถ้ายังไม่มี Timestamp ให้สร้างไว้ (สำหรับข้อมูลเก่าหรือเริ่มใหม่)
+      if (prefs.getInt('pausedPlayers_timestamp_${widget.id}') == null) {
+        prefs.setInt(
+          'pausedPlayers_timestamp_${widget.id}',
+          DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+    });
+  }
+
+  Future<void> _saveQueueModePreference(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isQueueMode', value);
+  }
+
+  Future<void> _saveMixedModePreference(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isMixedMode', value);
+  }
+
+  Future<void> _savePausedPlayers() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'pausedPlayers_${widget.id}',
+      _pausedPlayerIds.toList(),
+    );
+    // NEW: บันทึกเวลาล่าสุดที่มีการใช้งาน เพื่อใช้ตรวจสอบตอนล้างข้อมูล
+    await prefs.setInt(
+      'pausedPlayers_timestamp_${widget.id}',
+      DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  // NEW: บันทึกสถานะจบเกม
+  Future<void> _saveEndedPlayers() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'endedPlayers_${widget.id}',
+      _endedPlayerIds.toList(),
+    );
+    await prefs.setInt(
+      'pausedPlayers_timestamp_${widget.id}',
+      DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   // NEW: ฟังก์ชันสำหรับดึงข้อมูลระดับมือทั้งหมด
@@ -139,9 +235,25 @@ class _ManageGamePage extends State<ManageGamePage> {
     try {
       final response = await ApiProvider().get('/GameSessions/${widget.id}');
       if (mounted && response['data'] != null) {
+        final data = response['data'];
+        // --- FIX: นับจำนวนผู้เข้าร่วมจากรายชื่อ (นับเฉพาะคนที่สถานะ = 1 คือ Joined) ---
+        // final participants = data['participants'] as List? ?? [];
+        // final joinedCount = participants.where((p) => p['status'] == 1).length;
+
+        double parseFee(dynamic value) {
+          if (value is String) {
+            return double.tryParse(value) ?? 0.0;
+          } else if (value is num) {
+            return value.toDouble();
+          }
+          return 0.0;
+        }
+
         setState(() {
-          _currentParticipants = response['data']['currentParticipants'] ?? 0;
-          _maxParticipants = response['data']['maxParticipants'] ?? 0;
+          // _currentParticipants = joinedCount; // ไม่ใช้ค่า Booking แล้ว ใช้ค่า Check-in จาก Live State แทน
+          _maxParticipants = data['maxParticipants'] ?? 0;
+          _courtFee = parseFee(data['courtFeePerPerson']);
+          _shuttleFee = parseFee(data['shuttlecockFeePerPerson']);
         });
       }
     } catch (e) {
@@ -217,22 +329,51 @@ class _ManageGamePage extends State<ManageGamePage> {
     _timers.forEach((_, timer) => timer.cancel());
 
     // 1. แปลงข้อมูล WaitingPool
-    final List<Player>
-      newWaitingPlayers = (liveState['waitingPool'] as List).map((p) {
-        return PlayerFromJson.fromJson(p);
-        // --- NEW: เพิ่มข้อมูล genderName และ isCheckedIn เข้าไปใน Player object ---
-        // final player = PlayerFromJson.fromJson(p);
-        // player.genderName = p['genderName'];
-        // player.isCheckedIn = p['checkinTime'] != null;
-      }).toList();
+    final List<Player> newWaitingPlayers = [];
+    final Map<String, Player> playerMap =
+        {}; // NEW: Map เพื่อ lookup ข้อมูลผู้เล่นที่ถูกต้อง (ชื่อไม่เพี้ยน)
+
+    // --- MERGED LOOP: รวมการวนลูปเพื่อประสิทธิภาพและจัดการเวลา ---
+    for (var p in (liveState['waitingPool'] as List)) {
+      final player = PlayerFromJson.fromJson(p);
+      final pid = player.id;
+
+      // คำนวณเวลาเริ่มรอ (Waiting Since)
+      final apiCheckin = p['checkedInTime'] != null
+          ? DateTime.parse(p['checkedInTime'])
+          : DateTime.now();
+      DateTime waitingSince = apiCheckin;
+
+      // ถ้ามีข้อมูลในเครื่องที่ใหม่กว่า (คือเพิ่งเล่นจบ) ให้ใช้ข้อมูลในเครื่อง
+      if (_playerExtraData.containsKey(pid)) {
+        final localData = _playerExtraData[pid]!;
+        final localWaitingSince = localData['waitingSince'] as DateTime?;
+        if (localWaitingSince != null && localWaitingSince.isAfter(apiCheckin)) {
+          waitingSince = localWaitingSince;
+        }
+      }
+
+      // อัปเดตข้อมูล Extra Data
+      _playerExtraData[pid] = {
+        'games': p['totalGamesPlayed'] ?? 0,
+        'checkinTime': apiCheckin,
+        'waitingSince': waitingSince, // ใช้ค่าที่ถูกต้องที่สุด
+      };
+
+      // อัปเดตเวลาที่แสดงผลใน Object Player ทันที
+      player.totalPlayTime = DateTime.now().difference(waitingSince);
+
+      newWaitingPlayers.add(player);
+      playerMap[player.id] = player; // เก็บลง Map
+    }
 
     // --- FIX: สร้าง Set ของ ID ผู้เล่นที่รออยู่แล้ว เพื่อป้องกันการเพิ่มซ้ำ ---
-    final Set<String> waitingPlayerIds =
-        newWaitingPlayers.map((p) => p.id).toSet();
+    final Set<String> waitingPlayerIds = newWaitingPlayers
+        .map((p) => p.id)
+        .toSet();
 
     // --- NEW: อ่านข้อมูล StagedMatches จาก API ---
-    final List<dynamic> stagedMatchesFromApi =
-        liveState['stagedMatches'] ?? [];
+    final List<dynamic> stagedMatchesFromApi = liveState['stagedMatches'] ?? [];
     final List<StagedMatchDto> stagedMatches = stagedMatchesFromApi
         .map((m) => StagedMatchDto.fromJson(m))
         .toList();
@@ -240,13 +381,16 @@ class _ManageGamePage extends State<ManageGamePage> {
     // 2. แปลงข้อมูล Courts
     final List<CourtStatusDto> courtStatuses = (liveState['courts'] as List)
         .map((c) {
-      return CourtStatusDto.fromJson(c);
-    }).toList();
+          return CourtStatusDto.fromJson(c);
+        })
+        .toList();
 
     // 3. สร้าง playingCourts และ readyTeams ใหม่
     List<PlayingCourt> newPlayingCourts = [];
     List<ReadyTeam> newReadyTeams = [];
     List<ReadyTeam> newReserveTeams = []; // NEW: สร้างทีมสำรองไปพร้อมกัน
+    Set<String> playersOnCourts =
+        {}; // NEW: เก็บ ID ผู้เล่นที่ลงสนามแล้ว เพื่อป้องกันการเบิ้ล
 
     // --- FIX: เก็บสถานะทีมสำรองเก่าไว้ก่อน เพื่อรักษาทีมที่ยังจัดไม่เสร็จ ---
     final List<ReadyTeam> oldReserveTeams = List.from(reserveTeams);
@@ -275,19 +419,19 @@ class _ManageGamePage extends State<ManageGamePage> {
           court.elapsedTime = DateTime.now().difference(match.startTime!);
 
           // เริ่ม Timer ใหม่สำหรับสนามที่กำลังเล่นอยู่
-          _timers[court.courtNumber] =
-              Timer.periodic(const Duration(seconds: 1), (timer) {
-            if (mounted) {
-              setState(() {
-                // หา court ที่ถูกต้องใน list ปัจจุบันเพื่ออัปเดต
+          _timers[court.courtNumber] = Timer.periodic(
+            const Duration(seconds: 1),
+            (timer) {
+              if (mounted) {
+                // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
                 playingCourts
                     .firstWhere((c) => c.courtNumber == court.courtNumber)
                     .elapsedTime += const Duration(
                   seconds: 1,
                 );
-              });
-            }
-          });
+              }
+            },
+          );
         } else {
           // ถ้าเกมยังไม่เริ่ม (แค่จัดทีมไว้)
           court.status = CourtStatus.waiting;
@@ -303,34 +447,52 @@ class _ManageGamePage extends State<ManageGamePage> {
         for (var team in allTeams) {
           for (var pInMatch in team) {
             if (playerIndex < 4) {
-              final player = Player(
-                id: '${pInMatch.participantType}_${pInMatch.participantId}',
-                name: pInMatch.nickname,
-                imageUrl: pInMatch.profilePhotoUrl,
-                skillLevelName: pInMatch.skillLevelName,
-                skillLevelColor: pInMatch.skillLevelColor,
-                skillLevelId: pInMatch.skillLevelId,
-              );
-              matchPlayers[playerIndex] = player;
-
               final playerId =
                   '${pInMatch.participantType}_${pInMatch.participantId}';
-              if (!waitingPlayerIds.contains(playerId)) {
-                newWaitingPlayers.add(
-                  PlayerFromJson.fromJson(pInMatch.toPlayerJson()),
+
+              // FIX: ใช้ข้อมูลจาก playerMap ถ้ามี เพื่อให้ชื่อตรงกันและไม่มี (1)
+              Player player;
+              if (playerMap.containsKey(playerId)) {
+                player = playerMap[playerId]!;
+              } else {
+                // NEW: ตัด (1), (2) ออกจากชื่อ ถ้าหาใน Map ไม่เจอ
+                String cleanName = pInMatch.nickname.replaceAll(
+                  RegExp(r'\s\(\d+\)$'),
+                  '',
                 );
+                player = Player(
+                  id: playerId,
+                  name: cleanName, // ใช้ชื่อที่ตัด (1) ออกแล้ว
+                  imageUrl: pInMatch.profilePhotoUrl,
+                  skillLevelName: pInMatch.skillLevelName,
+                  skillLevelColor: pInMatch.skillLevelColor,
+                  skillLevelId: pInMatch.skillLevelId,
+                );
+                playerMap[playerId] = player; // เพิ่มลง Map เผื่อใช้ที่อื่น
+              }
+
+              matchPlayers[playerIndex] = player;
+
+              if (!waitingPlayerIds.contains(playerId)) {
+                // ถ้ายังไม่มีใน Waiting List ให้เพิ่มเข้าไป (ใช้ player ที่ถูกต้องแล้ว)
+                newWaitingPlayers.add(player);
                 waitingPlayerIds.add(playerId);
               }
               playerIndex++;
             }
           }
         }
+        // NEW: เก็บ ID ผู้เล่นในสนามลง Set
+        for (var p in matchPlayers) {
+          if (p != null) playersOnCourts.add(p.id);
+        }
         court.players = matchPlayers;
         // --- FIX: Sync players to the corresponding ReadyTeam as well ---
         // Since we add a newTeam for every court, the index will always match.
         if (newPlayingCourts.length < newReadyTeams.length) {
-          newReadyTeams[newPlayingCourts.length].players =
-              List.from(matchPlayers);
+          newReadyTeams[newPlayingCourts.length].players = List.from(
+            matchPlayers,
+          );
         }
       }
       newPlayingCourts.add(court);
@@ -340,51 +502,104 @@ class _ManageGamePage extends State<ManageGamePage> {
       newReserveTeams.add(newReserveTeam);
     }
 
-    // --- FIX: วนลูป StagedMatches ทั้งหมดเพื่อจัดลง ReadyTeam หรือ ReserveTeam ---
+    // --- FIX: แยกการวนลูป StagedMatches เป็น 2 รอบ เพื่อจัดการลำดับความสำคัญ ---
+    // รอบที่ 1: จัดการสนามหลักก่อน (Courts)
     for (var stagedMatch in stagedMatches) {
       final teamPlayers = [...stagedMatch.teamA, ...stagedMatch.teamB];
       final courtId = stagedMatch.courtIdentifier;
 
-      if (courtId != null) {
-        // ตรวจสอบว่าเป็นทีมสำรองหรือไม่ (มีเครื่องหมาย '-' นำหน้า)
-        if (courtId.startsWith('-')) {
-          final reserveIndex = int.tryParse(courtId.substring(1)) ?? 0;
-          if (reserveIndex > 0 && reserveIndex <= newReserveTeams.length) {
-            final targetReserveTeam = newReserveTeams[reserveIndex - 1];
-            targetReserveTeam.stagedMatchId = stagedMatch.stagedMatchId;
-            for (int j = 0; j < teamPlayers.length; j++) {
-              if (j < targetReserveTeam.players.length) {
-                final player = PlayerFromJson.fromJson(
-                  teamPlayers[j].toPlayerJson(),
-                );
-                targetReserveTeam.players[j] = player;
-                if (!waitingPlayerIds.contains(player.id)) {
-                  newWaitingPlayers.add(player);
-                  waitingPlayerIds.add(player.id);
+      if (courtId != null && !courtId.startsWith('-')) {
+        final courtIndex = newPlayingCourts.indexWhere(
+          (c) => c.identifier == courtId,
+        );
+        if (courtIndex != -1) {
+          final targetReadyTeam = newReadyTeams[courtIndex];
+          targetReadyTeam.stagedMatchId = stagedMatch.stagedMatchId;
+          for (int i = 0; i < teamPlayers.length; i++) {
+            if (i < targetReadyTeam.players.length) {
+              final pDto = teamPlayers[i];
+              final playerId = '${pDto.participantType}_${pDto.participantId}';
+
+              // FIX: ใช้ข้อมูลจาก playerMap
+              Player player;
+              if (playerMap.containsKey(playerId)) {
+                player = playerMap[playerId]!;
+              } else {
+                // NEW: ตัด (1) ออกจากชื่อ
+                var pJson = pDto.toPlayerJson();
+                if (pJson['nickname'] is String) {
+                  pJson['nickname'] = (pJson['nickname'] as String).replaceAll(
+                    RegExp(r'\s\(\d+\)$'),
+                    '',
+                  );
                 }
+                player = PlayerFromJson.fromJson(pJson);
+                playerMap[playerId] = player;
               }
+
+              targetReadyTeam.players[i] = player;
+              newPlayingCourts[courtIndex].players[i] =
+                  player; // อัปเดต UI สนามด้วย
+              if (!waitingPlayerIds.contains(player.id)) {
+                newWaitingPlayers.add(player);
+                waitingPlayerIds.add(player.id);
+              }
+              // NEW: เก็บ ID ผู้เล่นที่รอลงสนาม
+              playersOnCourts.add(player.id);
             }
           }
-        } else {
-          // ถ้าเป็นสนามปกติ (courtIdentifier เป็นค่าบวก)
-          final courtIndex = newPlayingCourts.indexWhere(
-            (c) => c.identifier == courtId,
-          );
-          if (courtIndex != -1) {
-            final targetReadyTeam = newReadyTeams[courtIndex];
-            targetReadyTeam.stagedMatchId = stagedMatch.stagedMatchId;
-            for (int i = 0; i < teamPlayers.length; i++) {
-              if (i < targetReadyTeam.players.length) {
-                final player = PlayerFromJson.fromJson(
-                  teamPlayers[i].toPlayerJson(),
-                );
-                targetReadyTeam.players[i] = player;
-                newPlayingCourts[courtIndex].players[i] =
-                    player; // อัปเดต UI สนามด้วย
-                if (!waitingPlayerIds.contains(player.id)) {
-                  newWaitingPlayers.add(player);
-                  waitingPlayerIds.add(player.id);
+        }
+      }
+    }
+
+    // รอบที่ 2: จัดการทีมสำรอง (Reserves)
+    for (var stagedMatch in stagedMatches) {
+      final teamPlayers = [...stagedMatch.teamA, ...stagedMatch.teamB];
+      final courtId = stagedMatch.courtIdentifier;
+
+      if (courtId != null && courtId.startsWith('-')) {
+        // NEW: ตรวจสอบว่าผู้เล่นซ้ำกับในสนามหรือไม่ (ป้องกันการเบิ้ล)
+        bool isDuplicate = false;
+        for (var p in teamPlayers) {
+          if (playersOnCourts.contains(
+            '${p.participantType}_${p.participantId}',
+          )) {
+            isDuplicate = true;
+            break;
+          }
+        }
+        if (isDuplicate) continue; // ข้ามถ้านักกีฬาลงสนามไปแล้ว
+
+        final reserveIndex = int.tryParse(courtId.substring(1)) ?? 0;
+        if (reserveIndex > 0 && reserveIndex <= newReserveTeams.length) {
+          final targetReserveTeam = newReserveTeams[reserveIndex - 1];
+          targetReserveTeam.stagedMatchId = stagedMatch.stagedMatchId;
+          for (int j = 0; j < teamPlayers.length; j++) {
+            if (j < targetReserveTeam.players.length) {
+              final pDto = teamPlayers[j];
+              final playerId = '${pDto.participantType}_${pDto.participantId}';
+
+              // FIX: ใช้ข้อมูลจาก playerMap
+              Player player;
+              if (playerMap.containsKey(playerId)) {
+                player = playerMap[playerId]!;
+              } else {
+                // NEW: ตัด (1) ออกจากชื่อ
+                var pJson = pDto.toPlayerJson();
+                if (pJson['nickname'] is String) {
+                  pJson['nickname'] = (pJson['nickname'] as String).replaceAll(
+                    RegExp(r'\s\(\d+\)$'),
+                    '',
+                  );
                 }
+                player = PlayerFromJson.fromJson(pJson);
+                playerMap[playerId] = player;
+              }
+
+              targetReserveTeam.players[j] = player;
+              if (!waitingPlayerIds.contains(player.id)) {
+                newWaitingPlayers.add(player);
+                waitingPlayerIds.add(player.id);
               }
             }
           }
@@ -392,12 +607,16 @@ class _ManageGamePage extends State<ManageGamePage> {
       }
     }
     // --- FIX: นำผู้เล่นจากทีมสำรองเก่าที่ยังจัดไม่เสร็จกลับมาใส่ ---
-    for (int i = 0;
-        i < oldReserveTeams.length && i < newReserveTeams.length;
-        i++) {
+    for (
+      int i = 0;
+      i < oldReserveTeams.length && i < newReserveTeams.length;
+      i++
+    ) {
       // ถ้่าทีมใหม่ยังว่าง และทีมเก่ามีผู้เล่นอยู่ (แต่ไม่ครบ 4)
       if (newReserveTeams[i].players.every((p) => p == null) &&
-          oldReserveTeams[i].players.any((p) => p != null)) {
+          oldReserveTeams[i].players.any((p) => p != null) &&
+          oldReserveTeams[i].stagedMatchId == null) {
+        // FIX: กู้คืนเฉพาะข้อมูลที่ยังไม่เคย Save ลง Server (Draft)
         newReserveTeams[i].players = List.from(oldReserveTeams[i].players);
       }
     }
@@ -410,74 +629,257 @@ class _ManageGamePage extends State<ManageGamePage> {
       _groupName = liveState['groupName']; // หากมีข้อมูลชื่อก๊วนใน API
 
       // --- FIX: อัปเดตจำนวนผู้เข้าร่วมจากข้อมูลจริงที่มีอยู่ ---
-      _currentParticipants = waitingPlayers.length;
+      // _currentParticipants = waitingPlayers.length; // เอาออก: ไม่ควรเอาจำนวนคนรอมาทับจำนวนคนทั้งหมด
       if (liveState['maxParticipants'] != null) {
         _maxParticipants = liveState['maxParticipants'];
+      }
+      // --- FIX: เคลียร์ผู้เล่นที่เลือกไว้เพื่อป้องกันข้อมูลเก่าค้าง (Stale References) ---
+      selectedPlayers.clear();
+
+      // --- NEW: ตรวจสอบสถานะและเวลาเริ่มการแข่งขันจาก Server ---
+      if (liveState['competitionStartTime'] != null) {
+        _isStartGame = true;
+        final startTime = DateTime.parse(liveState['competitionStartTime']);
+        final now = DateTime.now();
+        // คำนวณเวลาที่ผ่านไปจริงจากเวลาเริ่มบน Server
+        final diff = now.difference(startTime);
+        _sessionDuration = diff.isNegative ? Duration.zero : diff;
+
+        // เริ่ม Timer เพื่อนับเวลาต่อ (ถ้ายังไม่เริ่ม)
+        if (_sessionTimer == null || !_sessionTimer!.isActive) {
+          _startSessionTimer();
+        }
+      } else {
+        _isStartGame = false;
+        _sessionDuration = Duration.zero;
+        _sessionTimer?.cancel();
+        _sessionTimer = null;
       }
     });
   }
 
-  // --- NEW: ฟังก์ชันสำหรับขอคำแนะนำการจัดคู่ ---
-  Future<void> _suggestMatchByWaitTime() async {
-    try {
-      final response = await ApiProvider().get(
-        '/gamesessions/${widget.id}/suggest-matches?criteria=ByWaitTime',
+  // --- NEW: ฟังก์ชันสำหรับจัดคู่อัตโนมัติแบบ Smart (ระดับมือ + เวลารอ + จำนวนเกม) ---
+  void _autoMatchSmart() {
+    // --- UX FIX: เอา _isProcessing ออก เพื่อให้กดแล้วทำงานทันที ไม่กระตุก ---
+    // 1. ตรวจสอบว่าเริ่มการแข่งขันหรือยัง
+    if (!_isStartGame) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณากด "เริ่มการแข่งขัน" ในเมนูก่อน')),
       );
-      final suggestions = response['data'] as List;
+      return;
+    }
 
-      if (suggestions.isEmpty || !mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่มีผู้เล่นพอให้จัดคู่')),
-        );
-        return;
-      }
+    // 2. หาสนามที่ว่างสนามแรก หรือ ทีมสำรองที่ว่าง
+    dynamic target;
+    bool isReserveTarget = false;
 
-      // แสดง Dialog พร้อมคู่ที่แนะนำ (ใช้คู่แรกที่ได้มา)
-      final firstSuggestion = suggestions.first;
-      _showSuggestionDialog(firstSuggestion);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('ไม่สามารถจัดคู่ได้: $e')));
+    final emptyCourts = playingCourts
+        .where((c) => c.players.every((p) => p == null))
+        .toList();
+
+    if (emptyCourts.isNotEmpty) {
+      target = emptyCourts.first;
+    } else {
+      // ถ้าสนามจริงเต็ม ให้หาทีมสำรองที่ว่าง
+      final emptyReserves = reserveTeams
+          .where((t) => t.players.every((p) => p == null))
+          .toList();
+      if (emptyReserves.isNotEmpty) {
+        target = emptyReserves.first;
+        isReserveTarget = true;
       }
     }
-  }
 
-  // --- NEW: ฟังก์ชันสำหรับแสดง Dialog คู่ที่แนะนำ ---
-  void _showSuggestionDialog(Map<String, dynamic> suggestion) {
-    final List<Player> teamA = (suggestion['teamA'] as List)
-        .map((p) => PlayerFromJson.fromJson(p))
+    if (target == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ไม่มีสนามหรือคิวสำรองว่างในขณะนี้')),
+      );
+      return;
+    }
+
+    // 3. ระบุตัวผู้เล่นที่ "ไม่ว่าง" (เล่นอยู่ หรือ อยู่ในทีมสำรอง)
+    final Set<String> busyPlayerIds = {};
+    for (var c in playingCourts) {
+      for (var p in c.players) {
+        if (p != null) busyPlayerIds.add(p.id);
+      }
+    }
+    for (var t in reserveTeams) {
+      for (var p in t.players) {
+        if (p != null) busyPlayerIds.add(p.id);
+      }
+    }
+
+    // 4. กรองผู้เล่นที่ว่างอยู่จริง
+    // เรียงตามเวลา Check-in (มาก่อนได้ก่อน) เพื่อความยุติธรรม
+    final availablePlayers = waitingPlayers
+        .where(
+          (p) =>
+              !busyPlayerIds.contains(p.id) && !_pausedPlayerIds.contains(p.id) &&
+              !_endedPlayerIds.contains(p.id), // --- FIX: กรองคนที่จบเกมแล้วออกด้วย ---
+        ) // FIX: กรองผู้เล่นที่ถูกหยุดเกมออก
         .toList();
-    final List<Player> teamB = (suggestion['teamB'] as List)
-        .map((p) => PlayerFromJson.fromJson(p))
-        .toList();
 
-    showDialogMsg(
-      context,
-      title: 'คู่ที่แนะนำ (ตามเวลารอ)',
-      subtitle:
-          'ทีม A: ${teamA[0].name}, ${teamA[1].name}\nทีม B: ${teamB[0].name}, ${teamB[1].name}',
-      btnLeft: 'ยืนยันและเริ่มเกม',
-      btnRight: 'ยกเลิก',
-      onConfirm: () {
-        // หาสนามที่ว่างสนามแรก
-        final firstEmptyCourt = playingCourts.firstWhere(
-          (c) => c.players.every((p) => p == null),
-        );
+    availablePlayers.sort((a, b) {
+      // 1. Games Played (Ascending) - Fix for "Why pick played over unplayed"
+      final gamesA = _playerExtraData[a.id]?['games'] as int? ?? 0;
+      final gamesB = _playerExtraData[b.id]?['games'] as int? ?? 0;
+      if (gamesA != gamesB) {
+        return gamesA.compareTo(gamesB);
+      }
 
-        // ย้ายผู้เล่นลงสนามและเริ่มเกม
-        setState(() {
-          firstEmptyCourt.players = [teamA[0], teamA[1], teamB[0], teamB[1]];
-          waitingPlayers.removeWhere(
-            (p) =>
-                teamA.any((ap) => ap.id == p.id) ||
-                teamB.any((bp) => bp.id == p.id),
-          );
-        });
-        _startTimer(firstEmptyCourt);
-      },
+      // 2. Waiting Time (Ascending - Earlier checkin = Longer wait)
+      // ใช้ waitingSince แทน checkinTime เพื่อให้คนที่เพิ่งเล่นจบไปต่อท้าย
+      final timeA =
+          _playerExtraData[a.id]?['waitingSince'] as DateTime? ?? DateTime.now();
+      final timeB =
+          _playerExtraData[b.id]?['waitingSince'] as DateTime? ?? DateTime.now();
+      return timeA.compareTo(timeB);
+    });
+
+    if (availablePlayers.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ผู้เล่นไม่เพียงพอสำหรับจัดคู่ (ต้องการ 4 คน)'),
+        ),
+      );
+      return;
+    }
+
+    // 5. Algorithm การจัดคู่ (Local)
+    // เลือกคนแรก (รอนานสุด) เป็นแกนหลัก
+    final anchorPlayer = availablePlayers[0];
+    List<Player> bestMatch = [];
+
+    if (_isMixedMode) {
+      // --- Mode: จัดแบบผสม (Mixed Skill) ---
+      // ค้นหา 3 คนจากผู้เล่นที่รออยู่ทั้งหมด
+      // เพื่อจับคู่กับ Anchor ให้ได้ทีมที่สมดุลที่สุด
+
+      // Pool คือผู้เล่นที่เหลือ (ตัด Anchor ออก)
+      final pool = availablePlayers.sublist(1);
+
+      if (pool.length < 3) {
+        bestMatch = availablePlayers.take(4).toList();
+      } else {
+        double bestScore = double.infinity;
+        List<Player> bestCombination = [];
+
+        // Loop 3 คนจาก pool (Brute force combinations) เพื่อหาชุดที่ดีที่สุด
+        for (int i = 0; i < pool.length; i++) {
+          for (int j = i + 1; j < pool.length; j++) {
+            for (int k = j + 1; k < pool.length; k++) {
+              final p1 = pool[i];
+              final p2 = pool[j];
+              final p3 = pool[k];
+
+              final currentSet = [anchorPlayer, p1, p2, p3];
+
+              // คำนวณความสมดุล: เรียงตาม Skill เพื่อดูว่าถ้าจับคู่ อ่อน+เก่ง vs กลาง+กลาง แล้วต่างกันแค่ไหน
+              final sortedSet = List<Player>.from(currentSet);
+              sortedSet.sort(
+                (a, b) => (a.skillLevelId ?? 0).compareTo(b.skillLevelId ?? 0),
+              );
+
+              final teamASkill =
+                  (sortedSet[0].skillLevelId ?? 0) +
+                  (sortedSet[3].skillLevelId ?? 0);
+              final teamBSkill =
+                  (sortedSet[1].skillLevelId ?? 0) +
+                  (sortedSet[2].skillLevelId ?? 0);
+              final diff = (teamASkill - teamBSkill).abs();
+
+              // คำนวณความหลากหลาย (Diversity): ยิ่งมากยิ่งดี (เช่น 1,1,3,3 ดีกว่า 1,1,1,1)
+              final minSkill = sortedSet.first.skillLevelId ?? 0;
+              final maxSkill = sortedSet.last.skillLevelId ?? 0;
+              final diversity = maxSkill - minSkill;
+
+              // Score Calculation (ปรับปรุงใหม่):
+              // 1. Balance (Diff * 100000): สำคัญที่สุด ทีมต้องสูสี (เพิ่มน้ำหนักเพื่อให้แน่ใจว่าสมดุลจริง)
+              // 2. Diversity (* 50): ให้คะแนนความหลากหลายสูงขึ้น เพื่อให้คุ้มค่าที่จะข้ามคิวไปหยิบคนไกลๆ
+              // 3. Zero Diversity Penalty (+200): ถ้าความหลากหลายเป็น 0 (มือเท่ากันหมด) ให้คะแนนแย่ลงไปอีก
+              // 4. QueuePenalty: พยายามเลือกคนที่คิวดีที่สุด
+              final queuePenalty = i + j + k;
+              double diversityScore = (diversity * 50).toDouble();
+              if (diversity == 0)
+                diversityScore -= 200; // Penalty for no diversity
+
+              final score = (diff * 100000) + queuePenalty - diversityScore;
+
+              if (score < bestScore) {
+                bestScore = score.toDouble();
+                bestCombination = currentSet;
+              }
+            }
+          }
+        }
+        bestMatch = bestCombination;
+      }
+    } else {
+      // --- Mode: จัดตามมือ (Skill Based) ---
+      // เลือก Anchor แล้วหาอีก 3 คนที่มือใกล้เคียงที่สุด
+      // เงื่อนไข: "ดึงมือที่ lv เท่าๆกันมา ถ้าคนไม่ครบจะเอา lv ที่ต่ำลงมาเติมให้เต็มตามลำดับ lv มากไปหาน้อย"
+
+      final candidates = availablePlayers.sublist(1);
+      // เรียง candidates ตามเงื่อนไข
+      candidates.sort((a, b) {
+        final skillA = a.skillLevelId ?? 0;
+        final skillB = b.skillLevelId ?? 0;
+        final anchorSkill = anchorPlayer.skillLevelId ?? 0;
+
+        final diffA = (skillA - anchorSkill).abs();
+        final diffB = (skillB - anchorSkill).abs();
+
+        // 1. ถ้าความห่างเท่ากัน (เช่น Anchor=3, A=3, B=3) -> ดูเวลา (index เดิม)
+        // หรือ (Anchor=3, A=2, B=4 -> diff=1 เท่ากัน)
+        if (diffA != diffB) {
+          return diffA.compareTo(diffB); // เอาที่ห่างน้อยสุดก่อน
+        }
+
+        // 2. ถ้าความห่างเท่ากัน ให้เลือกคนที่ Skill ต่ำกว่าหรือเท่ากับ Anchor ก่อน (ตามโจทย์: เอา lv ต่ำลงมาเติม)
+        // เช่น Anchor=3, A=2 (diff 1), B=4 (diff 1) -> เลือก A
+        if (skillA <= anchorSkill && skillB > anchorSkill) return -1;
+        if (skillA > anchorSkill && skillB <= anchorSkill) return 1;
+
+        // 3. ถ้าเงื่อนไข Skill เหมือนกันหมด ให้ดูเวลา (ลำดับใน List เดิมคือเวลา)
+        return availablePlayers
+            .indexOf(a)
+            .compareTo(availablePlayers.indexOf(b));
+      });
+
+      final bestCandidates = candidates.take(3).toList();
+      bestMatch = [anchorPlayer, ...bestCandidates];
+    }
+
+    // จัดทีม A (2 คน) และ B (2 คน) โดยเกลี่ย Skill ให้สมดุล
+    // เรียงตาม Skill Level จากน้อยไปมาก
+    bestMatch.sort(
+      (a, b) => (a.skillLevelId ?? 0).compareTo(b.skillLevelId ?? 0),
     );
+
+    // สูตรไขว้: (อ่อนสุด + เก่งสุด) vs (กลาง + กลาง)
+    final teamA = [bestMatch[0], bestMatch[3]];
+    final teamB = [bestMatch[1], bestMatch[2]];
+
+    setState(() {
+      if (!isReserveTarget) {
+        final targetCourt = target as PlayingCourt;
+        targetCourt.players = [...teamA, ...teamB];
+
+        // Sync กับ ReadyTeam และสร้าง Staged Match
+        final courtIndex = playingCourts.indexOf(targetCourt);
+        if (courtIndex != -1) {
+          readyTeams[courtIndex].players = List.from(targetCourt.players);
+          // --- FIX: บันทึกทันที ---
+          _createStagedMatch(readyTeams[courtIndex]);
+        }
+      } else {
+        final targetTeam = target as ReadyTeam;
+        targetTeam.players = [...teamA, ...teamB];
+        // --- FIX: บันทึกทันที ---
+        _createStagedMatch(targetTeam, isReserve: true);
+      }
+    });
   }
 
   // --- NEW: ฟังก์ชันสำหรับสร้าง Staged Match ---
@@ -489,38 +891,55 @@ class _ManageGamePage extends State<ManageGamePage> {
     // if (team.players.every((p) => p == null))
     //   return; // ถ้าทีมว่างเปล่า ไม่ต้องทำอะไร
     try {
-      // --- REFACTORED: Send all 4 player slots, including nulls for empty slots ---
-      List<Map<String, dynamic>?> teamAPlayers = team.players.sublist(0, 2).map(
-        (p) {
-          if (p == null) return null; // ส่ง null ถ้าช่องว่าง
-          final parts = p!.id.split('_');
-          return {"type": parts[0], "id": int.parse(parts[1])};
-        },
-      ).toList();
+      // --- FIX: ค้นหา Team ตัวจริงจาก List ล่าสุด เพื่อป้องกันปัญหา Stale Object (เด้งไปสำรอง) ---
+      ReadyTeam? currentTeam;
+      String? courtIdentifier;
 
-      List<Map<String, dynamic>?> teamBPlayers = team.players.sublist(2, 4).map(
-        (p) {
-          if (p == null) return null; // ส่ง null ถ้าช่องว่าง
-          final parts = p!.id.split('_');
-          return {"type": parts[0], "id": int.parse(parts[1])};
-        },
-      ).toList();
+      // --- FIX: ใช้ isReserve เพื่อแยกแยะว่าจะหาใน list ไหน (เพราะ ID อาจซ้ำกันได้) ---
+      if (!isReserve) {
+        // 1. ลองหาใน readyTeams (สนามจริง)
+        int index = readyTeams.indexWhere((t) => t.id == team.id);
+        if (index != -1) {
+          currentTeam = readyTeams[index];
+          if (index < playingCourts.length) {
+            courtIdentifier = playingCourts[index].identifier;
+          }
+        }
+      } else {
+        // 2. ลองหาใน reserveTeams (ทีมสำรอง)
+        int index = reserveTeams.indexWhere((t) => t.id == team.id);
+        if (index != -1) {
+          currentTeam = reserveTeams[index];
+          courtIdentifier = '-${currentTeam.id}';
+        }
+      }
+
+      if (currentTeam == null) return; // ไม่เจอทีม (อาจถูกลบไปแล้ว)
+
+      // --- REFACTORED: Send all 4 player slots, including nulls for empty slots ---
+      // FIX: ส่ง List ว่าง [] แทน [null, null] เพื่อให้ Server เข้าใจว่าต้องลบ
+      List<Map<String, dynamic>> teamAPlayers = [];
+      for (var p in currentTeam.players.sublist(0, 2)) {
+        if (p != null) {
+          final parts = p.id.split('_');
+          teamAPlayers.add({"type": parts[0], "id": int.parse(parts[1])});
+        }
+      }
+
+      List<Map<String, dynamic>> teamBPlayers = [];
+      for (var p in currentTeam.players.sublist(2, 4)) {
+        if (p != null) {
+          final parts = p.id.split('_');
+          teamBPlayers.add({"type": parts[0], "id": int.parse(parts[1])});
+        }
+      }
 
       // --- FIX: เพิ่ม courtIdentifier เข้าไปใน DTO ---
       final Map<String, dynamic> dto = {
         "teamA": teamAPlayers,
         "teamB": teamBPlayers,
+        "courtIdentifier": courtIdentifier, // ใช้ค่าที่หามาได้ใหม่
       };
-      if (isReserve) {
-        final reserveIndex = reserveTeams.indexOf(team);
-        dto['courtIdentifier'] = '-${reserveIndex + 1}';
-      } else {
-        final teamIndex = readyTeams.indexOf(team);
-        if (teamIndex != -1 && teamIndex < playingCourts.length) {
-          final courtIdentifier = playingCourts[teamIndex].identifier;
-          dto['courtIdentifier'] = courtIdentifier;
-        }
-      }
 
       final response = await ApiProvider().post(
         '/gamesessions/${widget.id}/staged-matches',
@@ -528,7 +947,7 @@ class _ManageGamePage extends State<ManageGamePage> {
       );
 
       setState(() {
-        team.stagedMatchId = response['data']['matchId'];
+        currentTeam!.stagedMatchId = response['data']['matchId'];
       });
     } catch (e) {
       if (mounted) {
@@ -539,28 +958,41 @@ class _ManageGamePage extends State<ManageGamePage> {
     }
   }
 
-  // --- NEW: Debounced function for creating staged matches ---
-  void _debouncedCreateStagedMatch(ReadyTeam team, {bool isReserve = false}) {
-    // If there's an existing timer for this team, cancel it.
-    if (_teamDebounceTimers[team.id]?.isActive ?? false) {
-      _teamDebounceTimers[team.id]!.cancel();
+  // --- 2. TIMER LOGIC: ฟังก์ชันสำหรับจัดการเวลา ---
+  Future<void> _startTimer(PlayingCourt court) async {
+    // --- NEW: ตรวจสอบว่าเริ่มการแข่งขันหรือยัง ---
+    if (!_isStartGame) {
+      showDialogMsg(
+        context,
+        title: 'ยังไม่เริ่มการแข่งขัน',
+        subtitle: 'กรุณากด "เริ่มการแข่งขัน" ในเมนูมุมขวาล่างก่อน',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+      return;
     }
 
-    // Start a new timer. The API call will only be made after the duration has passed
-    // without any new calls for the same team.
-    _teamDebounceTimers[team.id] = Timer(const Duration(milliseconds: 800), () {
-      // The user has stopped making changes for this team, now make the API call.
-      if (mounted) {
-        _createStagedMatch(team, isReserve: isReserve);
-      }
-    });
-  }
+    // --- NEW: Force Sync ข้อมูลล่าสุดขึ้น Server ก่อนเริ่มเกม ---
+    // ป้องกันกรณีกดเริ่มเกมทันทีหลังจากลากผู้เล่นวาง (ก่อน Debounce ทำงาน)
+    int teamIndex = playingCourts.indexOf(court);
+    if (teamIndex != -1) {
+      final team = readyTeams[teamIndex];
+      // บังคับส่งข้อมูลทันที
+      await _createStagedMatch(team);
+    }
 
-  // --- 2. TIMER LOGIC: ฟังก์ชันสำหรับจัดการเวลา ---
-  void _startTimer(PlayingCourt court) {
+    // --- FIX: ค้นหา court และ teamIndex ใหม่หลังจาก await ---
+    // เพราะข้อมูล playingCourts อาจถูกอัปเดตใหม่จาก SignalR ระหว่างรอ API
+    teamIndex = playingCourts.indexWhere(
+      (c) => c.identifier == court.identifier,
+    );
+    if (teamIndex == -1) return; // ไม่พบสนามแล้ว (อาจถูกลบหรือรีเซ็ต)
+
+    final currentCourt = playingCourts[teamIndex];
+    final currentTeam = readyTeams[teamIndex];
+
     // --- FIX: ตรวจสอบว่ามี stagedMatchId หรือยัง ---
-    final teamIndex = playingCourts.indexOf(court);
-    if (teamIndex == -1 || readyTeams[teamIndex].stagedMatchId == null) {
+    if (currentTeam.stagedMatchId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -570,23 +1002,43 @@ class _ManageGamePage extends State<ManageGamePage> {
       );
       return;
     }
-    _timers[court.courtNumber]?.cancel();
-    setState(() {
-      court.status = CourtStatus.playing;
-      court.isLocked = true; // <<< NEW: ล็อกสนามเมื่อเกมเริ่ม
-    });
-    // --- REFACTORED: เรียก API เพื่อเริ่มเกมจาก Staged Match ---
-    _callStartMatchAPI(court);
 
-    _timers[court.courtNumber] = Timer.periodic(const Duration(seconds: 1), (
-      timer,
-    ) {
+    // --- OPTIMISTIC UI: อัปเดตหน้าจอทันที ไม่ต้องรอ API ---
+    _timers[currentCourt.courtNumber]?.cancel();
+    setState(() {
+      currentCourt.status = CourtStatus.playing;
+      currentCourt.isLocked = true; // <<< NEW: ล็อกสนามเมื่อเกมเริ่ม
+    });
+
+    // เริ่มเดินเวลาทันที
+    _timers[currentCourt.courtNumber] = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) {
+        if (mounted) {
+          // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
+          currentCourt.elapsedTime += const Duration(seconds: 1);
+        }
+      },
+    );
+
+    // --- ยิง API เบื้องหลัง ---
+    try {
+      await _callStartMatchAPI(currentCourt); 
+    } catch (e) {
+      // --- ROLLBACK: ถ้า API Error ให้ยกเลิกทุกอย่าง ---
+      _timers[currentCourt.courtNumber]?.cancel();
       if (mounted) {
         setState(() {
-          court.elapsedTime += const Duration(seconds: 1);
+          currentCourt.status = CourtStatus.waiting;
+          currentCourt.isLocked = false;
+          currentCourt.elapsedTime = Duration.zero;
+          currentCourt.matchId = null;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เริ่มเกมไม่สำเร็จ: $e')),
+        );
       }
-    });
+    }
   }
 
   void _pauseTimer(PlayingCourt court) {
@@ -601,7 +1053,12 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   Future<void> _callStartMatchAPI(PlayingCourt court) async {
     // หา ReadyTeam ที่อยู่ใต้สนามนี้
-    final teamIndex = playingCourts.indexOf(court);
+    // FIX: ใช้ indexWhere เพื่อค้นหาจาก identifier ป้องกันปัญหา Object เก่า (Stale Reference)
+    final teamIndex = playingCourts.indexWhere(
+      (c) => c.identifier == court.identifier,
+    );
+    if (teamIndex == -1) return;
+
     final stagedTeam = readyTeams[teamIndex];
 
     if (stagedTeam.stagedMatchId == null)
@@ -621,22 +1078,33 @@ class _ManageGamePage extends State<ManageGamePage> {
         });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error starting match: $e')));
-      }
+      // --- FIX: Rethrow error เพื่อให้ _startTimer จัดการ Rollback ---
+      rethrow;
     }
   }
 
   // --- NEW: ฟังก์ชันสำหรับย้ายทีมสำรองลงสนามที่ว่าง ---
-  void _autoAssignReserveTeamToCourt(PlayingCourt court) {
+  Future<bool> _autoAssignReserveTeamToCourt(PlayingCourt court) async {
     ReadyTeam? readyReserveTeam;
-    // ค้นหาทีมสำรองทีมแรกที่จัดผู้เล่นครบ 4 คนและไม่ได้ถูกล็อก
-    for (var team in reserveTeams) {
-      if (team.players.every((p) => p != null) && !team.isLocked) {
-        readyReserveTeam = team;
-        break;
+
+    if (_isQueueMode) {
+      // --- Mode 1: จัดตามคิว (Queue) ---
+      // ค้นหาทีมสำรองทีมแรกที่พร้อม (ครบ 4 คน และไม่ล็อค) เพื่อขึ้นสนามไหนก็ได้ที่ว่าง
+      for (var team in reserveTeams) {
+        if (team.players.every((p) => p != null) && !team.isLocked) {
+          readyReserveTeam = team;
+          break;
+        }
+      }
+    } else {
+      // --- Mode 2: จัดตามคอร์ท (Court) ---
+      // ค้นหาทีมสำรองที่ตรงกับหมายเลขสนามเท่านั้น
+      final courtIndex = playingCourts.indexOf(court);
+      if (courtIndex != -1 && courtIndex < reserveTeams.length) {
+        final team = reserveTeams[courtIndex];
+        if (team.players.every((p) => p != null) && !team.isLocked) {
+          readyReserveTeam = team;
+        }
       }
     }
 
@@ -644,7 +1112,7 @@ class _ManageGamePage extends State<ManageGamePage> {
       setState(() {
         // 1. หา ReadyTeam ที่ผูกกับสนามหลัก
         final courtIndex = playingCourts.indexOf(court);
-        if (courtIndex == -1) return; // หากไม่เจอสนาม ให้หยุดทำงาน
+        if (courtIndex == -1) return;
         final mainCourtTeam = readyTeams[courtIndex];
 
         // 2. ย้ายผู้เล่นจากทีมสำรองไปยังทีมของสนามหลัก และอัปเดต UI
@@ -654,40 +1122,48 @@ class _ManageGamePage extends State<ManageGamePage> {
         // 3. ล้างข้อมูลทีมสำรองเดิม
         readyReserveTeam.players = List.filled(4, null);
         readyReserveTeam.isLocked = false;
-
-        // 4. ยิง API เพื่ออัปเดตทั้งสองทีม
-        // 4.1 สร้าง Staged Match ใหม่สำหรับสนามหลัก
-        _debouncedCreateStagedMatch(mainCourtTeam);
-        // 4.2 ล้าง Staged Match ของทีมสำรองบนเซิร์ฟเวอร์
-        _debouncedCreateStagedMatch(readyReserveTeam, isReserve: true);
-
-        // 5. เริ่มเกมในสนาม (หลังจากที่ API ถูกยิงไปแล้ว)
-        _startTimer(court);
+        readyReserveTeam.stagedMatchId = null; // เคลียร์ ID
       });
+
+      // 4. ยิง API เพื่ออัปเดตทั้งสองทีม (ใช้ await เพื่อให้ได้ ID ก่อนเริ่มเกม)
+      final courtIndex = playingCourts.indexOf(court);
+      if (courtIndex != -1) {
+        final mainCourtTeam = readyTeams[courtIndex];
+        await _createStagedMatch(mainCourtTeam);
+      }
+      await _createStagedMatch(
+        readyReserveTeam,
+        isReserve: true,
+      ); // FIX: รอให้ API ทำงานเสร็จก่อน
+
+      // 5. เริ่มเกมในสนาม (หลังจากที่ API ถูกยิงไปแล้วและได้ ID มาแล้ว)
+      // if (_isStartGame && mounted) {
+      //   _startTimer(court);
+      // }
+      return true; // จัดทีมสำเร็จ
     }
+    return false; // ไม่มีการจัดทีม
   }
 
-  void _endGame(PlayingCourt court) async {
+  Future<void> _endGame(PlayingCourt court) async {
     _timers[court.courtNumber]?.cancel();
+    final String courtIdentifier =
+        court.identifier; // FIX: เก็บ identifier ไว้ค้นหา object ใหม่
 
-    // --- NEW: Call API to end match ---
-    if (court.matchId != null) {
-      try {
-        await ApiProvider().put('/matches/${court.matchId}/end');
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Error ending match: $e')));
-        }
-      }
-    }
-
+    // --- OPTIMISTIC UI: เคลียร์หน้าจอทันที ---
     if (mounted) {
+      // --- FIX: ค้นหา object สนามปัจจุบันจาก identifier เพราะ playingCourts อาจถูกรีเฟรชจาก SignalR แล้ว ---
+      final currentCourtIndex = playingCourts.indexWhere(
+        (c) => c.identifier == courtIdentifier,
+      );
+      if (currentCourtIndex == -1) return; // ถ้าไม่เจอสนามแล้ว ให้จบการทำงาน
+      final currentCourt = playingCourts[currentCourtIndex];
+
       setState(() {
         // --- ส่วนที่เพิ่มเข้ามา ---
         // 1. วนลูปเพื่อย้ายผู้เล่นทุกคนในสนามกลับไปที่ waitingPlayers list
-        for (var player in court.players) {
+        for (var player in currentCourt.players) {
+          // FIX: ใช้ currentCourt แทน court เดิม
           if (player != null) {
             // คืนผู้เล่นกลับไปที่ List ผู้เล่นที่รอ
             // --- FIX: ใช้ ID ในการตรวจสอบเพื่อป้องกันการเพิ่มซ้ำ ---
@@ -697,6 +1173,15 @@ class _ManageGamePage extends State<ManageGamePage> {
             if (!isAlreadyInWaitingList) {
               waitingPlayers.add(player);
             }
+            
+            // --- NEW: รีเซ็ตเวลาที่รอ ให้เริ่มนับใหม่ ณ ตอนนี้ ---
+            _playerExtraData[player.id] = {
+              'games': (player.gamesPlayed ?? 0) + 1,
+              'checkinTime': DateTime.now(), // ค่า Placeholder
+              'waitingSince': DateTime.now(), // เริ่มนับเวลาใหม่
+            };
+            player.totalPlayTime = Duration.zero; // รีเซ็ตการแสดงผล
+
             // ถ้าผู้เล่นคนนี้เคยถูกเลือกไว้ ให้เอาออกจาก selected list ด้วย
             selectedPlayers.remove(player);
           }
@@ -704,27 +1189,54 @@ class _ManageGamePage extends State<ManageGamePage> {
 
         // --- ส่วนโค้ดเดิมที่ปรับปรุง ---
         // 2. รีเซ็ตสถานะทั้งหมดของสนาม
-        court.status = CourtStatus.waiting;
-        court.isLocked = false;
-        court.gamesPlayedCount += 1; // FIX: เพิ่มจำนวนเกมที่เล่นในสนามนี้
-        court.elapsedTime = Duration.zero;
+        currentCourt.status = CourtStatus.waiting;
+        currentCourt.isLocked = false;
+        currentCourt.gamesPlayedCount +=
+            1; // FIX: เพิ่มจำนวนเกมที่เล่นในสนามนี้
+        currentCourt.elapsedTime = Duration.zero;
 
         // 3. เคลียร์ผู้เล่นทั้งหมดออกจากสนาม
-        court.players = List.filled(4, null);
+        currentCourt.players = List.filled(4, null);
 
         // --- FIX: เคลียร์ผู้เล่นออกจาก ReadyTeam ที่คู่กันด้วย ---
-        final teamIndex = playingCourts.indexOf(court);
-        if (teamIndex != -1) {
-          readyTeams[teamIndex].players = List.filled(4, null);
-          readyTeams[teamIndex].stagedMatchId =
+        // ใช้ currentCourtIndex ที่หามาได้เลย
+        if (currentCourtIndex != -1) {
+          readyTeams[currentCourtIndex].players = List.filled(4, null);
+          readyTeams[currentCourtIndex].stagedMatchId =
               null; // เคลียร์ ID ของ Staged Match ด้วย
-          // --- NEW: Call API to clear the staged match on the server ---
-          _createStagedMatch(readyTeams[teamIndex]);
         }
-
-        // NEW: ลองจัดทีมสำรองลงสนามที่ว่างทันที
-        _autoAssignReserveTeamToCourt(court);
       });
+
+      // NEW: ลองจัดทีมสำรองลงสนามที่ว่างทันที (เรียกนอก setState)
+      bool assigned = await _autoAssignReserveTeamToCourt(
+        currentCourt,
+      ); // FIX: ส่ง currentCourt ไป
+
+      // ถ้าไม่มีการจัดทีมสำรองลงมา (สนามว่าง) ให้ยิง API เพื่อเคลียร์สนามบน Server
+      if (!assigned) {
+        if (currentCourtIndex != -1) {
+          _createStagedMatch(readyTeams[currentCourtIndex]);
+        }
+      }
+    }
+
+    // --- ยิง API เบื้องหลัง ---
+    if (court.matchId != null) {
+      try {
+        await ApiProvider().put('/matches/${court.matchId}/end');
+      } catch (e) {
+        // --- ROLLBACK STRATEGY: ถ้าจบเกมไม่สำเร็จ ให้โหลดข้อมูลใหม่จาก Server ---
+        // เพราะการกู้คืนสถานะผู้เล่นที่ถูกย้ายไปแล้วนั้นซับซ้อน การโหลดใหม่ชัวร์กว่า
+        if (mounted) {
+          final errStr = e.toString();
+          if (!errStr.contains('401')) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(content: Text('จบเกมไม่สำเร็จ ระบบจะโหลดข้อมูลล่าสุด: $e')),
+             );
+             _fetchLiveState(showLoading: false); // โหลดข้อมูลใหม่เงียบๆ
+          }
+        }
+      }
     }
   }
 
@@ -766,9 +1278,10 @@ class _ManageGamePage extends State<ManageGamePage> {
     _sessionTimer?.cancel();
     _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
-        setState(() {
-          _sessionDuration += const Duration(seconds: 1);
-        });
+        // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
+        _sessionDuration += const Duration(seconds: 1);
+        // --- NEW: สั่งให้ Overlay (เมนู) รีเฟรชตัวเองเพื่ออัปเดตเวลา ---
+        _fabMenuOverlay?.markNeedsBuild();
       }
     });
   }
@@ -793,11 +1306,25 @@ class _ManageGamePage extends State<ManageGamePage> {
     dynamic targetCourtOrTeam,
   ) {
     ReadyTeam? targetTeam;
+    bool isReserve = false; // NEW: ตัวแปรเช็คว่าเป็นทีมสำรองหรือไม่
+
+    // --- FIX: ค้นหา object ล่าสุดจาก List เสมอ เพื่อป้องกันปัญหา Stale Object ---
     if (targetCourtOrTeam is PlayingCourt) {
-      final teamIndex = playingCourts.indexOf(targetCourtOrTeam);
-      if (teamIndex != -1) targetTeam = readyTeams[teamIndex];
+      final courtIndex = playingCourts.indexWhere(
+        (c) => c.identifier == targetCourtOrTeam.identifier,
+      );
+      if (courtIndex != -1) {
+        targetTeam = readyTeams[courtIndex];
+      }
     } else if (targetCourtOrTeam is ReadyTeam) {
-      targetTeam = targetCourtOrTeam;
+      // ถ้าเป็น ReadyTeam ให้สันนิษฐานว่าเป็นทีมสำรอง (เพราะสนามหลักส่ง PlayingCourt มา)
+      final teamIndex = reserveTeams.indexWhere(
+        (t) => t.id == targetCourtOrTeam.id,
+      );
+      if (teamIndex != -1) {
+        targetTeam = reserveTeams[teamIndex];
+        isReserve = true;
+      }
     }
 
     if (targetTeam == null || targetTeam.isLocked) return;
@@ -843,10 +1370,10 @@ class _ManageGamePage extends State<ManageGamePage> {
     }
 
     // 5. Call API to update the staged match for the destination team
-    if (readyTeams.contains(targetTeam)) {
-      _debouncedCreateStagedMatch(targetTeam);
-    } else if (reserveTeams.contains(targetTeam)) {
-      _debouncedCreateStagedMatch(targetTeam, isReserve: true);
+    if (!isReserve) {
+      _createStagedMatch(targetTeam); // FIX: บันทึกทันที
+    } else {
+      _createStagedMatch(targetTeam, isReserve: true); // FIX: บันทึกทันที
     }
   }
 
@@ -870,9 +1397,9 @@ class _ManageGamePage extends State<ManageGamePage> {
         // If the team was full, it's not anymore, so we need to update the staged match
         // --- REFACTORED: Call API to update the state ---
         if (readyTeams.contains(readyTeam)) {
-          _debouncedCreateStagedMatch(readyTeam);
+          _createStagedMatch(readyTeam); // FIX: บันทึกทันที
         } else if (reserveTeams.contains(readyTeam)) {
-          _debouncedCreateStagedMatch(readyTeam, isReserve: true);
+          _createStagedMatch(readyTeam, isReserve: true); // FIX: บันทึกทันที
         }
 
         removed = true;
@@ -886,7 +1413,7 @@ class _ManageGamePage extends State<ManageGamePage> {
         final index = reserveTeam.players.indexOf(playerToRemove);
         if (index != -1) {
           reserveTeam.players[index] = null;
-          _debouncedCreateStagedMatch(reserveTeam, isReserve: true);
+          _createStagedMatch(reserveTeam, isReserve: true); // FIX: บันทึกทันที
           removed = true;
           break; // Player found and removed, exit loop
         }
@@ -983,12 +1510,12 @@ class _ManageGamePage extends State<ManageGamePage> {
       }
 
       // 4. ยิง API เพื่ออัปเดตเซิร์ฟเวอร์
-      _debouncedCreateStagedMatch(
+      _createStagedMatch(
         team1,
         isReserve: reserveTeams.contains(team1),
       );
       if (team1 != team2) {
-        _debouncedCreateStagedMatch(
+        _createStagedMatch(
           team2,
           isReserve: reserveTeams.contains(team2),
         );
@@ -1006,31 +1533,40 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   void _removePlayerFromCourt(dynamic courtOrTeam, int slotIndex) {
     setState(() {
-      Player? playerToRemove = courtOrTeam.players[slotIndex];
-      // --- FIX: หา ReadyTeam ที่เกี่ยวข้องก่อนที่จะลบผู้เล่น ---
-      final teamIndex = (courtOrTeam is PlayingCourt)
-          ? playingCourts.indexOf(courtOrTeam)
-          : -1;
+      // --- FIX: ค้นหา object ล่าสุดจาก List เสมอ ---
+      dynamic currentCourtOrTeam = courtOrTeam;
+      bool isReserve = false;
+
+      if (courtOrTeam is PlayingCourt) {
+        final index = playingCourts.indexWhere(
+          (c) => c.identifier == courtOrTeam.identifier,
+        );
+        if (index != -1)
+          currentCourtOrTeam = playingCourts[index];
+        else
+          return; // ไม่พบสนาม
+      } else if (courtOrTeam is ReadyTeam) {
+        final index = reserveTeams.indexWhere((t) => t.id == courtOrTeam.id);
+        if (index != -1) {
+          currentCourtOrTeam = reserveTeams[index];
+          isReserve = true;
+        } else
+          return; // ไม่พบทีมสำรอง
+      }
+
+      Player? playerToRemove = currentCourtOrTeam.players[slotIndex];
 
       if (playerToRemove != null) {
         // นำผู้เล่นออกจากสนาม
-        courtOrTeam.players[slotIndex] = null;
+        currentCourtOrTeam.players[slotIndex] = null;
 
         // --- FIX: ตรวจสอบและนำผู้เล่นออกจาก ReadyTeam ที่คู่กันด้วย ---
-        // แก้ไขให้ทำงานได้ถูกต้องแม้ courtOrTeam จะไม่ใช่ PlayingCourt โดยตรง
-        if (courtOrTeam is PlayingCourt) {
-          final courtIndex = playingCourts.indexOf(courtOrTeam);
+        if (!isReserve && currentCourtOrTeam is PlayingCourt) {
+          final courtIndex = playingCourts.indexOf(currentCourtOrTeam);
           if (courtIndex != -1 &&
               readyTeams[courtIndex].players.length > slotIndex) {
             readyTeams[courtIndex].players[slotIndex] = null;
           }
-        }
-
-        // --- FIX: เพิ่มการตรวจสอบและนำออกจาก readyTeams โดยตรง ---
-        // กรณีที่ผู้เล่นถูกลากออกจาก ReadyTeam (ซึ่งไม่ควรเกิดขึ้น แต่ป้องกันไว้)
-        if (teamIndex != -1 &&
-            readyTeams[teamIndex].players.length > slotIndex) {
-          readyTeams[teamIndex].players[slotIndex] = null; //
         }
 
         // คืนผู้เล่นกลับไปที่ List ผู้เล่นที่รอ
@@ -1041,10 +1577,10 @@ class _ManageGamePage extends State<ManageGamePage> {
         selectedPlayers.remove(playerToRemove);
 
         // --- FIX: ถ้าเป็นการนำผู้เล่นออกจากทีมสำรอง ให้เรียก API อัปเดต ---
-        if (reserveTeams.contains(courtOrTeam)) {
+        if (isReserve) {
           // การเรียก API ที่นี่จะทำให้เซิร์ฟเวอร์รู้ว่าทีมนี้ไม่ครบแล้ว
           // และจะถูกลบออกจาก stagedMatches ในการเรียก live-state ครั้งถัดไป
-          _createStagedMatch(courtOrTeam, isReserve: true);
+          _createStagedMatch(currentCourtOrTeam, isReserve: true); // FIX: บันทึกทันที
         }
       }
     });
@@ -1057,6 +1593,139 @@ class _ManageGamePage extends State<ManageGamePage> {
     if (index != -1) {
       // ถ้าเจอ ให้เรียกฟังก์ชันเดิมที่ลบจาก index
       _removePlayerFromCourt(courtOrTeam, index);
+    }
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับหยุด/เริ่มเกมผู้เล่น ---
+  Future<void> _togglePlayerPause(Player player) async {
+    // --- UX IMPROVEMENT: ไม่ต้องใช้ _isProcessing หรือ Loading เพราะเป็นการทำงาน Local (Optimistic UI) ---
+    // ทำงานทันทีเพื่อให้ผู้ใช้รู้สึกว่าแอปเร็ว
+    bool isPaused = _pausedPlayerIds.contains(player.id);
+    if (isPaused) {
+      // Unpause: กลับสู่เกม
+      setState(() {
+        _pausedPlayerIds.remove(player.id);
+      });
+      _savePausedPlayers();
+    } else {
+      // Pause: หยุดเกม
+      // 1. ตรวจสอบว่าอยู่ในสนามหลักหรือไม่
+      bool inMainCourt = playingCourts.any(
+        (c) => c.players.any((p) => p?.id == player.id),
+      );
+      if (inMainCourt) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ผู้เล่นอยู่ในสนามหลัก ไม่สามารถหยุดได้'),
+          ),
+        );
+        return;
+      }
+
+      // 2. ตรวจสอบว่าอยู่ในทีมสำรองหรือไม่ (ถ้าอยู่ให้เด้งออก)
+      bool inReserve = reserveTeams.any(
+        (t) => t.players.any((p) => p?.id == player.id),
+      );
+      if (inReserve) {
+        // นำออกจากทีมสำรองและคืนค่ากลับ Waiting List
+        _removePlayerFromCurrentSlot(player, addToWaitingList: true);
+      }
+
+      // 3. เพิ่มเข้ารายการหยุดเกม
+      setState(() {
+        _pausedPlayerIds.add(player.id);
+        // ถ้าผู้เล่นถูกเลือกอยู่ ให้เอาออกจากการเลือกด้วย
+        selectedPlayers.remove(player);
+      });
+      _savePausedPlayers();
+    }
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับ จบเกม/กลับสู่เกม ผู้เล่น ---
+  void _togglePlayerEndGame(Player player) {
+    bool isEnded = _endedPlayerIds.contains(player.id);
+
+    if (isEnded) {
+      // กรณี: กลับสู่เกม (Resume)
+      setState(() {
+        _endedPlayerIds.remove(player.id);
+      });
+      _saveEndedPlayers();
+    } else {
+      // กรณี: จบเกม (End Game)
+      // แสดง Popup ยืนยัน
+      showDialogMsg(
+        context,
+        title: 'คุณต้องการจบเกมผู้เล่น',
+        subtitle: player.name,
+        subtitleColor: const Color(0xFF0E9D7A),
+        btnLeft: 'จบเกม',
+        btnLeftForeColor: const Color(0xFF0E9D7A),
+        btnLeftBackColor: const Color(0xFFFFFFFF),
+        btnRight: 'ยกเลิก',
+        btnRightBackColor: const Color(0xFF0E9D7A),
+        btnRightForeColor: const Color(0xFFFFFFFF),
+        isWarning:true,
+        onConfirm: () => _confirmEndPlayerGame(player),
+      );
+    }
+  }
+
+  Future<void> _confirmEndPlayerGame(Player player) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    try {
+    // 1. นำออกจากสนามหรือทีมสำรองถ้ามี
+    // --- FIX: addToWaitingList = false เพราะเป็นการ Checkout ออกจากระบบ ไม่ใช่แค่จบเกม ---
+    _removePlayerFromCurrentSlot(player, addToWaitingList: false);
+
+    // --- OPTIMISTIC UI: อัปเดตหน้าจอไปก่อน ---
+    setState(() {
+      _endedPlayerIds.add(player.id);
+      _pausedPlayerIds.remove(player.id); // ถ้าหยุดอยู่ ให้เอาออกจากหยุดด้วย
+      selectedPlayers.remove(player);
+    });
+    _saveEndedPlayers();
+    _savePausedPlayers();
+
+    // --- NEW: ยิง API เพื่อบันทึกเวลาจบเกม (Checkout) ---
+    // ย้ายมาทำหลังจากอัปเดต UI และจัดการ Error อย่างถูกต้อง
+    final parts = player.id.split('_');
+    if (parts.length == 2) {
+      final pType = parts[0].toLowerCase();
+      final pId = parts[1];
+      
+      try {
+        await ApiProvider().post('/participants/$pType/$pId/checkout');
+        
+        if (mounted) {
+          showDialogMsg(
+            context,
+            title: 'จบเกมส์ผู้เล่นเรียบร้อย',
+            subtitle: player.name,
+            subtitleColor: Colors.green,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
+        }
+      } catch (e) {
+        // --- FIX: ถ้า API Error ให้แจ้งเตือนและโหลดข้อมูลใหม่ (Rollback) ---
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('เกิดข้อผิดพลาดในการบันทึก: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          // โหลดข้อมูลล่าสุดจาก Server เพื่อดึงผู้เล่นกลับมา (ถ้า Checkout ไม่สำเร็จ)
+          _fetchLiveState(showLoading: false);
+        }
+      }
+    }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -1087,22 +1756,169 @@ class _ManageGamePage extends State<ManageGamePage> {
         .where((p) => !playersInUseIds.contains(p.id))
         .toList();
 
+    // --- NEW: Logic การเรียงลำดับ ---
+    trulyWaitingPlayers.sort((a, b) {
+      // 0. เรียงผู้เล่นที่จบเกมไว้ท้ายสุด (หลัง Paused)
+      final isEndedA = _endedPlayerIds.contains(a.id);
+      final isEndedB = _endedPlayerIds.contains(b.id);
+      if (isEndedA && !isEndedB) return 1;
+      if (!isEndedA && isEndedB) return -1;
+
+      // 1. เรียงผู้เล่นที่ถูกหยุดเกมไปไว้ด้านหลังสุด
+      final isPausedA = _pausedPlayerIds.contains(a.id);
+      final isPausedB = _pausedPlayerIds.contains(b.id);
+      if (isPausedA && !isPausedB) return 1;
+      if (!isPausedA && isPausedB) return -1;
+
+      // ดึงเวลา Check-in
+      // ใช้ waitingSince ในการเรียงลำดับด้วย
+      final timeA =
+          _playerExtraData[a.id]?['waitingSince'] as DateTime? ?? DateTime.now();
+      final timeB =
+          _playerExtraData[b.id]?['waitingSince'] as DateTime? ?? DateTime.now();
+
+      if (_isSortBySkill) {
+        // เรียงตาม Skill (มากไปน้อย หรือ น้อยไปมาก ตามต้องการ)
+        // สมมติ: SkillId น้อย = เก่ง หรือ กลุ่มเดียวกัน
+        int skillCompare = (a.skillLevelId ?? 0).compareTo(b.skillLevelId ?? 0);
+        if (skillCompare != 0) return skillCompare;
+
+        // ถ้า Skill เท่ากัน ให้เรียงตามเวลา (รอนานสุดขึ้นก่อน)
+        return timeA.compareTo(timeB);
+      } else {
+        // เรียงตามเวลา (รอนานสุดขึ้นก่อน = เวลา Check-in น้อยกว่า)
+        return timeA.compareTo(timeB);
+      }
+    });
+
     return Scaffold(
       appBar: AppBarSubMain(title: 'จัดการก๊วน - $_groupName'),
+      // --- NEW: เพิ่มปุ่มจัดคู่อัตโนมัติที่มุมขวาบน ---
+      // หมายเหตุ: หาก AppBarSubMain ไม่รองรับ actions ให้ลองตรวจสอบไฟล์ component/app_bar.dart
+      // หรือใช้ Stack ซ้อนทับใน body แทน
+      // actions: [
+      //   IconButton(
+      //     icon: const Icon(Icons.auto_awesome, color: Colors.white),
+      //     onPressed: _suggestMatchByWaitTime,
+      //     tooltip: 'จัดคู่อัตโนมัติ',
+      //   ),
+      // ],
       body: Stack(
         children: [
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(16.0),
               children: [
-                _buildSectionTitle('สนาม'), // เปลี่ยนชื่อ Section ให้สั้นลง
+                // --- UPDATED: ย้ายปุ่มจับคู่ออโต้มาไว้ตรงนี้ ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildSectionTitle('สนาม'),
+                    Row(
+                      children: [
+                        // --- NEW: ปุ่มสลับโหมด จัดตามคิว / จัดตามคอร์ท ---
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _isQueueMode = !_isQueueMode;
+                              _saveQueueModePreference(
+                                _isQueueMode,
+                              ); // บันทึกค่าเมื่อเปลี่ยน
+                            });
+                          },
+                          icon: Icon(
+                            _isQueueMode
+                                ? Icons.format_list_numbered
+                                : Icons.grid_view,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _isQueueMode ? 'จัดตามคิว' : 'จัดตามคอร์ท',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isQueueMode
+                                ? Colors.orange
+                                : Colors.teal,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 32),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // --- NEW: ปุ่มสลับโหมด จัดแบบผสม / จัดตามมือ ---
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _isMixedMode = !_isMixedMode;
+                              _saveMixedModePreference(_isMixedMode);
+                            });
+                          },
+                          icon: Icon(
+                            _isMixedMode ? Icons.shuffle : Icons.equalizer,
+                            size: 16,
+                          ),
+                          label: Text(
+                            'โหมด: ${_isMixedMode ? 'ผสม' : 'มือ'}',
+                          ), // ปรับข้อความให้ชัดเจน
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isMixedMode
+                                ? Colors.purple
+                                : Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 32),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: _autoMatchSmart,
+                          icon: const Icon(Icons.auto_awesome, size: 16),
+                          label: const Text('จับคู่ออโต้'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 32),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 _buildSyncedCourtsList(), // Widget หลักที่แสดงสนามทั้งหมด
                 _buildReserveTeamsList(), // NEW: ส่วนแสดงทีมสำรอง
                 const SizedBox(height: 24),
-                _buildSectionTitle(
-                  'ผู้เล่นที่รอ',
-                ), // เปลี่ยนชื่อ Section ให้สั้นลง
+                // --- UPDATED: ส่วนหัวผู้เล่นที่รอ พร้อมปุ่มเรียงลำดับ ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildSectionTitle('ผู้เล่นที่รอ'),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isSortBySkill = !_isSortBySkill;
+                        });
+                      },
+                      icon: Icon(
+                        _isSortBySkill ? Icons.bar_chart : Icons.access_time,
+                        size: 18,
+                        color: Colors.indigo,
+                      ),
+                      label: Text(
+                        _isSortBySkill ? 'เรียงตามมือ' : 'เรียงตามเวลา',
+                        style: const TextStyle(
+                          color: Colors.indigo,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 _buildWaitingPlayersGrid(
                   trulyWaitingPlayers,
@@ -1122,12 +1938,15 @@ class _ManageGamePage extends State<ManageGamePage> {
               sessionId: widget.id,
               players:
                   waitingPlayers, // FIX: ส่งข้อมูลผู้เล่นที่รอคิวไปให้ Panel
+              courtFee: _courtFee,
+              shuttleFee: _shuttleFee,
               // ส่ง callback ไปให้ Panel เพื่อให้มันสั่งปิดตัวเองได้
               onClose: () {
                 setState(() {
                   _isRosterPanelVisible = false;
                 });
               },
+              onPlayerAdded: () => _fetchLiveState(showLoading: false),
             ),
           ),
 
@@ -1146,6 +1965,18 @@ class _ManageGamePage extends State<ManageGamePage> {
               skillLevels:
                   _skillLevels, // NEW: ส่งข้อมูลระดับมือทั้งหมดไปให้ Panel
               sessionId: widget.id, // FIX: ส่ง sessionId ไปด้วย
+              isPaused: _viewingPlayer != null
+                  ? _pausedPlayerIds.contains(_viewingPlayer!.id)
+                  : false, // NEW
+              onTogglePause: _viewingPlayer != null
+                  ? () => _togglePlayerPause(_viewingPlayer!)
+                  : null, // NEW
+              isEnded: _viewingPlayer != null
+                  ? _endedPlayerIds.contains(_viewingPlayer!.id)
+                  : false, // NEW
+              onToggleEndGame: _viewingPlayer != null
+                  ? () => _togglePlayerEndGame(_viewingPlayer!)
+                  : null, // NEW
               player: _viewingPlayer,
               onClose: () {
                 setState(() {
@@ -1172,6 +2003,22 @@ class _ManageGamePage extends State<ManageGamePage> {
                 : -460, // ควบคุมด้วย State ใหม่
             child: ExpensePanel(
               player: _playerForExpenses,
+              sessionId: widget.id, // ส่ง sessionId ไปด้วย
+              skillLevels: _skillLevels, // ส่งข้อมูลระดับมือไปด้วย
+              courtFee: _courtFee, // NEW: ส่งค่าสนามไปด้วย
+              shuttleFee: _shuttleFee, // NEW: ส่งราคาลูกแบดไปด้วย
+              isPaused: _playerForExpenses != null
+                  ? _pausedPlayerIds.contains(_playerForExpenses!.id)
+                  : false, // NEW
+              onTogglePause: _playerForExpenses != null
+                  ? () => _togglePlayerPause(_playerForExpenses!)
+                  : null, // NEW
+              isEnded: _playerForExpenses != null
+                  ? _endedPlayerIds.contains(_playerForExpenses!.id)
+                  : false, // NEW
+              onToggleEndGame: _playerForExpenses != null
+                  ? () => _togglePlayerEndGame(_playerForExpenses!)
+                  : null, // NEW
               onClose: () {
                 setState(() {
                   _playerForExpenses = null; // สั่งปิด Expense Panel
@@ -1202,6 +2049,17 @@ class _ManageGamePage extends State<ManageGamePage> {
               },
             ),
           ),
+
+          // --- NEW: Loading Overlay (แสดงเฉพาะตอนทำงานหนักจริงๆ) ---
+          if (_isProcessing)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.3), // พื้นหลังสีดำจางๆ
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
         ],
       ),
 
@@ -1373,12 +2231,10 @@ class _ManageGamePage extends State<ManageGamePage> {
                 child: SizedBox(
                   width: cardWidth,
                   height: cardHeight,
-                  child: _buildCourtCard(
-                    PlayingCourt(
-                      courtNumber: index,
-                      identifier: 'ทีมสำรอง ${index + 1}',
-                    ), // Pass identifier here
-                    reserveTeam: reserveTeams[index],
+                  child: _buildReadyTeamCard(
+                    reserveTeams[index],
+                    isReserve: true,
+                    title: 'ทีมสำรอง ${index + 1}',
                   ),
                 ),
               );
@@ -1457,6 +2313,15 @@ class _ManageGamePage extends State<ManageGamePage> {
                   if (court.status == CourtStatus.playing) {
                     _showPauseOrEndGameDialog(court);
                   } else if (isFull) {
+                    // --- NEW: ตรวจสอบก่อนเริ่มเกม ---
+                    if (!_isStartGame) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('กรุณากด "เริ่มการแข่งขัน" ก่อน'),
+                        ),
+                      );
+                      return;
+                    }
                     _startTimer(court);
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1495,20 +2360,20 @@ class _ManageGamePage extends State<ManageGamePage> {
           // --- แถวควบคุมด้านบนสุด ---
           if (!isReserveTeam && courtOrTeam is PlayingCourt)
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment
+                  .spaceBetween, // จัดให้มีระยะห่างระหว่างซ้ายขวา
               children: [
+                // --- RESTORED: ไอคอนจัดการลูกแบด (UI เดิม) ---
                 const Row(
                   children: [
                     Icon(Icons.remove_circle_outline, color: Colors.white),
                     SizedBox(width: 3),
-                    Icon(
-                      Icons.sports_tennis_sharp,
-                      color: Colors.white,
-                    ), // ใช้ไอคอนเทนนิสแทนลูกแบด
+                    Icon(Icons.sports_tennis_sharp, color: Colors.white),
                     SizedBox(width: 3),
                     Icon(Icons.add_circle_outline, color: Colors.white),
                   ],
                 ),
+                // --- ตัวนับจำนวนเกมส์ที่มุมขวาบน ---
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -1572,13 +2437,9 @@ class _ManageGamePage extends State<ManageGamePage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               if (!isReserveTeam && courtOrTeam is PlayingCourt)
-                Text(
-                  _formatDuration(courtOrTeam.elapsedTime),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                )
+                CourtTimerWidget(
+                  court: courtOrTeam,
+                ) // ใช้ Widget แยกเพื่อลดการ Rebuild
               else
                 const SizedBox(), // Spacer for reserve teams
               Text(
@@ -1638,7 +2499,11 @@ class _ManageGamePage extends State<ManageGamePage> {
     );
   }
 
-  Widget _buildReadyTeamCard(ReadyTeam team, {bool isReserve = false}) {
+  Widget _buildReadyTeamCard(
+    ReadyTeam team, {
+    bool isReserve = false,
+    String? title,
+  }) {
     return Card(
       // --- FIX: ย้าย margin ไปที่ Card ---
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1664,7 +2529,19 @@ class _ManageGamePage extends State<ManageGamePage> {
                 ),
 
                 // --- เส้นคั่นกลางพร้อมหมายเลขและไอคอนล็อก ---
-                if (!isReserve) _buildDividerWithNumber(team),
+                if (!isReserve)
+                  _buildDividerWithNumber(team)
+                else if (title != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
 
                 // --- แถวผู้เล่นด้านล่าง (สำหรับทีมสำรองอาจจะไม่มี) ---
                 Expanded(
@@ -1760,28 +2637,53 @@ class _ManageGamePage extends State<ManageGamePage> {
             ? selectedPlayers.indexOf(player) + 1
             : 0;
         final dynamic dragData = isSelected ? selectedPlayers : player;
+        final isPaused = _pausedPlayerIds.contains(player.id);
+        final isEnded = _endedPlayerIds.contains(player.id);
 
-        return Draggable<Object>(
-          data: dragData,
-          feedback: isSelected
-              ? _buildGroupDragFeedback(selectedPlayers)
-              : _buildPlayerAvatar(player, isDragging: true),
-          childWhenDragging: Opacity(
-            opacity: 0.5,
-            child: _buildPlayerAvatar(player),
-          ),
-          onDragEnd: (details) {},
-          child: GestureDetector(
-            onTap: () => _onPlayerTap(player),
+        // --- NEW: ถ้าผู้เล่นถูกหยุดเกม ให้แสดงผลแบบกดไม่ได้ (แต่กดค้างดู Profile ได้) ---
+        if (isPaused || isEnded) {
+          return GestureDetector(
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('ผู้เล่น ${player.name} ถูกหยุดเกมอยู่'),
+                  duration: const Duration(milliseconds: 500),
+                ),
+              );
+            },
             onLongPress: () {
               setState(() {
                 _viewingPlayer = player;
               });
             },
-            child: _buildPlayerAvatar(
-              player,
-              isSelected: isSelected,
-              selectionOrder: selectionOrder,
+            child: _buildPlayerAvatar(player),
+          );
+        }
+
+        return RepaintBoundary(
+          child: Draggable<Object>(
+            key: ValueKey('waiting_${player.id}'),
+            data: dragData,
+            feedback: isSelected
+                ? _buildGroupDragFeedback(selectedPlayers)
+                : _buildPlayerAvatar(player, isDragging: true),
+            childWhenDragging: Opacity(
+              opacity: 0.5,
+              child: _buildPlayerAvatar(player),
+            ),
+            onDragEnd: (details) {},
+            child: GestureDetector(
+              onTap: () => _onPlayerTap(player),
+              onLongPress: () {
+                setState(() {
+                  _viewingPlayer = player;
+                });
+              },
+              child: _buildPlayerAvatar(
+                player,
+                isSelected: isSelected,
+                selectionOrder: selectionOrder,
+              ),
             ),
           ),
         );
@@ -1813,12 +2715,16 @@ class _ManageGamePage extends State<ManageGamePage> {
     bool isSelected = false,
     int selectionOrder = 0,
   }) {
-    return SizedBox(
+    final isPaused = _pausedPlayerIds.contains(player.id); // NEW
+    final isEnded = _endedPlayerIds.contains(player.id); // NEW
+
+    Widget avatarContent = SizedBox(
       width: 90,
-      height: 120,
+      height: 150, // เพิ่มความสูงอีกนิดเพื่อรองรับป้ายข้อมูล
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // ใช้ PlayerAvatar ตัวเดียวจบ เพราะข้อมูลไปอยู่ข้างในแล้ว
           PlayerAvatar(player: player),
 
           // --- Layer 3: Overlay เมื่อถูกเลือก ---
@@ -1850,6 +2756,62 @@ class _ManageGamePage extends State<ManageGamePage> {
         ],
       ),
     );
+
+    // --- NEW: ถ้าถูกหยุดเกม ให้แสดงเป็นสีเทา ---
+    if (isPaused) {
+      return Stack(
+        children: [
+          Opacity(
+            opacity: 0.4, // จางลง
+            child: avatarContent,
+          ),
+          Positioned.fill(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.pause, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // --- NEW: ถ้าจบเกม ให้แสดงเป็นสีเทาเข้มและไอคอน ---
+    if (isEnded) {
+      return Stack(
+        children: [
+          Opacity(
+            opacity: 0.3, // จางกว่า Pause
+            child: ColorFiltered(
+              colorFilter: const ColorFilter.mode(
+                Colors.grey,
+                BlendMode.saturation,
+              ),
+              child: avatarContent,
+            ),
+          ),
+          Positioned.fill(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.flag, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return avatarContent;
   }
 
   Widget _buildPlayerSlot(dynamic courtOrTeam, int slotIndex) {
@@ -1880,49 +2842,52 @@ class _ManageGamePage extends State<ManageGamePage> {
                 });
               }
             },
-            child: Draggable<Object>(
-              data: isSelected ? selectedPlayers : player,
-              maxSimultaneousDrags: isLocked ? 0 : 1,
-              onDragEnd: (details) {
-                if (!details.wasAccepted) {
-                  // --- FIX: ถ้าลากไปทิ้ง ให้คืนผู้เล่นกลับไปที่ Waiting List ---
+            child: RepaintBoundary(
+              child: Draggable<Object>(
+                key: ValueKey('slot_${player.id}'),
+                data: isSelected ? selectedPlayers : player,
+                maxSimultaneousDrags: isLocked ? 0 : 1,
+                onDragEnd: (details) {
+                  if (!details.wasAccepted) {
+                    // --- FIX: ถ้าลากไปทิ้ง ให้คืนผู้เล่นกลับไปที่ Waiting List ---
 
-                  setState(() {
-                    if (isSelected) {
-                      // กรณีลากเป็นกลุ่ม
-                      final playersToReturn = List<Player>.from(
-                        selectedPlayers,
-                      );
-                      for (var p in playersToReturn) {
-                        _removePlayerFromCurrentSlot(
-                          p,
-                          addToWaitingList: true,
-                        ); // นำออกจากที่เดิมและเพิ่มกลับไปที่ Waiting List
-                      }
-                      selectedPlayers.clear(); // เคลียร์ตัวเลือก
-                    } else {
-                      // กรณีลากคนเดียว (เหมือนเดิม)
-                      // --- FIX: Use the centralized function for consistency ---
-                      setState(() {
-                        _removePlayerFromCurrentSlot(
-                          player,
-                          addToWaitingList: true,
+                    setState(() {
+                      if (isSelected) {
+                        // กรณีลากเป็นกลุ่ม
+                        final playersToReturn = List<Player>.from(
+                          selectedPlayers,
                         );
-                      });
-                    }
-                  });
-                }
-              },
-              feedback: isSelected
-                  ? _buildGroupDragFeedback(selectedPlayers)
-                  : _buildPlayerAvatar(player, isDragging: true),
-              childWhenDragging: isSelected
-                  ? _buildPlayerAvatar(player) // แสดงตัวเดิมไว้ถ้าลากกลุ่ม
-                  : _buildEmptySlot(),
-              child: _buildPlayerAvatar(
-                player,
-                isSelected: isSelected,
-                selectionOrder: selectionOrder,
+                        for (var p in playersToReturn) {
+                          _removePlayerFromCurrentSlot(
+                            p,
+                            addToWaitingList: true,
+                          ); // นำออกจากที่เดิมและเพิ่มกลับไปที่ Waiting List
+                        }
+                        selectedPlayers.clear(); // เคลียร์ตัวเลือก
+                      } else {
+                        // กรณีลากคนเดียว (เหมือนเดิม)
+                        // --- FIX: Use the centralized function for consistency ---
+                        setState(() {
+                          _removePlayerFromCurrentSlot(
+                            player,
+                            addToWaitingList: true,
+                          );
+                        });
+                      }
+                    });
+                  }
+                },
+                feedback: isSelected
+                    ? _buildGroupDragFeedback(selectedPlayers)
+                    : _buildPlayerAvatar(player, isDragging: true),
+                childWhenDragging: isSelected
+                    ? _buildPlayerAvatar(player) // แสดงตัวเดิมไว้ถ้าลากกลุ่ม
+                    : _buildEmptySlot(),
+                child: _buildPlayerAvatar(
+                  player,
+                  isSelected: isSelected,
+                  selectionOrder: selectionOrder,
+                ),
               ),
             ),
           );
@@ -2051,7 +3016,11 @@ class _ManageGamePage extends State<ManageGamePage> {
             text,
             style: TextStyle(
               fontSize: 18,
-              color: text == "จบการแข่งขัน" ? Color(0xFFDB2C2C) : isEnabled ? Color(0xFF243F94) : Colors.grey[400],
+              color: text == "จบการแข่งขัน"
+                  ? Color(0xFFDB2C2C)
+                  : isEnabled
+                  ? Color(0xFF243F94)
+                  : Colors.grey[400],
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -2070,7 +3039,10 @@ class _ManageGamePage extends State<ManageGamePage> {
             padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
             child: Text.rich(
               TextSpan(
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
                 children: [
                   const TextSpan(text: 'เข้าร่วมแล้ว '),
                   TextSpan(
@@ -2110,8 +3082,6 @@ class _ManageGamePage extends State<ManageGamePage> {
           const Divider(height: 1),
           menuItem('ดูผลรายงาน', isEnabled: true), // ตัวอย่างปุ่มที่กดไม่ได้
           const Divider(height: 1),
-          menuItem('จัดคิวแบบ fix สนาม', onTap: () {}),
-          const Divider(height: 1),
           !_isStartGame
               ? menuItem(
                   'เริ่มการแข่งขัน',
@@ -2125,12 +3095,21 @@ class _ManageGamePage extends State<ManageGamePage> {
                       btnRight: 'ยกเลิก',
                       btnRightBackColor: Color(0xFFFFFFFF),
                       btnRightForeColor: Color(0xFF0E9D7A),
-                      onConfirm: () {
+                      onConfirm: () async {
                         _closeFabMenu();
-                        setState(() {
-                          _isStartGame = true;
-                        });
-                        _startSessionTimer();
+                        // --- NEW: เรียก API เพื่อบันทึกเวลาเริ่มการแข่งขัน ---
+                        try {
+                          await ApiProvider().post(
+                            '/gamesessions/${widget.id}/start-competition',
+                          );
+                          _fetchLiveState(); // โหลดข้อมูลใหม่ทันที
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+                            );
+                          }
+                        }
                       },
                     );
                   },
@@ -2151,9 +3130,20 @@ class _ManageGamePage extends State<ManageGamePage> {
                           subtitle: 'คุณได้จบเกม ก๊วนแมวเหมียว',
                           btnLeftBackColor: Color(0xFF0E9D7A),
                           btnLeftForeColor: Color(0xFFFFFFFF),
-                          onConfirm: () {
+                          onConfirm: () async {
                             _closeFabMenu();
-                            context.go('/history-organizer');
+                            // --- NEW: เรียก API เพื่อจบการแข่งขัน ---
+                            try {
+                              await ApiProvider().post(
+                                '/gamesessions/${widget.id}/end-competition',
+                              );
+                              if (mounted) context.pop(true);
+                            } catch (e) {
+                              if (mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+                                );
+                            }
                           },
                         );
                       },
@@ -2311,6 +3301,51 @@ class RosterPlayer {
   }
 }
 
+// --- NEW: Widget สำหรับแสดงเวลาของสนาม แยกออกมาเพื่อลดการ Rebuild หน้าหลัก ---
+class CourtTimerWidget extends StatefulWidget {
+  final PlayingCourt court;
+  const CourtTimerWidget({super.key, required this.court});
+
+  @override
+  State<CourtTimerWidget> createState() => _CourtTimerWidgetState();
+}
+
+class _CourtTimerWidgetState extends State<CourtTimerWidget> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh UI เฉพาะ Widget นี้ทุกวินาที เพื่อแสดงเวลาล่าสุดจาก Model
+    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && widget.court.status == CourtStatus.playing) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$twoDigitMinutes:$twoDigitSeconds";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      _formatDuration(widget.court.elapsedTime),
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    );
+  }
+}
+
 // --- NEW: เพิ่ม Model สำหรับข้อมูลจาก API ---
 class CourtStatusDto {
   final String courtIdentifier;
@@ -2443,11 +3478,17 @@ class RosterManagementPanel extends StatefulWidget {
   final String sessionId;
   final List<Player> players; // FIX: รับ List ของ Player
   final VoidCallback onClose; // เพิ่ม Callback สำหรับปุ่มปิด
+  final double courtFee;
+  final double shuttleFee;
+  final VoidCallback? onPlayerAdded;
   const RosterManagementPanel({
     super.key,
     required this.onClose,
     required this.sessionId,
     required this.players,
+    this.courtFee = 0.0,
+    this.shuttleFee = 0.0,
+    this.onPlayerAdded,
   });
 
   @override
@@ -2459,6 +3500,8 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
   // TODO: ควรเปลี่ยนเป็นการดึงข้อมูลจาก API live-state ในอนาคต
   late List<RosterPlayer> _rosterPlayers;
 
+  final Set<RosterPlayer> _modifiedPlayers = {};
+  final Set<int> _processingPlayerIds = {}; // NEW: ป้องกันการกด Check-in ซ้ำรายคน
   // --- NEW: เพิ่ม State สำหรับเก็บ Skill Levels ---
   List<dynamic> _skillLevels = [];
 
@@ -2491,37 +3534,49 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
     }
   }
 
-  Future<void> _updateSkillLevel(RosterPlayer player, int newSkillLevel) async {
+  Future<void> _saveSkillLevels() async {
+    if (_modifiedPlayers.isEmpty) return;
+
     try {
-      final dto = {"skillLevelId": newSkillLevel};
-      // --- FIX: แก้ไข Endpoint ให้ถูกต้อง ---
-      await ApiProvider().put(
-        '/GameSessions/${widget.sessionId}/participants/${player.participantType}/${player.participantId}/skill-level',
-        data: dto,
+      await Future.wait(
+        _modifiedPlayers.map((player) {
+          return ApiProvider().put(
+            '/GameSessions/${widget.sessionId}/participants/${player.participantType}/${player.participantId}/skill-level',
+            data: {"skillLevelId": player.skillLevel},
+          );
+        }),
       );
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('อัปเดตระดับมือของ ${player.nickname} สำเร็จ'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      // --- NEW: อัปเดตค่าใน UI หลังจาก API สำเร็จ ---
-      setState(() {
-        player.skillLevel = newSkillLevel;
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('บันทึกระดับมือสำเร็จ'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _modifiedPlayers.clear();
+        });
+        widget.onPlayerAdded?.call();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('อัปเดตระดับมือล้มเหลว: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('บันทึกระดับมือล้มเหลว: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   // --- NEW: ฟังก์ชันสำหรับ Check-in ผู้เล่น ---
   Future<void> _checkInPlayer(RosterPlayer player) async {
+    if (_processingPlayerIds.contains(player.participantId)) return;
+    setState(() {
+      _processingPlayerIds.add(player.participantId);
+    });
     try {
       // ยิง API เพื่อทำการ check-in
       // --- FIX: แก้ไข Endpoint และเพิ่ม Body ให้ตรงกับ API ---
@@ -2545,6 +3600,7 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
             backgroundColor: Colors.green,
           ),
         );
+        widget.onPlayerAdded?.call();
       }
     } catch (e) {
       if (mounted) {
@@ -2554,6 +3610,12 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingPlayerIds.remove(player.participantId);
+        });
       }
     }
   }
@@ -2571,6 +3633,24 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
       }
     } catch (e) {
       // Handle error silently
+    }
+  }
+
+  Future<void> _showAddGuestDialog() async {
+    final result = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AddGuestDialog(
+          sessionId: int.tryParse(widget.sessionId) ?? 0,
+          courtFee: widget.courtFee,
+          shuttleFee: widget.shuttleFee,
+        );
+      },
+    );
+
+    if (result == true) {
+      _fetchRosterData();
+      widget.onPlayerAdded?.call();
     }
   }
 
@@ -2650,7 +3730,10 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
                               }).toList(),
                               onChanged: (newValue) {
                                 if (newValue != null) {
-                                  _updateSkillLevel(player, newValue);
+                                  setState(() {
+                                    player.skillLevel = newValue;
+                                    _modifiedPlayers.add(player);
+                                  });
                                 }
                               },
                             ),
@@ -2661,7 +3744,7 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
                               value: player.isChecked, // ค่าของ Checkbox
                               // ถ้า isChecked เป็น true ให้ onChanged เป็น null (กดไม่ได้)
                               // ถ้า isChecked เป็น false ให้เรียกใช้ฟังก์ชัน _checkInPlayer
-                              onChanged: player.isChecked
+                              onChanged: (player.isChecked || _processingPlayerIds.contains(player.participantId))
                                   ? null
                                   : (bool? newValue) {
                                       if (newValue == true) {
@@ -2684,16 +3767,16 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () {
-                          // ไม่จำเป็นต้องใช้ปุ่มนี้แล้ว เพราะอัปเดตทันทีที่เลือก
-                        },
+                        onPressed: _modifiedPlayers.isNotEmpty
+                            ? _saveSkillLevels
+                            : null,
                         child: const Text('บันทึกระดับมือ'),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {},
+                        onPressed: _showAddGuestDialog,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal,
                         ),
@@ -2717,6 +3800,10 @@ class PlayerProfilePanel extends StatefulWidget {
   final Player? player; // รับ Player ที่อาจเป็น null ได้
   final VoidCallback onClose;
   final Function(Player) onShowExpenses;
+  final bool isPaused; // NEW
+  final VoidCallback? onTogglePause; // NEW
+  final bool isEnded; // NEW
+  final VoidCallback? onToggleEndGame; // NEW
 
   const PlayerProfilePanel({
     super.key,
@@ -2725,6 +3812,10 @@ class PlayerProfilePanel extends StatefulWidget {
     this.player,
     required this.onClose,
     required this.onShowExpenses,
+    this.isPaused = false,
+    this.onTogglePause,
+    this.isEnded = false,
+    this.onToggleEndGame,
   });
 
   @override
@@ -2774,9 +3865,6 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
 
     final participantType = parts[0];
     final participantId = parts[1];
-    print(
-      '/gamesessions/${widget.sessionId}/player-stats/$participantType/$participantId',
-    );
     try {
       final response = await ApiProvider().get(
         '/gamesessions/${widget.sessionId}/player-stats/$participantType/$participantId',
@@ -2790,9 +3878,13 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
     } catch (e) {
       if (mounted) {
         setState(() => _isStatsLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ไม่สามารถโหลดสถิติผู้เล่นได้: $e')),
-        );
+        // --- FIX: ตรวจสอบ Error 401 เพื่อไม่ให้แสดง SnackBar ซ้ำซ้อน ---
+        final errStr = e.toString();
+        if (!errStr.contains('401') && !errStr.contains('Invalid tokens')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('ไม่สามารถโหลดสถิติผู้เล่นได้: $e')),
+          );
+        }
       }
     }
   }
@@ -2804,8 +3896,8 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
     final parts = widget.player!.id.split('_');
     if (parts.length != 2) return;
 
-    final participantType = parts;
-    final participantId = parts;
+    final participantType = parts[0].toLowerCase(); // FIX: แก้ไขการดึงค่าและแปลงเป็นตัวพิมพ์เล็ก
+    final participantId = parts[1];
 
     try {
       final dto = {"skillLevelId": newSkillLevelId};
@@ -2820,12 +3912,16 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('อัปเดตระดับมือล้มเหลว: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      // --- FIX: ตรวจสอบ Error 401 ---
+      final errStr = e.toString();
+      if (!errStr.contains('401') && !errStr.contains('Invalid tokens')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('อัปเดตระดับมือล้มเหลว: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       // คืนค่า level เดิมถ้า error
       setState(() => _selectedSkillLevel = widget.player?.skillLevelId ?? 1);
     }
@@ -3043,13 +4139,19 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
                           horizontal: 8,
                           vertical: 16,
                         ),
-                        text: 'หยุดเกมส์ผู้เล่น',
-                        backgroundColor: Color(0xFFFFFFFF),
-                        foregroundColor: Color(0xFF0E9D7A),
-                        side: BorderSide(color: Color(0xFFB3B3C1)),
+                        text: widget.isPaused
+                            ? 'ผู้เล่นกลับสู่เกม' // FIX: แก้คำผิด
+                            : 'หยุดเกมส์ผู้เล่น', // UPDATED
+                        backgroundColor: widget.isPaused
+                            ? const Color(0xFF0E9D7A)
+                            : const Color(0xFFFFFFFF), // UPDATED
+                        foregroundColor: widget.isPaused
+                            ? Colors.white
+                            : const Color(0xFF0E9D7A), // UPDATED
+                        side: const BorderSide(color: Color(0xFFB3B3C1)),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        onPressed: () {},
+                        onPressed: widget.onTogglePause ?? () {}, // UPDATED
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -3059,13 +4161,24 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
                           horizontal: 8,
                           vertical: 16,
                         ),
-                        text: 'จบเกมส์ผู้เล่น',
-                        backgroundColor: Color(0xFFFFFFFF),
-                        foregroundColor: Color(0xFF0E9D7A),
-                        side: BorderSide(color: Color(0xFFB3B3C1)),
+                        text: widget.isEnded
+                            ? 'กลับสู่เกมส์'
+                            : 'จบเกมส์ผู้เล่น', // UPDATED
+                        backgroundColor: widget.isEnded
+                            ? Colors.red
+                            : const Color(0xFFFFFFFF), // UPDATED
+                        foregroundColor: widget.isEnded
+                            ? Colors.white
+                            : const Color(0xFF0E9D7A), // UPDATED
+                        side: const BorderSide(color: Color(0xFFB3B3C1)),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        onPressed: () {},
+                        onPressed: () {
+                          if (widget.onToggleEndGame != null) {
+                            widget.onToggleEndGame!();
+                            widget.onClose(); // สั่งปิด Panel เมื่อกดปุ่ม
+                          }
+                        },
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -3160,7 +4273,8 @@ class MatchHistoryItem {
 
   factory MatchHistoryItem.fromJson(Map<String, dynamic> json) {
     return MatchHistoryItem(
-      courtNumber: json['courtNumber'] ?? 0,
+      courtNumber: (json['courtNumber'] ?? 0)
+          .toString(), // FIX: แปลงเป็น String เสมอ
       durationMinutes: json['durationMinutes'] ?? 0,
       teammate: json['teammate'] != null
           ? HistoryPlayer.fromJson(json['teammate'])
@@ -3187,8 +4301,28 @@ class HistoryPlayer {
 class ExpensePanel extends StatefulWidget {
   final Player? player;
   final VoidCallback onClose;
+  final String sessionId; // เพิ่มตัวแปรรับ sessionId
+  final List<dynamic> skillLevels; // รับข้อมูลระดับมือ
+  final bool isPaused; // NEW
+  final VoidCallback? onTogglePause; // NEW
+  final double courtFee; // NEW: รับค่าสนาม
+  final double shuttleFee; // NEW: รับราคาลูกแบด
+  final bool isEnded; // NEW
+  final VoidCallback? onToggleEndGame; // NEW
 
-  const ExpensePanel({super.key, this.player, required this.onClose});
+  const ExpensePanel({
+    super.key,
+    this.player,
+    required this.onClose,
+    required this.sessionId,
+    required this.skillLevels,
+    this.isPaused = false,
+    this.onTogglePause,
+    this.courtFee = 0.0,
+    this.shuttleFee = 0.0,
+    this.isEnded = false,
+    this.onToggleEndGame,
+  });
 
   @override
   State<ExpensePanel> createState() => _ExpensePanelState();
@@ -3198,11 +4332,239 @@ class _ExpensePanelState extends State<ExpensePanel> {
   // State ภายในของ Panel เอง
   bool _isEmergencyContactVisible = false;
   late int _selectedSkillLevel;
+  bool _isLoading = false;
+  PlayerStats? _playerStats;
+  dynamic _billData;
 
   @override
   void initState() {
     super.initState();
-    _selectedSkillLevel = widget.player?.level ?? 1;
+    _selectedSkillLevel = widget.player?.skillLevelId ?? 1;
+    if (widget.player != null) {
+      _fetchData();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ExpensePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.player != oldWidget.player && widget.player != null) {
+      _fetchData();
+      setState(() {
+        _selectedSkillLevel = widget.player?.skillLevelId ?? 1;
+      });
+    }
+  }
+
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    final parts = widget.player!.id.split('_');
+    final pType = parts[0].toLowerCase(); // FIX: แปลงเป็นตัวพิมพ์เล็ก (member/guest)
+    final pId = parts[1];
+
+    PlayerStats? stats;
+    dynamic bill;
+
+    // 1. ดึงข้อมูลสถิติ
+    try {
+      final statsRes = await ApiProvider().get(
+        '/gamesessions/${widget.sessionId}/player-stats/$pType/$pId',
+      );
+      stats = PlayerStats.fromJson(statsRes['data']);
+    } catch (e) {
+      debugPrint('Error fetching player stats: $e');
+    }
+
+    // 2. ดึงข้อมูลบิล (ใช้ Checkout API เพื่อดูยอด)
+    // --- FIX: เรียก API Preview (GET) เพื่อความปลอดภัยและถูกต้องตามหลักการ ---
+    try {
+      final billRes = await ApiProvider().get(
+        '/participants/$pType/$pId/bill-preview',
+      );
+      bill = billRes['data'];
+    } catch (e) {
+      debugPrint('Error fetching checkout data: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _playerStats = stats;
+        _billData = bill;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _handlePayment(
+    String paymentMethod,
+    List<ExpenseAdjustment> adjustments,
+  ) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final parts = widget.player!.id.split('_');
+      final pType = parts[0].toLowerCase();
+      final pId = parts[1];
+
+      // 1. รวบรวมรายการค่าใช้จ่ายทั้งหมด (Base + Adjustments) เพื่อส่งไปสร้างบิล
+      List<Map<String, dynamic>> customLineItems = [];
+
+      // 1.1 ค่าสนาม (ถ้ามี)
+      if (widget.courtFee > 0) {
+        customLineItems.add({'description': 'ค่าคอร์ท', 'amount': widget.courtFee});
+      }
+      // 1.2 ค่าธรรมเนียม (ถ้ามี)
+      customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': 10.0});
+
+      // 1.3 ค่าลูกแบด (คำนวณรวม)
+      // ใช้ค่าจาก API ถ้ามี หรือคำนวณเอง
+      double shuttleTotal = 0;
+      if (_billData != null && _billData['lineItems'] != null) {
+         final items = _billData['lineItems'] as List;
+         final item = items.firstWhere((i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'), orElse: () => null);
+         if (item != null) shuttleTotal = (item['amount'] ?? 0.0).toDouble();
+      }
+      final int totalGames = _playerStats?.totalGamesPlayed ?? 0;
+      if (shuttleTotal == 0) shuttleTotal = totalGames * widget.shuttleFee;
+      
+      if (shuttleTotal > 0) {
+        customLineItems.add({'description': 'ค่าลูกแบด ($totalGames เกม)', 'amount': shuttleTotal});
+      }
+
+      // 1.4 รายการปรับปรุง (เพิ่ม/ลด)
+      for (var adj in adjustments) {
+        double amount = adj.amount;
+        if (adj.type == AdjustmentType.subtraction) amount = -amount;
+        customLineItems.add({'description': adj.name, 'amount': amount});
+      }
+
+      // 2. เรียก API Checkout เพื่อสร้างบิลจริง (พร้อมรายการที่แก้ไขแล้ว)
+      final checkoutRes = await ApiProvider().post(
+        '/participants/$pType/$pId/checkout',
+        data: {'customLineItems': customLineItems},
+      );
+      
+      final finalBill = checkoutRes['data'];
+      final int billId = finalBill['billId'];
+      final double totalAmount = (finalBill['totalAmount'] ?? 0).toDouble();
+
+      // 3. แยก Flow ตามวิธีการชำระเงิน
+      if (paymentMethod == 'QR Code') {
+        // --- Flow QR Code ---
+        if (mounted) {
+          setState(() => _isLoading = false); // หยุดโหลดชั่วคราวเพื่อแสดง Dialog
+          
+          // แสดง Dialog QR Code
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => _buildQrPaymentDialog(context, totalAmount, billId),
+          );
+        }
+        
+        // เมื่อ Dialog ปิดลง (กดชำระเงินแล้ว) ให้โหลดข้อมูลใหม่
+        if (mounted && widget.player != null) {
+          _fetchData();
+        }
+
+      } else {
+        // --- Flow เงินสด ---
+        await _confirmPaymentAPI(billId, paymentMethod, totalAmount);
+      }
+
+    } catch (e) {
+      if (mounted) {
+        // --- FIX: ตรวจสอบ Error 401 ---
+        final errStr = e.toString();
+        if (!errStr.contains('401') && !errStr.contains('Invalid tokens')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('เกิดข้อผิดพลาดในการชำระเงิน')),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- NEW: ฟังก์ชันยิง API ยืนยันการจ่ายเงิน ---
+  Future<void> _confirmPaymentAPI(int billId, String method, double amount) async {
+    await ApiProvider().post(
+      '/bills/$billId/pay',
+      data: {
+        'paymentMethod': method,
+        'amount': amount
+      },
+    );
+
+    if (mounted) {
+      // --- FIX: เปลี่ยนจาก SnackBar เป็น showDialogMsg (Popup) ---
+      showDialogMsg(
+        context,
+        title: 'ชำระเงินสำเร็จ',
+        subtitle: 'บันทึกการชำระเงินเรียบร้อยแล้ว',
+        btnLeft: 'ตกลง',
+        btnLeftBackColor: const Color(0xFF0E9D7A),
+        btnLeftForeColor: Colors.white,
+        onConfirm: () {
+          widget.onClose(); // ปิด Expense Panel
+        },
+      );
+    }
+  }
+
+  // --- NEW: Widget Dialog สำหรับ QR Code ---
+  Widget _buildQrPaymentDialog(BuildContext context, double amount, int billId) {
+    // สร้างข้อมูล QR (ตัวอย่าง: PromptPay Payload หรือ Text ธรรมดา)
+    // ในที่นี้ใช้ Text ธรรมดาเพื่อแสดงผล
+    final qrData = "PromptPay:08x-xxx-xxxx:$amount"; 
+
+    return AlertDialog(
+      title: const Text('สแกน QR Code เพื่อจ่ายเงิน'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // FIX: ใช้ Container กำหนดพื้นหลังสีขาว เพื่อให้ QR Code แสดงผลชัดเจน
+          Container(
+            width: 200,
+            height: 200,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: QrImageView(
+              data: qrData,
+              version: QrVersions.auto,
+              size: 200.0,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text('ยอดชำระ: ${amount.toStringAsFixed(0)} บาท', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
+        ElevatedButton(
+          onPressed: () async {
+            // เมื่อกดปุ่มนี้ แปลว่าลูกค้าสแกนและโอนแล้ว -> ยิง API จ่ายเงิน
+            Navigator.pop(context); // ปิด Dialog
+            setState(() => _isLoading = true);
+            try {
+              await _confirmPaymentAPI(billId, 'QR Code', amount);
+            } catch (e) {
+               if (mounted) {
+                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+               }
+            } finally {
+               if (mounted) setState(() => _isLoading = false);
+            }
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+          child: const Text('ยืนยันการชำระเงิน'),
+        ),
+      ],
+    );
   }
 
   @override
@@ -3262,18 +4624,24 @@ class _ExpensePanelState extends State<ExpensePanel> {
                           Row(
                             children: [
                               const Text('ระดับมือ: '),
-                              DropdownButton<int>(
-                                value: _selectedSkillLevel,
-                                items: [1, 2, 3, 4, 5, 6, 7, 8]
-                                    .map(
-                                      (l) => DropdownMenuItem(
-                                        value: l,
-                                        child: Text('LV.$l'),
-                                      ),
-                                    )
+                              DropdownButton<String>(
+                                value: _selectedSkillLevel.toString(),
+                                items: widget.skillLevels
+                                    .map<DropdownMenuItem<String>>((level) {
+                                      return DropdownMenuItem<String>(
+                                        value: level['code'],
+                                        child: Text(level['value']),
+                                      );
+                                    })
                                     .toList(),
-                                onChanged: (val) =>
-                                    setState(() => _selectedSkillLevel = val!),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(
+                                      () =>
+                                          _selectedSkillLevel = int.parse(val),
+                                    );
+                                  }
+                                },
                               ),
                               const Spacer(),
                               // --- ปุ่มรถพยาบาล ---
@@ -3324,14 +4692,15 @@ class _ExpensePanelState extends State<ExpensePanel> {
                     children: [
                       const TextSpan(text: 'เล่นไป '),
                       TextSpan(
-                        text: '${player.gamesPlayed} เกม  ',
+                        text: '${_playerStats?.totalGamesPlayed ?? 0} เกม  ',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
                         ),
                       ),
                       TextSpan(
-                        text: '${player.shuttlesUsed} ลูก  ',
+                        text:
+                            '${_billData != null ? _billData['totalShuttlecocks'] ?? 0 : 0} ลูก  ',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
@@ -3340,7 +4709,7 @@ class _ExpensePanelState extends State<ExpensePanel> {
                       const TextSpan(text: 'เวลาที่รอ '),
                       TextSpan(
                         text:
-                            '${(player.waitingTime ?? Duration.zero).inMinutes}.${(player.waitingTime ?? Duration.zero).inSeconds.remainder(60).toString().padLeft(2, '0')} นาที',
+                            '${_playerStats?.totalMinutesPlayed ?? "00:00"} นาที',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
@@ -3351,52 +4720,44 @@ class _ExpensePanelState extends State<ExpensePanel> {
                 ),
                 SizedBox(height: sizedBoxheight),
                 // ตาราง
-                SizedBox(
-                  height: 300,
-                  child: SingleChildScrollView(
-                    child: Table(
-                      border: TableBorder.all(
-                        color: Colors.grey.shade700,
-                        width: 1,
-                      ),
-                      columnWidths: const {
-                        0: FlexColumnWidth(1),
-                        1: FlexColumnWidth(1.5),
-                        2: FlexColumnWidth(1),
-                        3: FlexColumnWidth(1),
-                        4: FlexColumnWidth(2),
-                      },
-                      children: [
-                        // แถวหัวข้อ
-                        buildRow([
-                          'เกมที่',
-                          '#',
-                          'ทีม',
-                          'VS',
-                          'คู่แข่ง',
-                        ], isHeader: true),
-                        // แถวข้อมูล
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['1', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['2', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                        buildRow(['3', '1,4', 'เจน', 'VS', 'นุ่น, โบว์']),
-                      ],
-                    ),
+                // FIX: ลบ SizedBox และ SingleChildScrollView ออก เพื่อให้ตารางขยายเต็มตามข้อมูล
+                Table(
+                  border: TableBorder.all(
+                    color: Colors.grey.shade700,
+                    width: 1,
                   ),
+                  columnWidths: const {
+                    0: FlexColumnWidth(1),
+                    1: FlexColumnWidth(1.5),
+                    2: FlexColumnWidth(1),
+                    3: FlexColumnWidth(1),
+                    4: FlexColumnWidth(2),
+                  },
+                  children: [
+                    // แถวหัวข้อ
+                    buildRow([
+                      'เกมที่',
+                      '#',
+                      'ทีม',
+                      'VS',
+                      'คู่แข่ง',
+                    ], isHeader: true),
+                    // --- NEW: แสดงข้อมูลจริงจาก API ---
+                    if (_playerStats?.matchHistory != null)
+                      ..._playerStats!.matchHistory.asMap().entries.map((
+                        entry,
+                      ) {
+                        int index = entry.key;
+                        MatchHistoryItem history = entry.value;
+                        return buildRow([
+                          (index + 1).toString(),
+                          history.courtNumber.toString(),
+                          history.teammate.nickname,
+                          'VS',
+                          history.opponents.map((op) => op.nickname).join(', '),
+                        ]);
+                      }).toList(),
+                  ],
                 ),
                 SizedBox(height: sizedBoxheight),
                 // --- Bottom Buttons ---
@@ -3408,13 +4769,19 @@ class _ExpensePanelState extends State<ExpensePanel> {
                           horizontal: 8,
                           vertical: 16,
                         ),
-                        text: 'หยุดเกมส์ผู้เล่น',
-                        backgroundColor: Color(0xFFFFFFFF),
-                        foregroundColor: Color(0xFF0E9D7A),
-                        side: BorderSide(color: Color(0xFFB3B3C1)),
+                        text: widget.isPaused
+                            ? 'ผู้เล่นกลับสู่เกม' // FIX: แก้คำผิด
+                            : 'หยุดเกมส์ผู้เล่น', // UPDATED
+                        backgroundColor: widget.isPaused
+                            ? const Color(0xFF0E9D7A)
+                            : const Color(0xFFFFFFFF), // UPDATED
+                        foregroundColor: widget.isPaused
+                            ? Colors.white
+                            : const Color(0xFF0E9D7A), // UPDATED
+                        side: const BorderSide(color: Color(0xFFB3B3C1)),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        onPressed: () {},
+                        onPressed: widget.onTogglePause ?? () {}, // UPDATED
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -3424,13 +4791,19 @@ class _ExpensePanelState extends State<ExpensePanel> {
                           horizontal: 8,
                           vertical: 16,
                         ),
-                        text: 'จบเกมส์ผู้เล่น',
-                        backgroundColor: Color(0xFFFFFFFF),
-                        foregroundColor: Color(0xFF0E9D7A),
-                        side: BorderSide(color: Color(0xFFB3B3C1)),
+                        text: widget.isEnded
+                            ? 'กลับสู่เกมส์'
+                            : 'จบเกมส์ผู้เล่น', // UPDATED
+                        backgroundColor: widget.isEnded
+                            ? Colors.red
+                            : const Color(0xFFFFFFFF), // UPDATED
+                        foregroundColor: widget.isEnded
+                            ? Colors.white
+                            : const Color(0xFF0E9D7A), // UPDATED
+                        side: const BorderSide(color: Color(0xFFB3B3C1)),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        onPressed: () {},
+                        onPressed: widget.onToggleEndGame ?? () {}, // UPDATED
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -3441,20 +4814,30 @@ class _ExpensePanelState extends State<ExpensePanel> {
                           vertical: 16,
                         ),
                         text: 'ค่าใช้จ่าย',
-                        backgroundColor: Color(0xFF243F94),
-                        side: BorderSide(color: Color(0xFFB3B3C1)),
+                        backgroundColor: Colors.grey, // UPDATED: สีเทา
+                        side: const BorderSide(color: Colors.grey), // UPDATED
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         icon: Icons.keyboard_arrow_up,
-                        enabled: true,
-                        onPressed: () {},
+                        enabled: false, // UPDATED: กดไม่ได้
+                        onPressed: () {}, // UPDATED
                       ),
                     ),
                   ],
                 ),
                 SizedBox(height: sizedBoxheight),
-
-                ExpensePanelWidget(),
+                if (_isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  ExpensePanelWidget(
+                    billData: _billData,
+                    courtFee: widget.courtFee, // ส่งค่าสนามไปให้ Widget
+                    shuttlecockFee: widget.shuttleFee, // ส่งราคาลูกแบด
+                    totalGames:
+                        _playerStats?.totalGamesPlayed ??
+                        0, // ส่งจำนวนเกมที่เล่น
+                    onConfirmPayment: _handlePayment,
+                  ),
               ],
             ),
           ),

@@ -97,12 +97,14 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
   final bool isBack;
   final int amountItemInCart;
   final String title;
+  final VoidCallback? onBackPressed; // เพิ่มตัวแปรรับฟังก์ชันกดกลับ
 
   const AppBarSubMain({
     super.key,
     this.isBack = true,
     this.amountItemInCart = 0,
     required this.title,
+    this.onBackPressed, // รับค่าเข้ามา
   });
 
   @override
@@ -119,7 +121,7 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
             if (isBack)
               IconButton(
                 icon: const Icon(Icons.arrow_back, color: Color(0xFFFFFFFF)),
-                onPressed: () => Navigator.pop(context),
+                onPressed: onBackPressed ?? () => Navigator.pop(context), // ถ้ามี onBackPressed ให้ใช้ ถ้าไม่มีให้ใช้ Navigator.pop ตามเดิม
               ),
             Expanded(
               child: Padding(

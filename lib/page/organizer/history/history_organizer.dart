@@ -57,9 +57,12 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
         });
       }
     } catch (e) {
-      setState(() {
-        isLoading = false;
-      });
+      // --- FIX: เช็ค mounted ก่อน setState ป้องกัน Error เมื่อถูกดีดไปหน้า Login ---
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -69,7 +72,9 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
       _analyticsData = null;
     });
     try {
-      final response = await ApiProvider().get('/GameSessions/$sessionId/analytics');
+      final response = await ApiProvider().get(
+        '/GameSessions/$sessionId/analytics',
+      );
       if (mounted && response['status'] == 200) {
         setState(() {
           _analyticsData = response['data'];
@@ -203,8 +208,11 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
               itemCount: history.length,
               itemBuilder: (context, index) {
                 final item = history[index];
-                final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
-                final dateStr = '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}\n${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+                final dt =
+                    DateTime.tryParse(item['date'] ?? '')?.toLocal() ??
+                    DateTime.now();
+                final dateStr =
+                    '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}\n${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
                 final isSelected = item == _selectedItem;
 
                 return GestureDetector(
@@ -221,10 +229,30 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                     child: Row(
                       children: [
                         textHistory(2, dateStr, 10, FontWeight.w300),
-                        textHistory(3, item['groupName'] ?? '-', 10, FontWeight.w300),
-                        textHistory(2, '${item['totalIncome'] ?? 0}', 10, FontWeight.w300),
-                        textHistory(2, '${item['paidAmount'] ?? 0}', 10, FontWeight.w300),
-                        textHistory(2, '${item['unpaidAmount'] ?? 0}', 10, FontWeight.w300),
+                        textHistory(
+                          3,
+                          item['groupName'] ?? '-',
+                          10,
+                          FontWeight.w300,
+                        ),
+                        textHistory(
+                          2,
+                          '${item['totalIncome'] ?? 0}',
+                          10,
+                          FontWeight.w300,
+                        ),
+                        textHistory(
+                          2,
+                          '${item['paidAmount'] ?? 0}',
+                          10,
+                          FontWeight.w300,
+                        ),
+                        textHistory(
+                          2,
+                          '${item['unpaidAmount'] ?? 0}',
+                          10,
+                          FontWeight.w300,
+                        ),
                       ],
                     ),
                   ),
@@ -256,7 +284,11 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     );
   }
 
-  Widget detailsView(BuildContext context, {required dynamic item, Function()? onBack}) {
+  Widget detailsView(
+    BuildContext context, {
+    required dynamic item,
+    Function()? onBack,
+  }) {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -319,7 +351,11 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: badmintonSummaryPage2(context, _analyticsData, _isAnalyticsLoading),
+        child: badmintonSummaryPage2(
+          context,
+          _analyticsData,
+          _isAnalyticsLoading,
+        ),
       ),
     );
   }
@@ -333,13 +369,17 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
         SizedBox(height: 16),
         DetailsCard(model: model),
         SizedBox(height: 16),
-        ActionButtons(),
+        ActionButtons(model: model),
         SizedBox(height: 16),
       ],
     );
   }
 
-  Widget badmintonSummaryPage2(BuildContext context, Map<String, dynamic>? analytics, bool isLoading) {
+  Widget badmintonSummaryPage2(
+    BuildContext context,
+    Map<String, dynamic>? analytics,
+    bool isLoading,
+  ) {
     if (isLoading) {
       return const Padding(
         padding: EdgeInsets.all(20.0),
@@ -347,7 +387,16 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
       );
     }
     return Column(
-      children: [SummaryCard(data: analytics), SizedBox(height: 16), GameTimingCard(games: analytics?['matchHistory'])],
+      children: [
+        SummaryCard(data: analytics),
+        SizedBox(height: 16),
+        GameTimingCard(
+          games:
+              analytics?['matchHistory'] is List
+                  ? analytics!['matchHistory']
+                  : [],
+        ),
+      ],
     );
   }
 }
@@ -358,7 +407,9 @@ class GroupInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final formattedDateTime = formatSessionStart(model['date'] ?? model['sessionStart'] ?? model['sessionDate'] ?? '');
+    final formattedDateTime = formatSessionStart(
+      model['date'] ?? model['sessionStart'] ?? model['sessionDate'] ?? '',
+    );
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -387,10 +438,17 @@ class GroupInfoCard extends StatelessWidget {
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                model['venueData'] != null ? model['venueData']['name'] : (model['courtName'] ?? model['venueName'] ?? '-'),
+                model['venueData'] != null
+                    ? model['venueData']['name']
+                    : (model['courtName'] ?? model['venueName'] ?? '-'),
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
               ),
-              subtitle: Text(model['venueData'] != null ? model['venueData']['address'] : (model['location'] ?? '-'), style: TextStyle(fontSize: 16)),
+              subtitle: Text(
+                model['venueData'] != null
+                    ? model['venueData']['address']
+                    : (model['location'] ?? '-'),
+                style: TextStyle(fontSize: 16),
+              ),
               trailing: Icon(
                 Icons.location_on,
                 color: Color(0Xff0E9D7A),
@@ -439,7 +497,8 @@ class ImageSlideshow extends StatelessWidget {
     String? imageUrl;
     if (model['photoUrls'] is List && (model['photoUrls'] as List).isNotEmpty) {
       imageUrl = model['photoUrls'][0];
-    } else if (model['courtImageUrls'] is List && (model['courtImageUrls'] as List).isNotEmpty) {
+    } else if (model['courtImageUrls'] is List &&
+        (model['courtImageUrls'] as List).isNotEmpty) {
       imageUrl = model['courtImageUrls'][0];
     } else {
       imageUrl = model['imageUrl'];
@@ -452,7 +511,16 @@ class ImageSlideshow extends StatelessWidget {
       child: Column(
         children: [
           // Placeholder สำหรับรูปภาพ
-          if (imageUrl != null) Image.network(imageUrl, fit: BoxFit.cover) else Container(height: 200, color: Colors.grey, child: Center(child: Icon(Icons.image, size: 50, color: Colors.white))),
+          if (imageUrl != null)
+            Image.network(imageUrl, fit: BoxFit.cover)
+          else
+            Container(
+              height: 200,
+              color: Colors.grey,
+              child: Center(
+                child: Icon(Icons.image, size: 50, color: Colors.white),
+              ),
+            ),
         ],
       ),
     );
@@ -511,7 +579,9 @@ class DetailsCard extends StatelessWidget {
                   ],
                 ),
                 GestureDetector(
-                  onTap: () => context.push('/player-list/${model['gameSessionId'] ?? model['sessionId']}'),
+                  onTap: () => context.push(
+                    '/player-list/${model['gameSessionId'] ?? model['sessionId']}',
+                  ),
                   child: Text(
                     'ดูผู้เล่น',
                     style: TextStyle(
@@ -550,10 +620,7 @@ class DetailsCard extends StatelessWidget {
 
   // Helper สำหรับสร้างไอคอน
   Widget _buildFacilityIcon(BuildContext context, String iconUrl) {
-    return CircleAvatar(
-      radius: 22,
-      child: Image.network(iconUrl),
-    );
+    return CircleAvatar(radius: 22, child: Image.network(iconUrl));
   }
 
   Widget _buildText(BuildContext context, String text) {
@@ -569,7 +636,8 @@ class DetailsCard extends StatelessWidget {
 
 // --- Widget ย่อย: ปุ่ม Action ด้านล่าง ---
 class ActionButtons extends StatelessWidget {
-  const ActionButtons({super.key});
+  final dynamic model;
+  const ActionButtons({super.key, this.model});
 
   @override
   Widget build(BuildContext context) {
@@ -584,7 +652,8 @@ class ActionButtons extends StatelessWidget {
               foregroundColor: Color(0xFF0E9D7A),
               fontSize: 11,
               onPressed: () {
-                context.push('/history-organizer-payment');
+                final sessionId = model['gameSessionId'] ?? model['sessionId'];
+                context.push('/history-organizer-payment', extra: sessionId);
               },
             ),
           ),
@@ -596,7 +665,32 @@ class ActionButtons extends StatelessWidget {
               foregroundColor: Color(0xFFFFFFFF),
               fontSize: 11,
               onPressed: () {
-                context.push('/add-game/1');
+                if (model != null) {
+                  DateTime? historyDate;
+                  // พยายามดึงวันที่จาก model
+                  if (model['date'] != null) {
+                    historyDate = DateTime.tryParse(model['date']);
+                  } else if (model['sessionDate'] != null) {
+                    historyDate = DateTime.tryParse(model['sessionDate']);
+                  } else if (model['sessionStart'] != null) {
+                    historyDate = DateTime.tryParse(model['sessionStart']);
+                  }
+
+                  DateTime initialDate = DateTime.now();
+                  if (historyDate != null) {
+                    final now = DateTime.now();
+                    int targetWeekday = historyDate.weekday;
+                    // คำนวณหาวันถัดไปที่ตรงกับวันในสัปดาห์ของประวัติ (เช่น เคยสร้างวันจันทร์ ก็หาจันทร์ถัดไป)
+                    int daysUntil = (targetWeekday - now.weekday + 7) % 7;
+                    if (daysUntil == 0) daysUntil = 7; // ถ้าตรงกับวันนี้พอดี ให้เลือกสัปดาห์หน้า
+                    initialDate = now.add(Duration(days: daysUntil));
+                  }
+
+                  context.push('/add-game/new', extra: {
+                    'sessionData': model,
+                    'initialDate': initialDate,
+                  });
+                }
               },
             ),
           ),
@@ -640,7 +734,13 @@ class SummaryCard extends StatelessWidget {
             child: Column(
               children: [
                 _buildSummaryRow(context, 'ก๊วน', data?['groupName'] ?? '-'),
-                _buildSummaryRow(context, 'วันที่', data?['date'] != null ? formatSessionStart(data!['date'])['date']! : '-'),
+                _buildSummaryRow(
+                  context,
+                  'วันที่',
+                  data?['date'] != null
+                      ? formatSessionStart(data!['date'])['date']!
+                      : '-',
+                ),
                 _buildSummaryRow(
                   context,
                   'ตีทั้งหมด',
@@ -653,10 +753,16 @@ class SummaryCard extends StatelessWidget {
                 _buildSummaryRow(
                   context,
                   'เวลาเริ่มตี',
-                  (data?['totalPlayTimeStart']?.toString().isNotEmpty ?? false) ? data!['totalPlayTimeStart'] : '-',
+                  (data?['totalPlayTimeStart']?.toString().isNotEmpty ?? false)
+                      ? data!['totalPlayTimeStart']
+                      : '-',
                   unit: 'น.',
                   trailingTitle: 'เวลาสิ้นสุดการตี',
-                  trailingValue: (data?['totalPlayTimeEnd']?.toString().isNotEmpty ?? false) ? data!['totalPlayTimeEnd'] : '-',
+                  trailingValue:
+                      (data?['totalPlayTimeEnd']?.toString().isNotEmpty ??
+                          false)
+                      ? data!['totalPlayTimeEnd']
+                      : '-',
                   trailingUnit: 'น.',
                 ),
                 _buildSummaryRow(
@@ -765,7 +871,8 @@ class _GameTimingCardState extends State<GameTimingCard> {
     final games = widget.games ?? [];
     final totalPages = (games.length / _itemsPerPage).ceil();
 
-    if (_currentPage > totalPages) _currentPage = totalPages > 0 ? totalPages : 1;
+    if (_currentPage > totalPages)
+      _currentPage = totalPages > 0 ? totalPages : 1;
     if (_currentPage < 1) _currentPage = 1;
 
     final startIndex = (_currentPage - 1) * _itemsPerPage;
@@ -800,9 +907,14 @@ class _GameTimingCardState extends State<GameTimingCard> {
             const Divider(height: 24),
             // รายการเกม
             if (currentGames.isNotEmpty)
-              ...currentGames.map((game) => _buildGameRow(context, game)).toList()
+              ...currentGames
+                  .map((game) => _buildGameRow(context, game))
+                  .toList()
             else
-              const Padding(padding: EdgeInsets.all(16), child: Text('ไม่มีข้อมูลเกม')),
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('ไม่มีข้อมูลเกม'),
+              ),
             // Pagination
             if (totalPages > 1)
               SingleChildScrollView(
@@ -820,7 +932,9 @@ class _GameTimingCardState extends State<GameTimingCard> {
                           });
                         },
                         style: TextButton.styleFrom(
-                          foregroundColor: _currentPage == index + 1 ? Colors.white : Colors.black,
+                          foregroundColor: _currentPage == index + 1
+                              ? Colors.white
+                              : Colors.black,
                           backgroundColor: _currentPage == index + 1
                               ? const Color(0xFF0E9D7A)
                               : Colors.transparent,
@@ -854,6 +968,24 @@ class _GameTimingCardState extends State<GameTimingCard> {
 
   // Helper สำหรับสร้างแต่ละแถวของเกม
   Widget _buildGameRow(BuildContext context, dynamic game) {
+    // รองรับทั้ง camelCase และ PascalCase และป้องกัน null
+    final rawTeamA = game['teamA'] ?? game['TeamA'];
+    // แก้ไข: เอา string ไปแสดงตรงๆ โดยไม่ต้อง split (ใส่ใน list เพื่อให้ _buildTeam ทำงานได้)
+    final teamA =
+        rawTeamA is List ? rawTeamA : (rawTeamA != null ? [rawTeamA] : []);
+
+    final rawTeamB = game['teamB'] ?? game['TeamB'];
+    final teamB =
+        rawTeamB is List ? rawTeamB : (rawTeamB != null ? [rawTeamB] : []);
+
+    final duration = '${game['duration'] ?? "00.00"}';
+    // แก้ไข: เพิ่ม key ที่ตรงกับ JSON (courtNumber, matchId, shuttlecocksUsed)
+    final courtName =
+        game['courtName'] ??
+        game['CourtName'] ??
+        game['courtNumber'] ??
+        '-';
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12.0),
       child: Row(
@@ -861,7 +993,7 @@ class _GameTimingCardState extends State<GameTimingCard> {
           Expanded(
             flex: 2,
             child: Text(
-              '${game['gameNumber'] ?? '-'}, ${game['courtName'] ?? '-'}, ${game['shuttlesUsed'] ?? '-'}',
+              '$courtName',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 10),
@@ -869,7 +1001,7 @@ class _GameTimingCardState extends State<GameTimingCard> {
               ),
             ),
           ),
-          Expanded(flex: 3, child: _buildTeam(context, game['teamA'] ?? [])),
+          Expanded(flex: 3, child: _buildTeam(context, teamA)),
           Expanded(
             flex: 1,
             child: Text(
@@ -880,11 +1012,11 @@ class _GameTimingCardState extends State<GameTimingCard> {
               ),
             ),
           ),
-          Expanded(flex: 3, child: _buildTeam(context, game['teamB'] ?? [])),
+          Expanded(flex: 3, child: _buildTeam(context, teamB)),
           Expanded(
             flex: 2,
             child: Text(
-              game['duration'] ?? '00.00',
+              duration,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 10),
@@ -901,23 +1033,34 @@ class _GameTimingCardState extends State<GameTimingCard> {
   Widget _buildTeam(BuildContext context, List<dynamic> players) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: players
-          .map(
-            (name) => Flexible(child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: Text(
-                name,
-                style: TextStyle(
-                  color: Color(0xFF0E9D7A),
-                  fontSize: getResponsiveFontSize(context, fontSize: 10),
-                  decoration: TextDecoration.underline,
-                  decorationColor: Color(0xFF0E9D7A),
-                ),
+      children: players.map((player) {
+        // รองรับกรณีข้อมูลเป็น Object (Map) หรือ String
+        String name = '-';
+        if (player is Map) {
+          name =
+              player['name'] ??
+              player['firstName'] ??
+              player['nickname'] ??
+              '-';
+        } else {
+          name = '$player';
+        }
+        return Flexible(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Text(
+              name,
+              style: TextStyle(
+                color: Color(0xFF0E9D7A),
+                fontSize: getResponsiveFontSize(context, fontSize: 10),
+                decoration: TextDecoration.underline,
+                decorationColor: Color(0xFF0E9D7A),
               ),
-            )),
-          )
-          .toList(),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

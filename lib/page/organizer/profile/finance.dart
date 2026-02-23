@@ -37,6 +37,25 @@ class FinancePage extends StatefulWidget {
 bool isHistory = false;
 bool isHistoryFinance = false;
 
+// Mock Data สำหรับแสดงผลในหน้า Finance (เนื่องจากหน้านี้เป็น Mockup)
+final Map<String, dynamic> _mockSessionModel = {
+  'groupName': 'ก๊วนแบดหรรษา',
+  'date': '2025-04-21T13:00:00',
+  'venueName': 'สนามแบดมินตันทองหล่อ',
+  'location': 'ทองหล่อ ซอย 10',
+  'courtFeePerPerson': 150,
+  'shuttlecockBrandName': 'RSL',
+  'shuttlecockModelName': 'Silver',
+  'shuttlecockFeePerPerson': 25,
+  'gameTypeName': 'แบดมินตันคู่',
+  'courtNumbers': '1, 2',
+  'currentParticipants': 8,
+  'maxParticipants': 10,
+  'paidAmount': 1200,
+  'totalIncome': 1500,
+  'facilities': [],
+};
+
 class _FinancePageState extends State<FinancePage> {
   @override
   Widget build(BuildContext context) {
@@ -358,14 +377,14 @@ class _FinancePageState extends State<FinancePage> {
 
   Widget badmintonSummaryPage(BuildContext context) {
     return Column(
-      children: const [
-        GroupInfoCard(),
+      children: [
+        GroupInfoCard(model: _mockSessionModel),
         SizedBox(height: 16),
-        ImageSlideshow(),
+        ImageSlideshow(model: _mockSessionModel),
         SizedBox(height: 16),
-        DetailsCard(),
+        DetailsCard(model: _mockSessionModel),
         SizedBox(height: 16),
-        ActionButtons(),
+        ActionButtons(model: _mockSessionModel),
         SizedBox(height: 16),
       ],
     );
@@ -379,6 +398,7 @@ class _FinancePageState extends State<FinancePage> {
 
   Widget detailsViewHistoryFinance(BuildContext context, {Function()? onBack}) {
     final bool isMobile = onBack != null;
+    final shuttlecockRate = _mockSessionModel['shuttlecockFeePerPerson'] ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
@@ -395,7 +415,8 @@ class _FinancePageState extends State<FinancePage> {
         CostsSummary(),
         PlayerListCard(
           padding: EdgeInsetsGeometry.symmetric(vertical: 16),
-          onPlayerTap: () {},
+          shuttlecockRate: shuttlecockRate,
+          onPlayerTap: (p) {},
         ),
       ],
     );

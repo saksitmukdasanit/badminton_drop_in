@@ -25,7 +25,7 @@ class Player {
   final int? gamesPlayed;
   final int? shuttlesUsed;
   final Duration? waitingTime;
-  final Duration? totalPlayTime;
+  Duration? totalPlayTime;
   final String? emergencyContactName;
   final String? emergencyContactPhone;
   final List<GameHistory>? gameHistory;
