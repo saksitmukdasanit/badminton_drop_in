@@ -3,6 +3,7 @@ import 'package:badminton/component/social_login_button.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/component/dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -56,24 +57,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       if (response['status'] == 201) {
         if (mounted) {
-          Provider.of<AuthProvider>(
-            context,
-            listen: false,
-          ).login(response['data']);
           context.push(
             '/otp-verification-screen',
-            extra: _phoneController.text,
+            extra: {
+              'phoneNumber': _phoneController.text,
+              'tokens': response['data'], // ส่ง Token ไปรอ Login ที่หน้าถัดไป
+            },
           );
         }
       } else {
         if (mounted) {
           final errorMessage =
               response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.orange, // อาจใช้สีอื่นที่ไม่ใช่แดง
-              content: Text(errorMessage),
-            ),
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: errorMessage,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
           );
         }
       }
@@ -82,11 +83,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _isLoading = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }

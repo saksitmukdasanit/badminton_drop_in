@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart'; // เพิ่ม Dio
+import 'package:uuid/uuid.dart'; // เพิ่ม Uuid
 
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
@@ -12,7 +14,6 @@ import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_places_flutter/google_places_flutter.dart';
 import 'package:intl/intl.dart';
 
 class AddGamePage extends StatefulWidget {
@@ -61,6 +62,9 @@ class AddGamePageState extends State<AddGamePage> {
   Map<String, bool> _facilities = {};
 
   final List<dynamic> _gameImages = [];
+  TextEditingController? _autocompleteController; // 1. เพิ่มตัวแปรเก็บ Controller ของ Autocomplete
+  String? _sessionToken; // ตัวแปรเก็บ Session Token
+  final _uuid = const Uuid(); // ตัวสร้าง UUID
 
   @override
   void initState() {
@@ -119,6 +123,82 @@ class AddGamePageState extends State<AddGamePage> {
           );
         }
       });
+    }
+  }
+
+  // --- ฟังก์ชันค้นหาสถานที่ (Autocomplete) ---
+  Future<List<PlacePrediction>> _searchPlaces(String input) async {
+    if (input.isEmpty) return [];
+
+    // NEW: ถ้ามีสถานที่ที่เลือกไว้แล้ว และข้อความตรงกับชื่อสถานที่นั้น ไม่ต้องค้นหาใหม่ (ปิด Dropdown)
+    if (_selectedPlace != null && input == _selectedPlace!['name']) {
+      return [];
+    }
+
+    // ถ้ายังไม่มี Token (เริ่มการค้นหาใหม่) ให้สร้างใหม่
+    _sessionToken ??= _uuid.v4();
+
+    String baseURL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+    // แนะนำให้ย้าย API Key ไปไว้ใน .env หรือ config file ในอนาคต
+    String apiKey = "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc"; 
+
+    try {
+      var response = await Dio().get(baseURL, queryParameters: {
+        'input': input,
+        'key': apiKey,
+        'sessiontoken': _sessionToken, // ส่ง Token ไปด้วยเพื่อประหยัดค่าใช้จ่าย
+        'components': 'country:th',
+        'language': 'th',
+      });
+
+      if (response.statusCode == 200 && response.data['status'] == 'OK') {
+        var predictions = response.data['predictions'] as List;
+        return predictions.map<PlacePrediction>((p) => PlacePrediction(
+          description: p['description'],
+          placeId: p['place_id'],
+        )).toList();
+      } else {
+        // เพิ่ม Log เพื่อดู Error จาก Google (เช่น Key ผิด, Quota เต็ม, หรือ REQUEST_DENIED)
+        print("Google Maps API Error: ${response.data}");
+      }
+    } catch (e) {
+      print("Place Search Error: $e");
+    }
+    return [];
+  }
+
+  // --- ฟังก์ชันดึงรายละเอียดสถานที่ (Details) ---
+  Future<void> _getPlaceDetails(PlacePrediction placeOption) async {
+    String baseURL = 'https://maps.googleapis.com/maps/api/place/details/json';
+    String apiKey = "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc";
+
+    try {
+      var response = await Dio().get(baseURL, queryParameters: {
+        'place_id': placeOption.placeId,
+        'key': apiKey,
+        'sessiontoken': _sessionToken, // ใช้ Token เดิมเพื่อปิด Job (Google จะคิดเงินแค่ 1 request)
+        'fields': 'name,geometry,formatted_address'
+      });
+
+      if (response.statusCode == 200 && response.data['result'] != null) {
+        var result = response.data['result'];
+        var location = result['geometry']['location'];
+        
+        setState(() {
+          _selectedPlace = {
+            'placeId': placeOption.placeId,
+            'name': result['name'],
+            'address': result['formatted_address'],
+            'lat': location['lat'],
+            'lng': location['lng'],
+          };
+          _courtSearchController.text = result['name']; // อัปเดตชื่อในช่อง
+          _autocompleteController?.text = result['name']; // 2. อัปเดตข้อความใน Autocomplete ให้เป็นชื่อสั้นๆ
+          _sessionToken = null; // รีเซ็ต Token เพื่อเริ่ม Session ใหม่ในครั้งหน้า
+        });
+      }
+    } catch (e) {
+      print("Place Details Error: $e");
     }
   }
 
@@ -325,6 +405,7 @@ class AddGamePageState extends State<AddGamePage> {
 
   // เพิ่ม parameter initialModelId เพื่อตั้งค่าหลังจากโหลดเสร็จ
   Future<void> _callReadShuttlecockmodels(dynamic shuttlecockbrandsId, {String? initialModelId}) async {
+    if (shuttlecockbrandsId == null) return; // ป้องกันการส่งค่า null ไปเรียก API
     try {
       final responses = await ApiProvider().get(
         '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
@@ -463,8 +544,12 @@ class AddGamePageState extends State<AddGamePage> {
   Future<void> _onImagePicked(List<File> imageFile) async {
     // จำกัดให้มีรูปได้ไม่เกิน 5 รูป
     if (_gameImages.length >= 5) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('อัปโหลดรูปภาพได้สูงสุด 5 รูป')),
+      showDialogMsg(
+        context,
+        title: 'แจ้งเตือน',
+        subtitle: 'อัปโหลดรูปภาพได้สูงสุด 5 รูป',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
       );
       return;
     }
@@ -517,9 +602,13 @@ class AddGamePageState extends State<AddGamePage> {
   Future<void> _submitForm() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_selectedPlace == null) {
-      ScaffoldMessenger.of(
+      showDialogMsg(
         context,
-      ).showSnackBar(const SnackBar(content: Text('กรุณาเลือกสนามจากรายการค้นหา')));
+        title: 'แจ้งเตือน',
+        subtitle: 'กรุณาเลือกสนามจากรายการค้นหา',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
       return;
     }
 
@@ -709,40 +798,32 @@ class AddGamePageState extends State<AddGamePage> {
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
-          child: GooglePlaceAutoCompleteTextField(
-            focusNode: _courtSearchFocusNode,
-            textEditingController: _courtSearchController,
-            googleAPIKey: "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc",
-            inputDecoration: InputDecoration(
-              labelText: "ค้นหาสนาม",
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12.0),
-              ),
-            ),
-            debounceTime: 400,
-            countries: ["th"], // จำกัดการค้นหาในประเทศไทย
-            isLatLngRequired: true,
-            getPlaceDetailWithLatLng: (prediction) {
-              // Callback เมื่อผู้ใช้เลือกสถานที่
-              setState(() {
-                _selectedPlace = {
-                  'placeId': prediction.placeId, // <<< NEW: เก็บ Place ID
-                  'name': prediction.description,
-                  'address':
-                      prediction.description, // ใช้ description สำหรับที่อยู่ด้วย
-                  'lat': prediction.lat,
-                  'lng': prediction.lng,
-                };
-              });
-              print("Selected Place: ${prediction.description}");
+          child: Autocomplete<PlacePrediction>(
+            initialValue: TextEditingValue(text: _courtSearchController.text),
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              return _searchPlaces(textEditingValue.text);
             },
-            itemClick: (prediction) {
-              _courtSearchController.text = prediction.description ?? '';
-              _courtSearchController.selection = TextSelection.fromPosition(
-                TextPosition(offset: prediction.description?.length ?? 0),
+            displayStringForOption: (option) => option.description,
+            onSelected: (option) {
+              _getPlaceDetails(option);
+            },
+            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+              _autocompleteController = controller; // 3. เก็บ Controller ไว้ใช้งาน
+              return CustomTextFormField(
+                controller: controller,
+                focusNode: focusNode,
+                labelText: "ค้นหาสนาม",
+                onChanged: (value) {
+                  _courtSearchController.text = value; // Sync ค่ากลับ
+                  // NEW: ถ้าผู้ใช้พิมพ์แก้ไขเอง ให้เคลียร์ค่าที่เลือกไว้ เพื่อให้ค้นหาใหม่ได้
+                  if (_selectedPlace != null && value != _selectedPlace!['name']) {
+                    setState(() {
+                      _selectedPlace = null;
+                    });
+                  }
+                },
               );
             },
-            seperatedBuilder: const Divider(), // เพิ่มบรรทัดนี้เพื่อป้องกัน Error ในบางเวอร์ชัน
           ),
         ),
         const SizedBox(height: 16),
@@ -907,6 +988,13 @@ class AddGamePageState extends State<AddGamePage> {
           onChanged: (v) {
             _callReadShuttlecockmodels(v);
             setState(() => _selectedShuttleBrand = v.toString());
+            // เมื่อเปลี่ยนยี่ห้อ ให้เคลียร์รุ่นเดิมและโหลดใหม่
+            setState(() {
+              _selectedShuttleBrand = v?.toString();
+              _selectedShuttleModel = null; // เคลียร์รุ่นที่เลือกค้างไว้
+              _shuttleModels = []; // เคลียร์รายการรุ่นเก่าออกก่อน
+            });
+            if (v != null) _callReadShuttlecockmodels(v);
           },
         ),
         // const SizedBox(width: 16),
@@ -1125,4 +1213,14 @@ class AddGamePageState extends State<AddGamePage> {
       ),
     );
   }
+}
+
+class PlacePrediction {
+  final String description;
+  final String placeId;
+
+  PlacePrediction({required this.description, required this.placeId});
+
+  @override
+  String toString() => description;
 }

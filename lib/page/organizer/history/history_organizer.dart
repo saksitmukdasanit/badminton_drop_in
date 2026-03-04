@@ -97,6 +97,11 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
       if (mounted && response['status'] == 200) {
         setState(() {
           _sessionDetail = response['data'];
+          // --- FIX: เติมข้อมูลการเงินจาก _selectedItem (ที่ได้จากหน้า List) ลงไปใน _sessionDetail ---
+          if (_selectedItem != null) {
+             _sessionDetail!['paidAmount'] = _selectedItem['paidAmount'];
+             _sessionDetail!['totalIncome'] = _selectedItem['totalIncome'];
+          }
         });
       }
     } catch (e) {
@@ -237,19 +242,19 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                         ),
                         textHistory(
                           2,
-                          '${item['totalIncome'] ?? 0}',
+                          '${(num.tryParse('${item['totalIncome'] ?? 0}') ?? 0).toStringAsFixed(0)}',
                           10,
                           FontWeight.w300,
                         ),
                         textHistory(
                           2,
-                          '${item['paidAmount'] ?? 0}',
+                          '${(num.tryParse('${item['paidAmount'] ?? 0}') ?? 0).toStringAsFixed(0)}',
                           10,
                           FontWeight.w300,
                         ),
                         textHistory(
                           2,
-                          '${item['unpaidAmount'] ?? 0}',
+                          '${(num.tryParse('${item['unpaidAmount'] ?? 0}') ?? 0).toStringAsFixed(0)}',
                           10,
                           FontWeight.w300,
                         ),
@@ -534,6 +539,11 @@ class DetailsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final int totalParticipants = (model['participants'] as List?)?.length ?? 0;
+    final int maxParticipants = model['maxParticipants'] ?? 0;
+    final int reserveCount =
+        totalParticipants > maxParticipants ? totalParticipants - maxParticipants : 0;
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -558,13 +568,13 @@ class DetailsCard extends StatelessWidget {
             SizedBox(height: 16),
             _buildText(
               context,
-              'ค่าสนาม ${model['courtFeePerPerson']} บาท/ชั่วโมง',
+              'ค่าสนาม ${(num.tryParse('${model['courtFeePerPerson']}') ?? 0).toStringAsFixed(0)} บาท/ชั่วโมง',
             ),
             _buildText(
               context,
-              '${model['shuttlecockBrandName']} ${model['shuttlecockModelName']} ${model['shuttlecockFeePerPerson']}/ลูก ',
+              '${model['shuttlecockBrandName'] ?? '-'} ${model['shuttlecockModelName'] ?? ''} ${model['shuttlecockFeePerPerson'] != null ? '${(num.tryParse('${model['shuttlecockFeePerPerson']}') ?? 0).toStringAsFixed(0)} บาท/ลูก' : ''}',
             ),
-            _buildText(context, '${model['gameTypeName']}'),
+            _buildText(context, '${model['gameTypeName'] ?? '-'}'), // ใส่ ?? '-' ป้องกัน null
             _buildText(context, 'สนามที่ ${model['courtNumbers']}'),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -575,7 +585,7 @@ class DetailsCard extends StatelessWidget {
                       context,
                       'ผู้เล่น ${model['currentParticipants'] ?? 0}/${model['maxParticipants'] ?? 0} คน',
                     ),
-                    _buildText(context, 'สำรอง 00/10 คน'),
+                    _buildText(context, 'สำรอง $reserveCount/10 คน'),
                   ],
                 ),
                 GestureDetector(
@@ -603,7 +613,7 @@ class DetailsCard extends StatelessWidget {
               children: [
                 const Text('รายได้', style: TextStyle(fontSize: 18)),
                 Text(
-                  '${model['paidAmount'] ?? 0}/${model['totalIncome'] ?? 0} บาท',
+                  '${(num.tryParse('${model['paidAmount'] ?? 0}') ?? 0).toStringAsFixed(0)}/${(num.tryParse('${model['totalIncome'] ?? 0}') ?? 0).toStringAsFixed(0)} บาท',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -774,7 +784,7 @@ class SummaryCard extends StatelessWidget {
                 _buildSummaryRow(
                   context,
                   'เกมที่ใช้เวลานานสุด',
-                  data?['longestGame']?['matchName'] ?? '-',
+                  data?['longestGame']?['players'] ?? '-',
                   trailingTitle: 'ใช้เวลา',
                   trailingValue: '${data?['longestGame']?['duration'] ?? 0}',
                   trailingUnit: 'นาที',
@@ -782,7 +792,7 @@ class SummaryCard extends StatelessWidget {
                 _buildSummaryRow(
                   context,
                   'เกมที่ใช้เวลาน้อยสุด',
-                  data?['shortestGame']?['matchName'] ?? '-',
+                  data?['shortestGame']?['players'] ?? '-',
                   trailingTitle: 'ใช้เวลา',
                   trailingValue: '${data?['shortestGame']?['duration'] ?? 0}',
                   trailingUnit: 'นาที',
@@ -819,34 +829,48 @@ class SummaryCard extends StatelessWidget {
       color: Colors.black87,
     );
 
+    // FIX: ปรับโครงสร้าง Row เพื่อป้องกัน Overflow และจัด Layout ให้สวยงาม
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // ส่วน Title ด้านซ้าย
+          // 1. Title
           Text(title, style: titleStyle),
-          // ส่วน Value ตรงกลาง
-          Row(
-            children: [
-              Text(value, style: valueStyle),
-              if (unit != null) const SizedBox(width: 4),
-              if (unit != null) Text(unit, style: unitStyle),
-            ],
-          ),
-          // ส่วน Trailing (ถ้ามี)
-          if (trailingTitle != null)
-            Text(trailingTitle, style: titleStyle, textAlign: TextAlign.right),
-          if (trailingValue != null)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+          const SizedBox(width: 8),
+
+          // 2. Value (Expanded เพื่อให้ยืดหดได้และไม่ดันจนหลุดขอบ)
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end, // จัดชิดขวาให้สวยงาม
               children: [
-                Text(trailingValue, style: valueStyle),
-                if (trailingUnit != null) const SizedBox(width: 4),
-                if (trailingUnit != null) Text(trailingUnit, style: unitStyle),
+                Flexible(
+                  child: Text(
+                    value,
+                    style: valueStyle,
+                    textAlign: TextAlign.right, // จัดชิดขวา และยอมให้ขึ้นบรรทัดใหม่
+                  ),
+                ),
+                if (unit != null) ...[
+                  const SizedBox(width: 4),
+                  Text(unit, style: unitStyle),
+                ],
               ],
             ),
+          ),
+
+          // 3. Trailing (ข้อมูลเพิ่มเติมด้านหลัง)
+          if (trailingTitle != null || trailingValue != null) ...[
+            const SizedBox(width: 12),
+            if (trailingTitle != null) ...[
+              Text(trailingTitle, style: titleStyle),
+              const SizedBox(width: 4),
+            ],
+            if (trailingValue != null) ...[
+              Text(trailingValue, style: valueStyle),
+              if (trailingUnit != null) const SizedBox(width: 4),
+              if (trailingUnit != null) Text(trailingUnit, style: unitStyle),
+            ],
+          ],
         ],
       ),
     );

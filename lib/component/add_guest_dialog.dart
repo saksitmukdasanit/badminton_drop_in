@@ -4,6 +4,7 @@ import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AddGuestDialog extends StatefulWidget {
   final int sessionId;
@@ -24,6 +25,7 @@ class AddGuestDialog extends StatefulWidget {
 class AddGuestDialogState extends State<AddGuestDialog> {
   final _formKey = GlobalKey<FormState>();
   final _guestNameController = TextEditingController();
+  final _phoneNumberController = TextEditingController(); // เพิ่ม Controller เบอร์โทร
   String? _selectedGender;
   String? _selectedSkillLevelId;
 
@@ -46,6 +48,7 @@ class AddGuestDialogState extends State<AddGuestDialog> {
   @override
   void dispose() {
     _guestNameController.dispose();
+    _phoneNumberController.dispose();
     super.dispose();
   }
 
@@ -68,11 +71,35 @@ class AddGuestDialogState extends State<AddGuestDialog> {
       if (mounted) {
         setState(() => _isLoading = false);
         Navigator.of(context).pop(); // ปิด Dialog ถ้าโหลดข้อมูลไม่สำเร็จ
-        ScaffoldMessenger.of(
+        showDialogMsg(
           context,
-        ).showSnackBar(SnackBar(content: Text('ไม่สามารถโหลดระดับมือได้: $e')));
+          title: 'ไม่สามารถโหลดระดับมือได้',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
       }
     }
+  }
+
+  // ฟังก์ชันค้นหาชื่อแขกเก่า
+  Future<List<Map<String, dynamic>>> _searchGuests(String query) async {
+    final trimmedQuery = query.trim(); // ตัดช่องว่างหน้าหลังออกก่อน
+    if (trimmedQuery.isEmpty) return [];
+    try {
+      // ใช้ Uri เพื่อสร้าง URL ที่ถูกต้องและปลอดภัยกว่า
+      final uri = Uri(
+        path: '/organizer/previous-guests',
+        queryParameters: {'query': trimmedQuery}, // ส่งค่าที่ตัดช่องว่างแล้ว
+      );
+      final response = await ApiProvider().get(uri.toString());
+      if (response['data'] is List) {
+        return List<Map<String, dynamic>>.from(response['data']);
+      }
+    } catch (e) {
+      print(e);
+    }
+    return [];
   }
 
   Future<void> _addGuest() async {
@@ -83,11 +110,12 @@ class AddGuestDialogState extends State<AddGuestDialog> {
     if (!isFormValid ||
         _selectedGender == null ||
         _selectedSkillLevelId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('กรุณากรอกข้อมูลให้ครบถ้วน'),
-          backgroundColor: Colors.orange,
-        ),
+      showDialogMsg(
+        context,
+        title: 'แจ้งเตือน',
+        subtitle: 'กรุณากรอกข้อมูลให้ครบถ้วน',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
       );
       return;
     }
@@ -97,6 +125,7 @@ class AddGuestDialogState extends State<AddGuestDialog> {
     try {
       final data = {
         'guestName': _guestNameController.text,
+        'phoneNumber': _phoneNumberController.text, // ส่งเบอร์โทรไปด้วย
         'gender': int.tryParse(_selectedGender ?? '0'),
         'skillLevelId': int.tryParse(_selectedSkillLevelId ?? '0'),
       };
@@ -120,11 +149,12 @@ class AddGuestDialogState extends State<AddGuestDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('เกิดข้อผิดพลาด: $e'),
-            backgroundColor: Colors.red,
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     } finally {
@@ -171,10 +201,66 @@ class AddGuestDialogState extends State<AddGuestDialog> {
                         children: [
                           Expanded(
                             flex: 3, // ให้ช่องชื่อกว้างกว่า
-                            child: CustomTextFormField(
-                              controller: _guestNameController,
-                              labelText: 'ชื่อ',
-                              isRequired: true,
+                            // --- เปลี่ยน TextField เป็น Autocomplete ---
+                            child: Autocomplete<Map<String, dynamic>>(
+                              optionsBuilder: (TextEditingValue textEditingValue) {
+                                return _searchGuests(textEditingValue.text);
+                              },
+                              displayStringForOption: (option) => option['guestName'],
+                              onSelected: (option) {
+                                // เมื่อเลือกชื่อเก่า ให้เติมข้อมูลอัตโนมัติ
+                                _guestNameController.text = option['guestName'];
+                                if (option['phoneNumber'] != null) {
+                                  _phoneNumberController.text = option['phoneNumber'];
+                                }
+                                if (option['gender'] != null) {
+                                  setState(() {
+                                    _selectedGender = option['gender'].toString();
+                                  });
+                                }
+                                if (option['skillLevelId'] != null) {
+                                  setState(() {
+                                    _selectedSkillLevelId = option['skillLevelId'].toString();
+                                  });
+                                }
+                              },
+                              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                                // Sync controller ของ Autocomplete กับ _guestNameController ของเรา
+                                if (_guestNameController.text.isNotEmpty && controller.text.isEmpty) {
+                                   controller.text = _guestNameController.text;
+                                }
+                                return CustomTextFormField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  labelText: 'ชื่อ',
+                                  isRequired: true,
+                                  onChanged: (val) => _guestNameController.text = val,
+                                );
+                              },
+                              optionsViewBuilder: (context, onSelected, options) {
+                                return Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Material(
+                                    elevation: 4.0,
+                                    child: SizedBox(
+                                      width: 250,
+                                      child: ListView.builder(
+                                        padding: EdgeInsets.zero,
+                                        shrinkWrap: true,
+                                        itemCount: options.length,
+                                        itemBuilder: (BuildContext context, int index) {
+                                          final option = options.elementAt(index);
+                                          return ListTile(
+                                            title: Text(option['guestName']),
+                                            subtitle: option['phoneNumber'] != null ? Text(option['phoneNumber']) : null,
+                                            onTap: () => onSelected(option),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -196,6 +282,16 @@ class AddGuestDialogState extends State<AddGuestDialog> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 16),
+                      // --- เพิ่มช่องกรอกเบอร์โทรศัพท์ ---
+                      CustomTextFormField(
+                        controller: _phoneNumberController,
+                        labelText: 'เบอร์โทรศัพท์',
+                        isRequired: true,
+                        isPhone: true,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       ),
                       const SizedBox(height: 16),
                       CustomDropdown(

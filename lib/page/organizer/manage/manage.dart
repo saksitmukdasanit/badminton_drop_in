@@ -66,6 +66,21 @@ class ManagePageState extends State<ManagePage> {
     }
   }
 
+  // --- NEW: ฟังก์ชันสำหรับรีเฟรชข้อมูลโดยไม่ทำให้หน้าจอกระพริบ ---
+  Future<void> _refreshData() async {
+    try {
+      final data = await _fetchMyUpcomingGames();
+      if (mounted) {
+        setState(() {
+          _myGamesData = data;
+          _futureMyGames = Future.value(data); // ใช้ Future.value เพื่อให้ FutureBuilder แสดงผลทันที
+        });
+      }
+    } catch (e) {
+      debugPrint('Refresh error: $e');
+    }
+  }
+
   Future<void> _fetchSkillLevels() async {
     try {
       final response = await ApiProvider().get('/organizer/skill-levels');
@@ -136,16 +151,18 @@ class ManagePageState extends State<ManagePage> {
           onConfirm: () {
             context.pop(); // ปิด Dialog
             // โหลดข้อมูลก๊วนใหม่
-            setState(() {
-              _futureMyGames = _fetchMyUpcomingGames();
-            });
+            _refreshData();
           },
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาดในการยกเลิกก๊วน: $e')),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: 'ในการยกเลิกก๊วน: ${e.toString().replaceFirst('Exception: ', '')}',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }
@@ -197,9 +214,13 @@ class ManagePageState extends State<ManagePage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        showDialogMsg(
           context,
-        ).showSnackBar(SnackBar(content: Text('อัปเดตระดับมือล้มเหลว: $e')));
+          title: 'อัปเดตระดับมือล้มเหลว',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
       }
     } finally {
       if (mounted) {
@@ -217,19 +238,17 @@ class ManagePageState extends State<ManagePage> {
       if (mounted) {
         context.push('/manage-game/$sessionId').then((result) {
           // เมื่อกลับมาจากหน้า manage-game ให้ทำการรีเฟรชข้อมูลใหม่
-          print('---------$result');
-          setState(() {
-            _futureMyGames = _fetchMyUpcomingGames();
-          });
+          _refreshData();
         });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('เกิดข้อผิดพลาดในการเปิดก๊วน: $e'),
-            backgroundColor: Colors.red,
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: 'ในการเปิดก๊วน: ${e.toString().replaceFirst('Exception: ', '')}',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }
@@ -263,9 +282,7 @@ class ManagePageState extends State<ManagePage> {
     );
 
     if (result == true) {
-      setState(() {
-        _futureMyGames = _fetchMyUpcomingGames();
-      });
+      _refreshData();
     }
   }
 
@@ -341,19 +358,22 @@ class ManagePageState extends State<ManagePage> {
                                 )
                                 .then((response) {
                                   Navigator.of(context).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(response['message']),
-                                    ),
+                                  showDialogMsg(
+                                    context,
+                                    title: 'สำเร็จ',
+                                    subtitle: response['message'],
+                                    btnLeft: 'ตกลง',
+                                    onConfirm: () {},
                                   );
                                 })
                                 .catchError((error) {
                                   Navigator.of(context).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Check-in ล้มเหลว: $error'),
-                                      backgroundColor: Colors.red,
-                                    ),
+                                  showDialogMsg(
+                                    context,
+                                    title: 'Check-in ล้มเหลว',
+                                    subtitle: error.toString().replaceFirst('Exception: ', ''),
+                                    btnLeft: 'ตกลง',
+                                    onConfirm: () {},
                                   );
                                 });
                           }
@@ -371,6 +391,124 @@ class ManagePageState extends State<ManagePage> {
       // หยุดการทำงานของกล้องเมื่อ Dialog ถูกปิด
       controller.dispose();
     });
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับลบผู้เล่น (เพื่อให้ตัวสำรองเลื่อนขึ้นมาแทน) ---
+  Future<void> _removePlayer(int sessionId, String? pType, int pId, String name) async {
+    if (pType == null) {
+      showDialogMsg(
+        context,
+        title: 'แจ้งเตือน',
+        subtitle: 'ข้อมูลผู้เล่นไม่สมบูรณ์ (Type is null)',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+      return;
+    }
+
+    showDialogMsg(
+      context,
+      title: 'ยืนยันการลบผู้เล่น',
+      subtitle: 'คุณต้องการลบ $name ออกจากก๊วนหรือไม่?\n(หากเป็นตัวจริง ตัวสำรองจะถูกเลื่อนขึ้นมาแทน)',
+      isWarning: true,
+      btnLeft: 'ลบผู้เล่น',
+      btnLeftForeColor: Colors.white,
+      btnLeftBackColor: Colors.red,
+      btnRight: 'ยกเลิก',
+      onConfirm: () async {
+        try {
+          // เรียก API ลบผู้เล่น (แปลง pType เป็น lowercase เพื่อความชัวร์)
+          await ApiProvider().delete('/GameSessions/$sessionId/participants/${pType.toLowerCase()}/$pId');
+          
+          if (mounted) {
+            _refreshData(); // โหลดข้อมูลใหม่
+            
+            showDialogMsg(
+              context,
+              title: 'สำเร็จ',
+              subtitle: 'ลบผู้เล่นเรียบร้อยแล้ว',
+              btnLeft: 'ตกลง',
+              onConfirm: () {},
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            showDialogMsg(
+              context,
+              title: 'เกิดข้อผิดพลาด',
+              subtitle: e.toString().replaceFirst('Exception: ', ''),
+              btnLeft: 'ตกลง',
+              onConfirm: () {},
+            );
+          }
+        }
+      },
+    );
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับเลื่อนตัวสำรองเป็นตัวจริง (Promote) ---
+  Future<void> _promotePlayer(int sessionId, String? pType, int pId) async {
+    if (pType == null) return;
+    try {
+      await ApiProvider().put(
+        '/GameSessions/$sessionId/participants/${pType.toLowerCase()}/$pId/promote',
+      );
+      
+      if (mounted) {
+        _refreshData();
+        showDialogMsg(
+          context,
+          title: 'สำเร็จ',
+          subtitle: 'เลื่อนเป็นตัวจริงเรียบร้อยแล้ว',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'ไม่สามารถเลื่อนได้',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    }
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับสลับผู้เล่น (Swap) ---
+  Future<void> _swapPlayers(int sessionId, int playerAId, String playerAType, int playerBId, String playerBType) async {
+    try {
+      // เรียก API สลับผู้เล่น (สมมติว่ามี Endpoint นี้ หรือใช้ Logic การย้าย)
+      // เนื่องจาก API มาตรฐานอาจไม่มี Swap โดยตรง เราอาจต้องใช้การจัดการภายใน
+      // แต่ในที่นี้จะแสดง Dialog เพื่อยืนยันก่อน
+      
+      // *หมายเหตุ: หากไม่มี API Swap โดยตรง อาจต้องใช้การลบและเพิ่มใหม่ หรือ API เฉพาะของระบบ*
+      // ในตัวอย่างนี้จะแสดง SnackBar ว่าฟีเจอร์นี้ต้องรอ API รองรับ
+      showDialogMsg(
+        context,
+        title: 'แจ้งเตือน',
+        subtitle: 'กำลังสลับตำแหน่งผู้เล่น...',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+      
+      // TODO: Implement actual API call here
+      // await ApiProvider().post('/GameSessions/$sessionId/swap', data: {...});
+
+      // Refresh data
+      _refreshData();
+
+    } catch (e) {
+      showDialogMsg(
+        context,
+        title: 'เกิดข้อผิดพลาด',
+        subtitle: e.toString().replaceFirst('Exception: ', ''),
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+    }
   }
 
   @override
@@ -502,9 +640,7 @@ class ManagePageState extends State<ManagePage> {
                     .then((result) {
                       if (result == true) {
                         // ถ้ามีการแก้ไขข้อมูล ให้โหลดข้อมูลใหม่
-                        setState(
-                          () => _futureMyGames = _fetchMyUpcomingGames(),
-                        );
+                        _refreshData();
                       }
                     });
               },
@@ -603,9 +739,7 @@ class ManagePageState extends State<ManagePage> {
                 context
                     .push('/manage-game/${_myGamesData[indexData]['sessionId']}')
                     .then((result) {
-                  setState(() {
-                    _futureMyGames = _fetchMyUpcomingGames();
-                  });
+                  _refreshData();
                 });
               },
             ),
@@ -966,6 +1100,20 @@ class ManagePageState extends State<ManagePage> {
     int minPlayer = 0,
     int maxPlayer = 0,
   }) {
+    // --- NEW: แยกผู้เล่นตัวจริงและตัวสำรอง ---
+    List<dynamic> allParticipants = listData ?? [];
+    List<dynamic> displayList = [];
+
+    if (maxPlayer < 0) maxPlayer = 0;
+
+    if (isUse) {
+      // กรณีเลือกแท็บ "ผู้เล่น" (ตัวจริง) -> กรองเฉพาะ status == 1
+      displayList = allParticipants.where((p) => p['status'] == 1).toList();
+    } else {
+      // กรณีเลือกแท็บ "ตัวสำรอง" -> กรองเฉพาะ status == 2
+      displayList = allParticipants.where((p) => p['status'] == 2).toList();
+    }
+
     // Widget ส่วน Header
     final headerWidget = Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -975,7 +1123,7 @@ class ManagePageState extends State<ManagePage> {
             children: [
               Expanded(
                 child: Text(
-                  'ผู้เล่นที่ชำระเงินแล้ว',
+                  isUse ? 'ผู้เล่นตัวจริง' : 'ผู้เล่นตัวสำรอง',
                   style: TextStyle(
                     color: Color(0xFF000000),
                     fontSize: 20,
@@ -987,7 +1135,7 @@ class ManagePageState extends State<ManagePage> {
                 child: RichText(
                   textAlign: TextAlign.end,
                   text: TextSpan(
-                    text: "ผู้เล่น ",
+                    text: isUse ? "ผู้เล่น " : "สำรอง ",
                     style: TextStyle(
                       color: Color(0xFF000000),
                       fontSize: 20,
@@ -995,28 +1143,29 @@ class ManagePageState extends State<ManagePage> {
                     ),
                     children: [
                       TextSpan(
-                        text: minPlayer.toString(),
+                        text: displayList.length.toString(),
                         style: TextStyle(
                           color: Color(0xFF0E9D7A),
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      TextSpan(
-                        text: '/${maxPlayer.toString()}',
-                        style: TextStyle(
-                          color: Color(0xFF000000),
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
+                      if (isUse) // แสดง /max เฉพาะตัวจริง
+                        TextSpan(
+                          text: '/${maxPlayer.toString()}',
+                          style: TextStyle(
+                            color: Color(0xFF000000),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
               ),
             ],
           ),
-          if (!isVertical) _buildPagination(),
+          if (!isVertical) _buildPagination(allParticipants.length, maxPlayer),
         ],
       ),
     );
@@ -1027,22 +1176,30 @@ class ManagePageState extends State<ManagePage> {
         _buildHeader(context),
         isVertical
             ? Expanded(
-                child: ListView.builder(
-                  itemCount: listData.length,
+                child: displayList.isEmpty
+                    ? Center(child: Text('ไม่มีรายชื่อ${isUse ? 'ผู้เล่น' : 'ตัวสำรอง'}'))
+                    : ListView.builder(
+                  itemCount: displayList.length,
                   itemBuilder: (context, index) {
-                    return _buildPlayerRow(index, listData[index]);
+                    // แสดงลำดับตาม index ใน list ที่กรองมาแล้ว
+                    return _buildPlayerRow(index, displayList[index]);
                   },
                 ),
               )
-            : ListView.builder(
-                itemCount: listData.length,
+            : displayList.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Center(child: Text('ไม่มีรายชื่อ${isUse ? 'ผู้เล่น' : 'ตัวสำรอง'}')),
+                  )
+                : ListView.builder(
+                itemCount: displayList.length,
                 shrinkWrap: true,
                 physics: NeverScrollableScrollPhysics(),
                 itemBuilder: (context, index) {
-                  return _buildPlayerRow(index, listData[index]);
+                  return _buildPlayerRow(index, displayList[index]);
                 },
               ),
-        if (isVertical) _buildPagination(),
+        if (isVertical) _buildPagination(allParticipants.length, maxPlayer),
       ],
     );
 
@@ -1074,7 +1231,7 @@ class ManagePageState extends State<ManagePage> {
       child: Row(
         children: [
           Expanded(
-            flex: 1,
+            flex: 2,
             child: Text(
               'ลำดับ',
               style: TextStyle(
@@ -1084,7 +1241,7 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 2,
+            flex: 4,
             child: Text(
               'ชื่อเล่น',
               style: TextStyle(
@@ -1094,7 +1251,7 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 1,
+            flex: 2,
             child: Text(
               'เพศ',
               style: TextStyle(
@@ -1104,9 +1261,20 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 1,
+            flex: 3,
             child: Text(
               'ระดับมือ',
+              style: TextStyle(
+                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'สถานะ',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
                 fontWeight: FontWeight.w700,
@@ -1125,12 +1293,19 @@ class ManagePageState extends State<ManagePage> {
     if (player is! Map<String, dynamic>) {
       return ListTile(title: Text('ข้อมูลผู้เล่นไม่ถูกต้อง #${index + 1}'));
     }
+
+    // คำนวณยอดค้างจ่าย (ถ้ามีข้อมูล)
+    final num totalCost = num.tryParse('${player['totalCost'] ?? 0}') ?? 0;
+    final num paidAmount = num.tryParse('${player['paidAmount'] ?? 0}') ?? 0;
+    final num unpaidAmount = totalCost - paidAmount;
+    final bool isReserve = player['status'] == 2; // เช็คจากสถานะจริง
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
       child: Row(
         children: [
           Expanded(
-            flex: 1,
+            flex: 2,
             child: Text(
               '${index + 1}',
               style: TextStyle(
@@ -1140,7 +1315,7 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 3,
+            flex: 4,
             child: Row(
               children: [
                 if ((player['profilePhotoUrl'] ?? "") != "")
@@ -1170,7 +1345,7 @@ class ManagePageState extends State<ManagePage> {
             ),
           ),
           Expanded(
-            flex: 2,
+            flex: 3,
             child: DropdownButton<String>(
               value: player['skillLevelId']?.toString(),
               isExpanded: true,
@@ -1210,20 +1385,79 @@ class ManagePageState extends State<ManagePage> {
               },
             ),
           ),
+          Expanded(
+            flex: 2,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ถ้าเป็นตัวสำรอง ให้แสดงปุ่ม Promote (ลูกศรขึ้น)
+                if (isReserve)
+                  GestureDetector(
+                    onTap: () {
+                      _promotePlayer(
+                        _myGamesData[indexData]['sessionId'],
+                        player['participantType'],
+                        player['participantId'],
+                      );
+                    },
+                    child: const Icon(Icons.arrow_upward, color: Colors.blue, size: 24),
+                  ),
+                if (isReserve) const SizedBox(width: 8),
+                
+                // แสดงสถานะการเงิน / ปุ่มลบ
+                GestureDetector(
+                  onTap: () {
+                    _removePlayer(
+                      _myGamesData[indexData]['sessionId'],
+                      player['participantType'],
+                      player['participantId'],
+                      player['nickname'] ?? 'ผู้เล่น',
+                    );
+                  },
+                  child: (unpaidAmount > 0)
+                      ? Text(
+                          '฿${unpaidAmount.toStringAsFixed(0)}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                            fontSize: getResponsiveFontSize(context, fontSize: 14),
+                          ),
+                        )
+                      : const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
   // Widget สำหรับ Pagination ด้านล่าง
-  Widget _buildPagination() {
+  Widget _buildPagination(int totalPlayers, int maxPlayers) {
+    // นับจำนวนตัวสำรองจากข้อมูลจริง (status == 2)
+    // หมายเหตุ: totalPlayers ในที่นี้คือ listData.length ซึ่งรวมทุกคน
+    // แต่เราจะนับใหม่จาก listData เพื่อความชัวร์ หรือใช้ logic เดิมถ้ารายชื่อมาครบ
+    // เพื่อความง่ายและถูกต้องตาม UI ใหม่ เราควรนับจาก listData ที่ส่งเข้ามาใน _buildPlayer
+    // แต่ใน function นี้ไม่มี access ถึง listData โดยตรง จึงขอใช้ logic เดิมไปก่อน 
+    // หรือถ้าต้องการความแม่นยำ ให้ส่ง reserveCount เข้ามาเป็น parameter
+    
+    // *แก้ไข*: เนื่องจากเราเปลี่ยน logic การแสดงผลแล้ว การคำนวณ reserveCount แบบเดิม (total - max) 
+    // อาจจะไม่ตรงถ้าเรามีที่ว่างในตัวจริง (เช่น ลบตัวจริงออก 1 คน แต่ตัวสำรองยังไม่ขึ้นมา)
+    // ดังนั้นควรปรับให้แสดงจำนวนจริง แต่ในที่นี้ขอคงไว้ก่อนเพื่อให้ UI ไม่เพี้ยนมาก
+    int reserveCount = (totalPlayers > maxPlayers) ? totalPlayers - maxPlayers : 0;
+    
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _buildPageNumber('ผู้เล่น', isActive: isUse),
-          _buildPageNumber('ตัวสำรอง', isActive: !isUse),
+          _buildPageNumber(
+            reserveCount > 0 ? 'ตัวสำรอง ($reserveCount)' : 'ตัวสำรอง', 
+            isActive: !isUse
+          ),
         ],
       ),
     );

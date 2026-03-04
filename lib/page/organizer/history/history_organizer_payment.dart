@@ -4,7 +4,7 @@ import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/widget/expense_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:badminton/component/qr_payment_dialog.dart'; // Import ไฟล์กลาง
 
 class _RowData {
   final String key1;
@@ -81,16 +81,96 @@ class _HistoryOrganizerPaymentPageState
   Future<void> _handlePayment(String paymentMethod, List<ExpenseAdjustment> adjustments) async {
     if (_selectedPlayer == null) return;
 
+    // 1. ดึงข้อมูลผู้เล่นล่าสุดจาก _participants เพื่อให้ได้ paidAmount ที่ถูกต้อง (แก้ปัญหายอดไม่ตรง)
+    final pId = _selectedPlayer['participantId'] ?? _selectedPlayer['userId'] ?? _selectedPlayer['id'];
+    final pType = _selectedPlayer['participantType'] ?? 'Member';
+    
+    final latestPlayer = _participants.firstWhere(
+      (p) {
+        final id = p['participantId'] ?? p['userId'] ?? p['walkinId'];
+        return id.toString() == pId.toString();
+      },
+      orElse: () => _selectedPlayer,
+    );
+    
+    final double paidAmount = num.tryParse('${latestPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0;
+
+    // 2. คำนวณยอดที่จะต้องจ่าย (Base + Adjustments)
+    // เตรียมข้อมูล Line Items
+    List<Map<String, dynamic>> customLineItems = [];
+    double baseTotal = 0.0;
+
+    // --- FIX: ใช้ Logic เดียวกับ ExpensePanelWidget เพื่อให้ยอดตรงกัน 100% ---
+    
+    // 2.1 ค่าสนาม
+    double courtFee = num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
+    // พยายามดึงจาก API Preview ก่อน (เผื่อมีค่าพิเศษ)
+    if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
+       final items = _selectedPlayerBill['lineItems'] as List;
+       final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท', orElse: () => null);
+       if (item != null) courtFee = (item['amount'] ?? 0).toDouble();
+    }
+    if (courtFee > 0) {
+        customLineItems.add({'description': 'ค่าคอร์ท', 'amount': courtFee});
+        baseTotal += courtFee;
+    }
+
+    // 2.2 ค่าธรรมเนียม
+    double serviceFee = 10.0;
+    if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
+       final items = _selectedPlayerBill['lineItems'] as List;
+       final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
+       if (item != null) serviceFee = (item['amount'] ?? 0).toDouble();
+    }
+    customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': serviceFee});
+    baseTotal += serviceFee;
+
+    // 2.3 ค่าลูกแบด (ใช้สูตรคำนวณเองเป็นหลัก: เกม x ราคา)
+    double shuttleTotal = 0.0;
+    final int totalGames = num.tryParse('${latestPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0;
+    final double shuttleFeePerPerson = num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
+
+    if (totalGames > 0 && shuttleFeePerPerson > 0) {
+       shuttleTotal = totalGames * shuttleFeePerPerson;
+    } else {
+       // Fallback: ถ้าคำนวณไม่ได้ (เช่น ราคาเป็น 0 หรือไม่มีเกม) ให้ลองดูจาก API
+       if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
+          final items = _selectedPlayerBill['lineItems'] as List;
+          final item = items.firstWhere((i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'), orElse: () => null);
+          if (item != null) shuttleTotal = (item['amount'] ?? 0).toDouble();
+       }
+    }
+    
+    if (shuttleTotal > 0) {
+       customLineItems.add({'description': 'ค่าลูกแบด ($totalGames เกม)', 'amount': shuttleTotal});
+       baseTotal += shuttleTotal;
+    }
+
+    // เพิ่มรายการปรับปรุง (Adjustments)
+    double adjustmentsTotal = 0.0;
+    for (var adj in adjustments) {
+      double amount = adj.amount;
+      if (adj.type == AdjustmentType.subtraction) amount = -amount;
+      customLineItems.add({'description': adj.name, 'amount': amount});
+      adjustmentsTotal += amount;
+    }
+
+    final double estimatedTotalAmount = baseTotal + adjustmentsTotal;
+    final double dueAmount = estimatedTotalAmount - paidAmount;
+
+    // 3. ถ้าเป็น QR Code ให้แสดง Dialog ก่อนยิง API (แก้ปัญหากดยกเลิกแล้วยังยิง API)
+    if (paymentMethod == 'QR Code' && dueAmount > 0) {
+      // --- FIX: เรียกใช้ฟังก์ชันกลาง ---
+      final confirm = await showQrPaymentDialog(context, dueAmount);
+
+      if (confirm != true) return; // ถ้ากดยกเลิก หรือปิด Dialog ให้หยุดทำงานทันที
+    }
+
+    // 4. เริ่มกระบวนการบันทึกจริง (ยิง API)
     setState(() => _isBillLoading = true);
 
     try {
-      final pType = _selectedPlayer['participantType'] ?? 'Member';
-      final pId = _selectedPlayer['participantId'] ?? _selectedPlayer['userId'] ?? _selectedPlayer['id'];
-
-      // ดึงยอดที่จ่ายไปแล้ว
-      final double paidAmount = num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0;
-
-      // --- NEW: ถ้ามีบิลเก่าอยู่แล้ว ให้ยกเลิกก่อน เพื่อไม่ให้ยอดทบกัน ---
+      // 4.1 ยกเลิกบิลเก่า (ถ้ามี)
       if (_selectedPlayerBill != null && _selectedPlayerBill['billId'] != null) {
         try {
           await ApiProvider().put('/bills/${_selectedPlayerBill['billId']}/cancel');
@@ -99,30 +179,7 @@ class _HistoryOrganizerPaymentPageState
         }
       }
       
-      // 1. เตรียมข้อมูล Line Items (ค่าสนาม, ค่าธรรมเนียม, ค่าลูกแบด, รายการปรับปรุง)
-      List<Map<String, dynamic>> customLineItems = [];
-      
-      final courtFeePerPerson = num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
-      final shuttleFeePerPerson = num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
-      final gamesPlayed = num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0;
-
-      if (courtFeePerPerson > 0) {
-        customLineItems.add({'description': 'ค่าคอร์ท', 'amount': courtFeePerPerson});
-      }
-      customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': 10.0});
-
-      double shuttleTotal = gamesPlayed * shuttleFeePerPerson;
-      if (shuttleTotal > 0) {
-        customLineItems.add({'description': 'ค่าลูกแบด ($gamesPlayed เกม)', 'amount': shuttleTotal});
-      }
-
-      for (var adj in adjustments) {
-        double amount = adj.amount;
-        if (adj.type == AdjustmentType.subtraction) amount = -amount;
-        customLineItems.add({'description': adj.name, 'amount': amount});
-      }
-
-      // 2. เรียก API Checkout เพื่อสร้างบิลจริง
+      // 4.2 เรียก API Checkout เพื่อสร้างบิลจริง
       final checkoutRes = await ApiProvider().post(
         '/participants/$pType/$pId/checkout',
         data: {'customLineItems': customLineItems},
@@ -132,25 +189,9 @@ class _HistoryOrganizerPaymentPageState
       final int billId = finalBill['billId'];
       final double totalAmount = (finalBill['totalAmount'] ?? 0).toDouble();
 
-      // --- NEW: คำนวณยอดที่ต้องจ่ายเพิ่ม (ส่วนต่าง) ---
-      final double dueAmount = totalAmount - paidAmount;
+      // 4.3 บันทึกการจ่ายเงิน (ส่งยอดเต็ม totalAmount ไปบันทึกตาม Logic ของระบบ)
+      await _confirmPaymentAPI(billId, paymentMethod, totalAmount);
 
-      // 3. จัดการการจ่ายเงิน
-      if (paymentMethod == 'QR Code' && dueAmount > 0) {
-        // กรณี QR Code: แสดง QR สำหรับยอดส่วนต่างเท่านั้น
-        if (mounted) {
-          setState(() => _isBillLoading = false); // หยุดโหลดเพื่อแสดง Dialog
-          await showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => _buildQrPaymentDialog(context, dueAmount, billId, totalAmount),
-          );
-        }
-      } else {
-        // กรณีเงินสด หรือยอด <= 0 (คืนเงิน/เท่าเดิม): บันทึกเลย
-        // ส่งยอดเต็มไปบันทึก เพื่อให้บิลสมบูรณ์
-        await _confirmPaymentAPI(billId, paymentMethod, totalAmount);
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการชำระเงิน')));
@@ -184,40 +225,6 @@ class _HistoryOrganizerPaymentPageState
     }
   }
 
-  // --- NEW: Dialog QR Code ---
-  Widget _buildQrPaymentDialog(BuildContext context, double dueAmount, int billId, double totalBillAmount) {
-    final qrData = "PromptPay:08x-xxx-xxxx:$dueAmount"; 
-
-    return AlertDialog(
-      title: const Text('สแกนจ่ายส่วนต่าง'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 200,
-            height: 200,
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-            alignment: Alignment.center,
-            child: QrImageView(data: qrData, version: QrVersions.auto, size: 200.0),
-          ),
-          const SizedBox(height: 16),
-          Text('ยอดที่ต้องชำระเพิ่ม: ${dueAmount.toStringAsFixed(0)} บาท', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.pop(context);
-            setState(() => _isBillLoading = true);
-            _confirmPaymentAPI(billId, 'QR Code', totalBillAmount);
-          },
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0E9D7A), foregroundColor: Colors.white),
-          child: const Text('ยืนยันการชำระเงิน'),
-        ),
-      ],
-    );
-  }
 
   @override
   void initState() {
@@ -432,39 +439,114 @@ class CostsSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = sessionData ?? {};
+    String fmt(dynamic val) => (num.tryParse('$val') ?? 0).toStringAsFixed(0);
+    String fmtDec(dynamic val) => (num.tryParse('$val') ?? 0).toStringAsFixed(0);
+
+    // --- คำนวณข้อมูลเชิงลึก ---
+    final participants = (data['participants'] as List?) ?? [];
     
+    // 1. ข้อมูลลูกแบด (ขีด = เกม)
+    // --- REFACTORED: ใช้ค่าที่คำนวณมาแล้วจาก Backend ---
+    double totalAdditions = (num.tryParse('${data['totalAdditions']}') ?? 0).toDouble();
+    double totalSubtractions = (num.tryParse('${data['totalSubtractions']}') ?? 0).toDouble();
+    double totalIncomeCalculated = (num.tryParse('${data['totalIncome']}') ?? 0).toDouble();
+    
+    int totalKeed = 0; // จำนวนเกมทั้งหมดของผู้เล่น (Player-Games)
+    for (var p in participants) {
+      totalKeed += (p['gamesPlayed'] as int? ?? 0);
+    }
+    
+    double totalShuttleCost = (num.tryParse('${data['totalShuttlecockCost']}') ?? 0).toDouble();
+    double costPerKeed = totalKeed > 0 ? totalShuttleCost / totalKeed : 0;
+
+    // 2. ยอดจ่ายแยกประเภท (ใช้ค่าจาก API)
+    double paidCourtAmount = (num.tryParse('${data['paidCourtAmount']}') ?? 0).toDouble();
+    double unpaidCourtAmount = (num.tryParse('${data['unpaidCourtAmount']}') ?? 0).toDouble();
+    int paidCourtCount = (data['paidCourtCount'] as int? ?? 0);
+    int unpaidCourtCount = (data['unpaidCourtCount'] as int? ?? 0);
+
+    double paidShuttleAmount = (num.tryParse('${data['paidShuttleAmount']}') ?? 0).toDouble();
+    double unpaidShuttleAmount = (num.tryParse('${data['unpaidShuttleAmount']}') ?? 0).toDouble();
+    
+    // หมายเหตุ: paidKeed/unpaidKeed เป็นหน่วย "ขีด" (เกม) อาจจะยังต้องคำนวณหน้าบ้านเล็กน้อยถ้า API ไม่ส่งมา
+    // หรือถ้าต้องการความแม่นยำ 100% ควรเพิ่ม field ใน API แต่ในที่นี้ขอคง Logic เดิมไว้เฉพาะส่วนหน่วยนับ
+    double paidKeed = 0;
+    double unpaidKeed = 0;
+    for (var p in participants) {
+       double totalCost = (num.tryParse('${p['totalCost']}') ?? 0).toDouble();
+       double paid = (num.tryParse('${p['paidAmount']}') ?? 0).toDouble();
+       double ratio = totalCost > 0 ? paid / totalCost : 0;
+       if (ratio > 1) ratio = 1;
+       int games = (p['gamesPlayed'] as int? ?? 0);
+       paidKeed += games * ratio;
+       unpaidKeed += games * (1 - ratio);
+    }
+
+    // 3. ค่าบริการ (Service Fee)
+    // double totalServiceFee = participants.length * 10.0; // ใช้ค่าจาก API ดีกว่าถ้ามี แต่ในที่นี้คำนวณง่ายๆ
+    double totalServiceFee = (num.tryParse('${data['totalIncome']}') ?? 0).toDouble() 
+                           - (num.tryParse('${data['totalCourtIncome']}') ?? 0).toDouble()
+                           - (num.tryParse('${data['totalShuttlecockFee']}') ?? 0).toDouble()
+                           - totalAdditions + totalSubtractions.abs();
+    if (totalServiceFee < 0) totalServiceFee = participants.length * 10.0; // Fallback
+    
+    // 4. คำนวณรายจ่ายจริง (ต้นทุนสนาม + ต้นทุนลูกแบด)
+    double totalCourtCostReal = (num.tryParse('${data['totalCourtCost']}') ?? 0).toDouble();
+    double totalShuttleCostReal = (num.tryParse('${data['totalShuttlecockCost']}') ?? 0).toDouble();
+    double totalExpenseReal = totalCourtCostReal + totalShuttleCostReal;
+
     // แปลงข้อมูลจาก API เป็น Map สำหรับแสดงผล
     final courtCosts = {
       'ผู้เล่น': '${data['currentParticipants'] ?? 0} คน',
-      'ต้นทุนค่าสนาม': '${data['totalCourtCost'] ?? 0} บาท', // ใช้ totalCourtCost (ต้นทุน)
-      'ค่าสนาม/คน': '${data['courtFeePerPerson'] ?? 0} บาท',
-      'ยอดรวม': '${data['totalCourtIncome'] ?? 0} บาท', // ใช้ totalCourtIncome (รายได้)
-      // 'ชำระแล้ว': '20 คน', // ข้อมูลนี้อาจต้องคำนวณจาก participants list
-      // 'เป็นเงิน': '2000 บาท',
-      // 'รอชำระ': '4 คน',
-      // 'เป็นเงิน ': '400 บาท',
+      'ต้นทุนค่าสนาม': '${fmt(data['totalCourtCost'])} บาท', // ใช้ totalCourtCost (ต้นทุน)
+      'ค่าสนาม/คน': '${fmt(data['courtFeePerPerson'])} บาท',
+      'ยอดรวม': '${fmt(data['totalCourtIncome'])} บาท',
+      '-------': '', // ตัวคั่น
+      'ชำระแล้ว': '$paidCourtCount คน',
+      'เป็นเงิน': '${fmt(paidCourtAmount)} บาท',
+      'รอชำระ': '$unpaidCourtCount คน',
+      'เป็นเงิน ': '${fmt(unpaidCourtAmount)} บาท', // มี space ต่อท้ายเพื่อไม่ให้ key ซ้ำ
     };
 
     final shuttlecockCosts = {
-      'ทุนค่าลูก/ลูก': '${data['shuttlecockFeePerPerson'] ?? 0} บาท', // เช็ค key อีกที
-      // 'ทุนค่าลูก/ขีด': '19 บาท',
+      'ทุนค่าลูก/ลูก': '${fmt(data['shuttlecockCostPerUnit'])} บาท',
+      'ทุนค่าลูก/ขีด': '${fmtDec(costPerKeed)} บาท',
       'ใช้รวม(ลูก)': '${data['totalShuttlecocks'] ?? 0} ลูก',
-      // 'ใช้รวม(ขีด)': '400 ขีด',
-      // 'ราคา/ขีด': '20 บาท',
-      'ยอดรวม': '${data['totalShuttlecockFee'] ?? 0} บาท',
-      // 'ชำระแล้ว': '188 ขีด',
-      // 'เป็นเงิน': '3760 บาท',
-      // 'รอชำระ': '20 ขีด',
-      // 'เป็นเงิน ': '400 บาท',
+      'ใช้รวม(ขีด)': '$totalKeed ขีด',
+      'ราคา/ขีด': '${fmt(data['shuttlecockFeePerPerson'])} บาท',
+      'ยอดรวม': '${fmt(data['totalShuttlecockFee'])} บาท',
+      '------------': '', // ตัวคั่น
+      'ชำระแล้ว': '${fmtDec(paidKeed)} ขีด',
+      'เป็นเงิน': '${fmt(paidShuttleAmount)} บาท',
+      'รอชำระ': '${fmtDec(unpaidKeed)} ขีด',
+      'เป็นเงิน ': '${fmt(unpaidShuttleAmount)} บาท',
     };
 
-    final totalSummary = {
-      // 'ได้รับเงินผ่านแอป': '6230 บาท',
-      // 'เงินสด': '330 บาท',
-      'รายรับ': '${data['totalIncome'] ?? 0} บาท',
-      // 'ค่าบริการแอป': '120 บาท',
-      'คงเหลือ': '${(data['totalIncome'] ?? 0) - (data['totalExpense'] ?? 0)} บาท', // สมมติ
-    };
+    final Map<String, String> totalSummary = {};
+    final List<String> highlightKeysTotal = [];
+
+    double totalTransferAmount = (num.tryParse('${data['totalTransferAmount']}') ?? 0).toDouble();
+    double totalCashAmount = (num.tryParse('${data['totalCashAmount']}') ?? 0).toDouble();
+    double totalCollected = totalTransferAmount + totalCashAmount;
+    double totalUnpaid = totalIncomeCalculated - totalCollected;
+
+    totalSummary['ได้รับเงินผ่านแอป'] = '${fmt(data['totalTransferAmount'])} บาท';
+    totalSummary['เงินสด'] = '${fmt(data['totalCashAmount'])} บาท';
+
+    if (totalAdditions > 0) {
+      totalSummary['เพิ่มค่าใช้จ่าย'] = '${fmt(totalAdditions)} บาท';
+      highlightKeysTotal.add('เพิ่มค่าใช้จ่าย');
+    }
+    if (totalSubtractions < 0) {
+      totalSummary['ลดค่าใช้จ่าย'] = '${fmt(totalSubtractions.abs())} บาท';
+      highlightKeysTotal.add('ลดค่าใช้จ่าย');
+    }
+
+    totalSummary['รายรับ'] = '${fmt(totalCollected)} บาท';
+    totalSummary['ค่าบริการ'] = '${fmt(totalServiceFee)} บาท';
+    totalSummary['คงเหลือ'] = '${fmt(totalUnpaid)} บาท';
+
+    highlightKeysTotal.addAll(['รายรับ', 'ค่าบริการ', 'คงเหลือ']);
 
     return SingleChildScrollView(
       child: Column(
@@ -474,19 +556,20 @@ class CostsSummary extends StatelessWidget {
           _SummaryCard(
             title: 'ค่าสนาม',
             data: courtCosts,
-            highlightKeys: const ['ยอดรวม ', 'เป็นเงิน'],
+            highlightKeys: const ['ยอดรวม', 'เป็นเงิน', 'เป็นเงิน '],
           ),
           const SizedBox(height: 16),
           _SummaryCard(
             title: 'ยอดลูกแบด',
             data: shuttlecockCosts,
-            highlightKeys: const ['เป็นเงิน ', 'ยอดรวม'],
+            highlightKeys: const ['ยอดรวม', 'เป็นเงิน', 'เป็นเงิน '],
           ),
           const SizedBox(height: 16),
           _SummaryCard(
             title: 'ยอดทั้งหมด',
             data: totalSummary,
-            highlightKeys: const ['รายรับ', 'คงเหลือ'],
+            highlightKeys: highlightKeysTotal,
+            useSingleColumn: true,
           ),
         ],
       ),
@@ -499,11 +582,13 @@ class _SummaryCard extends StatelessWidget {
   final String title;
   final Map<String, String> data;
   final List<String> highlightKeys;
+  final bool useSingleColumn;
 
   const _SummaryCard({
     required this.title,
     required this.data,
     this.highlightKeys = const [],
+    this.useSingleColumn = false,
   });
 
   @override
@@ -511,13 +596,28 @@ class _SummaryCard extends StatelessWidget {
     // แปลง Map ให้อยู่ในรูปแบบ List ของ RowData เพื่อจัดการ Layout ได้ง่ายขึ้น
     List<_RowData> rows = [];
     var keys = data.keys.toList();
-    for (int i = 0; i < keys.length; i += 2) {
-      if (i + 1 < keys.length) {
-        rows.add(
-          _RowData(keys[i], data[keys[i]]!, keys[i + 1], data[keys[i + 1]]!),
-        );
-      } else {
-        rows.add(_RowData(keys[i], data[keys[i]]!, null, null));
+
+    if (useSingleColumn) {
+      for (var key in keys) {
+        if (key.startsWith('---')) {
+          rows.add(_RowData('DIVIDER', '', null, null));
+        } else {
+          rows.add(_RowData(key, data[key]!, null, null));
+        }
+      }
+    } else {
+      int i = 0;
+      while (i < keys.length) {
+        if (keys[i].startsWith('---')) {
+          rows.add(_RowData('DIVIDER', '', null, null));
+          i++;
+        } else if (i + 1 < keys.length && !keys[i + 1].startsWith('---')) {
+          rows.add(_RowData(keys[i], data[keys[i]]!, keys[i + 1], data[keys[i + 1]]!));
+          i += 2;
+        } else {
+          rows.add(_RowData(keys[i], data[keys[i]]!, null, null));
+          i++;
+        }
       }
     }
 
@@ -568,69 +668,81 @@ class _SummaryCard extends StatelessWidget {
 
   // --- Widget ย่อยสำหรับสร้างแต่ละแถว ---
   Widget _buildSummaryRow(_RowData rowData) {
-    final bool highlightLeft = highlightKeys.contains(rowData.key1);
-    final bool highlightRight =
-        rowData.key2 != null && highlightKeys.contains(rowData.key2!);
+    if (rowData.key1 == 'DIVIDER') {
+      return const Divider(color: Colors.grey, thickness: 1, height: 16);
+    }
+
+    Widget buildCell(String key, String value) {
+      final bool isHighlight = highlightKeys.contains(key);
+      Color textColor = Colors.black;
+      FontWeight fontWeight = FontWeight.normal;
+
+      if (isHighlight) {
+        fontWeight = FontWeight.bold;
+        if (key == 'เป็นเงิน') {
+          textColor = Colors.green;
+        } else if (key == 'เป็นเงิน ') {
+          textColor = Colors.red;
+        } else if (key == 'ยอดรวม') {
+          // ตรวจสอบว่าชำระครบหรือยัง โดยดูจากยอดรอชำระ ('เป็นเงิน ')
+          bool isFullyPaid = true;
+          if (data.containsKey('เป็นเงิน ')) {
+            String pendingVal = data['เป็นเงิน ']!.replaceAll(RegExp(r'[^0-9.]'), '');
+            double pending = double.tryParse(pendingVal) ?? 0;
+            if (pending > 0) isFullyPaid = false;
+          }
+          textColor = isFullyPaid ? Colors.green : Colors.black;
+        } else if (key == 'ลดค่าใช้จ่าย') {
+          textColor = Colors.red;
+        } else if (key == 'คงเหลือ') {
+          String valStr = value.replaceAll(RegExp(r'[^0-9.-]'), '');
+          double val = double.tryParse(valStr) ?? 0;
+          textColor = val == 0 ? Colors.green : Colors.red;
+        } else {
+          // ยอดอื่นๆ ที่ต้องการเน้น (รายรับ, คงเหลือ, ค่าบริการ, etc.) ให้เป็นสีเขียว
+          textColor = Colors.green;
+        }
+      }
+
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              key.trim(),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: fontWeight,
+              color: textColor,
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (rowData.key2 != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
+        child: Row(
+          children: [
+            Expanded(child: buildCell(rowData.key1, rowData.value1)),
+            const SizedBox(width: 12),
+            Expanded(child: buildCell(rowData.key2!, rowData.value2!)),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        children: [
-          // --- คอลัมน์ซ้าย ---
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    rowData.key1.trim(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w300,
-                    ),
-                  ),
-                ),
-                Text(
-                  rowData.value1,
-                  style: TextStyle(
-                    fontWeight: highlightLeft
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                    color: highlightLeft ? Colors.red : Colors.black,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          // --- คอลัมน์ขวา ---
-          Expanded(
-            child: rowData.key2 != null
-                ? Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          rowData.key2!.trim(),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w300,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        rowData.value2!,
-                        style: TextStyle(
-                          fontWeight: highlightRight
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                          color: highlightRight ? Colors.green : Colors.black,
-                        ),
-                      ),
-                    ],
-                  )
-                : const SizedBox(), // ถ้าไม่มีข้อมูลคอลัมน์ขวา ให้เป็นช่องว่าง
-          ),
-        ],
-      ),
+      child: buildCell(rowData.key1, rowData.value1),
     );
   }
 }
@@ -665,20 +777,31 @@ class PlayerListCard extends StatelessWidget {
         final name = p['nickname'] ?? p['name'] ?? '-';
         final games = '${p['gamesPlayed'] ?? 0}';
 
+        // --- FIX: ใช้ค่าจาก API โดยตรง ไม่ต้องคำนวณเอง ---
+        final courtNum = num.tryParse('${p['courtFee']}') ?? 0;
+        final shuttleNum = num.tryParse('${p['shuttleFee']}') ?? 0;
+        
         final gamesNum = num.tryParse(games) ?? 0;
         final rateNum = num.tryParse('$shuttlecockRate') ?? 0;
-        final courtNum = num.tryParse('$courtFee') ?? 0;
-        final totalNum = gamesNum * rateNum;
-        String formatNum(num n) => n % 1 == 0 ? n.toInt().toString() : n.toString();
-        final gameDisplay = '${formatNum(gamesNum)} x ${formatNum(rateNum)} = ${formatNum(totalNum)}';
+        
+        String formatNum(num n) => n.toStringAsFixed(0);
+        
+        // แสดงผล: ถ้าค่าลูกแบดตรงกับสูตรคูณ ให้แสดงสูตร ถ้าไม่ตรง (เช่น เหมาจ่าย) ให้แสดงยอดเลย
+        final calcShuttle = gamesNum * rateNum;
+        final gameDisplay = (calcShuttle - shuttleNum).abs() < 1 
+            ? '${formatNum(gamesNum)} x ${formatNum(rateNum)} = ${formatNum(shuttleNum)}'
+            : '${formatNum(shuttleNum)}';
 
-        final total = '${p['totalCost'] ?? 0}';
-        final paid = '${p['paidAmount'] ?? 0}';
-        final unpaid = '${p['unpaidAmount'] ?? 0}';
+        final totalFromApi = num.tryParse('${p['totalCost']}') ?? 0;
+        // FIX: ยอดรวมในตารางไม่ต้องรวมค่าบริการ 10 บาท ตามที่ผู้ใช้ร้องขอ
+        final totalDisplayVal = totalFromApi > 0 ? totalFromApi - 10 : 0;
+        final total = formatNum(totalDisplayVal);
 
-        final totalCostNum = num.tryParse(total) ?? 0;
-        // FIX: หักค่าธรรมเนียม 10 บาทออกจากสูตรคำนวณ เพื่อให้ช่อง "อื่นๆ" เป็น 0 ในกรณีปกติ
-        final othersNum = totalCostNum - (totalNum + courtNum + 10);
+        final paid = formatNum(num.tryParse('${p['paidAmount']}') ?? 0);
+        final unpaid = formatNum(num.tryParse('${p['unpaidAmount']}') ?? 0);
+
+        // FIX: คำนวณ "อื่นๆ" โดยหักค่าสนามและค่าลูกแบด (จาก API) ออกจากยอดรวม
+        final othersNum = totalDisplayVal - (courtNum + shuttleNum);
         final others = formatNum(othersNum);
 
         final unpaidNum = num.tryParse(unpaid) ?? 0;
@@ -692,10 +815,12 @@ class PlayerListCard extends StatelessWidget {
               children: [
                 text(2, '${index + 1}', 14, FontWeight.w300, color: rowColor),
                 text(3, name, 14, FontWeight.w300, color: rowColor),
+                // --- NEW: เพิ่มคอลัมน์ค่าสนาม ---
+                text(2, formatNum(courtNum), 14, FontWeight.w300, color: rowColor),
                 text(5, gameDisplay, 12, FontWeight.w300, color: rowColor),
+                text(2, others, 14, FontWeight.w300, color: rowColor), // ย้าย "อื่นๆ" มาก่อน "ยอด"
                 text(2, total, 14, FontWeight.w300, color: rowColor),
                 text(2, paid, 14, FontWeight.w300, color: rowColor),
-                text(2, others, 14, FontWeight.w300, color: rowColor),
                 text(2, unpaid, 14, FontWeight.w300, color: rowColor),
               ],
             ),
@@ -736,10 +861,12 @@ class PlayerListCard extends StatelessWidget {
                 children: [
                   text(2, 'no', 14, FontWeight.w700),
                   text(3, 'ชื่อเล่น', 14, FontWeight.w700),
+                  // --- NEW: เพิ่มหัวตารางค่าสนาม ---
+                  text(2, 'สนาม', 14, FontWeight.w700),
                   text(5, 'เกมส์', 14, FontWeight.w700),
+                  text(2, 'อื่นๆ', 14, FontWeight.w700), // ย้าย "อื่นๆ" มาก่อน "ยอด"
                   text(2, 'ยอด', 14, FontWeight.w700),
                   text(2, 'จ่าย', 14, FontWeight.w700),
-                  text(2, 'อื่นๆ', 14, FontWeight.w700),
                   text(2, 'ค้าง', 14, FontWeight.w700),
                 ],
               ),

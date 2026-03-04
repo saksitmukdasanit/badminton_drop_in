@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:badminton/model/player.dart';
 import 'package:flutter/material.dart';
 
@@ -18,15 +19,60 @@ String _formatDuration(Duration duration) {
   return "$twoDigitMinutes:$twoDigitSeconds";
 }
 
-class PlayerAvatar extends StatelessWidget {
+class PlayerAvatar extends StatefulWidget {
   final Player player;
+  final bool isPlaying; // NEW: รับสถานะว่ากำลังเล่นอยู่หรือไม่
 
-  const PlayerAvatar({super.key, required this.player});
+  const PlayerAvatar({super.key, required this.player, this.isPlaying = false});
+
+  @override
+  State<PlayerAvatar> createState() => _PlayerAvatarState();
+}
+
+class _PlayerAvatarState extends State<PlayerAvatar> {
+  Timer? _timer;
+  Duration _currentDuration = Duration.zero;
+  DateTime? _startTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTime();
+    // สร้าง Timer เพื่อนับเวลาทุก 1 วินาที
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && _startTime != null && !widget.isPlaying) { // NEW: ถ้ายิงเล่นอยู่ไม่ต้องนับ
+        setState(() {
+          _currentDuration = DateTime.now().difference(_startTime!);
+        });
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // ถ้าข้อมูลผู้เล่นเปลี่ยน (เช่น เวลาเริ่มต้นเปลี่ยนจาก Server) ให้อัปเดตเวลาใหม่
+    if (widget.player != oldWidget.player) {
+      _syncTime();
+    }
+  }
+
+  void _syncTime() {
+    _currentDuration = widget.player.totalPlayTime ?? Duration.zero;
+    // คำนวณเวลาเริ่มต้นโดยย้อนหลังจากระยะเวลาที่เล่นไปแล้ว
+    _startTime = DateTime.now().subtract(_currentDuration);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     // FIX: ใช้สีจาก player.skillLevelColor โดยตรง
-    final color = _colorFromHex(player.skillLevelColor);
+    final color = _colorFromHex(widget.player.skillLevelColor);
     // คำนวณสีตัวอักษร (ขาว/ดำ) ตามความสว่างของพื้นหลัง
     final textColor =
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark
@@ -46,7 +92,7 @@ class PlayerAvatar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 2.0),
             child: Text(
               // FIX: ใช้ชื่อระดับจาก player.skillLevelName
-              player.skillLevelName ?? 'N/A',
+              widget.player.skillLevelName ?? 'N/A',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: textColor,
@@ -58,9 +104,9 @@ class PlayerAvatar extends StatelessWidget {
 
           // --- Column 2: รูปภาพ ---
           Expanded(
-            child: (player.imageUrl != null && player.imageUrl!.isNotEmpty)
+            child: (widget.player.imageUrl != null && widget.player.imageUrl!.isNotEmpty)
                 ? Image.network(
-                    player.imageUrl!,
+                    widget.player.imageUrl!,
                     width: double.infinity,
                     fit: BoxFit.cover,
                     // เพิ่ม Loading Builder เพื่อให้ UX ดีขึ้น
@@ -85,7 +131,7 @@ class PlayerAvatar extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  player.name,
+                  widget.player.name,
                   style: TextStyle(
                     color: textColor,
                     fontWeight: FontWeight.bold,
@@ -110,7 +156,7 @@ class PlayerAvatar extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        'G: ${player.gamesPlayed ?? 0}',
+                        'G: ${widget.player.gamesPlayed ?? 0}',
                         style: TextStyle(
                           color: textColor,
                           fontSize: 10,
@@ -119,6 +165,7 @@ class PlayerAvatar extends StatelessWidget {
                       ),
                     ),
                     // Badge เวลาที่รอ (สีน้ำเงินเข้ม ตัวหนังสือเหลือง)
+                    // FIX: แสดงตลอดเวลา แต่หยุดนับเมื่อ isPlaying (จัดการใน Timer)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 2,
@@ -129,7 +176,7 @@ class PlayerAvatar extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        'W: ${_formatDuration(player.totalPlayTime ?? Duration.zero)}',
+                        'W: ${_formatDuration(_currentDuration)}', // ใช้วลาที่นับเอง
                         style: const TextStyle(
                           color: Colors.yellowAccent,
                           fontSize: 10,

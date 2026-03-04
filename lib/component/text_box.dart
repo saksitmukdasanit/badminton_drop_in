@@ -10,6 +10,7 @@ class CustomTextFormField extends StatelessWidget {
   final bool isEmail;
   final bool isPhone;
   final TextEditingController? controller;
+  final FocusNode? focusNode;
   final IconData? prefixIconData;
   final VoidCallback? onPrefixIconPressed;
   final IconData? suffixIconData;
@@ -32,6 +33,7 @@ class CustomTextFormField extends StatelessWidget {
     this.isEmail = false,
     this.isPhone = false,
     this.controller,
+    this.focusNode,
     this.prefixIconData,
     this.onPrefixIconPressed,
     this.suffixIconData,
@@ -49,6 +51,7 @@ class CustomTextFormField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       obscureText: obscureText,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,

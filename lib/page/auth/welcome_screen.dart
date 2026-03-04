@@ -1,6 +1,7 @@
 import 'package:badminton/component/button.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -52,13 +53,17 @@ class WelcomeScreen extends StatelessWidget {
                   foregroundColor: Color(0xFF0E9D7A),
                   text: 'Log In',
                   fontSize: getResponsiveFontSize(context, fontSize: 16),
-                  onPressed: () {},
+                  onPressed: () {
+                    context.push('/login-screen');
+                  },
                 ),
                 const SizedBox(height: 16),
                 CustomElevatedButton(
                   text: 'Register',
                   fontSize: getResponsiveFontSize(context, fontSize: 16),
-                  onPressed: () {},
+                  onPressed: () {
+                    context.push('/register-screen');
+                  },
                 ),
               ],
             ),

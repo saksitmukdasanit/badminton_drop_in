@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -130,8 +131,12 @@ class _FromHistoryPageState extends State<FromHistoryPage> {
     } catch (e) {
       debugPrint('Error fetching session details: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ไม่สามารถดึงข้อมูลรายละเอียดได้ กรุณาลองใหม่')),
+        showDialogMsg(
+          context,
+          title: 'แจ้งเตือน',
+          subtitle: 'ไม่สามารถดึงข้อมูลรายละเอียดได้ กรุณาลองใหม่',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     } finally {

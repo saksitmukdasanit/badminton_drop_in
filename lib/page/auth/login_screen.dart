@@ -4,6 +4,7 @@ import 'package:badminton/component/social_login_button.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/component/dialog.dart';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -59,11 +60,12 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }

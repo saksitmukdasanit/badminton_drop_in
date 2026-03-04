@@ -224,7 +224,7 @@ class ApplyOrganizerPageState extends State<ApplyOrganizerPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: Colors.red, content: Text(e.toString())),
+          SnackBar(backgroundColor: Colors.red, content: Text(e.toString().replaceFirst('Exception: ', ''))),
         );
       }
     } finally {

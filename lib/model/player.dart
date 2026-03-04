@@ -22,7 +22,7 @@ class Player {
   final String? skillLevelName;
   final int? skillLevelId;
   final String? skillLevelColor;
-  final int? gamesPlayed;
+  int? gamesPlayed;
   final int? shuttlesUsed;
   final Duration? waitingTime;
   Duration? totalPlayTime;

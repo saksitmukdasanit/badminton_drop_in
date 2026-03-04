@@ -60,21 +60,23 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         if (mounted) {
           final errorMessage =
               response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.orange,
-              content: Text(errorMessage),
-            ),
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: errorMessage,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }
@@ -123,11 +125,12 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         if (mounted) {
           final errorMessage =
               response['message'] ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.orange, // อาจใช้สีอื่นที่ไม่ใช่แดง
-              content: Text(errorMessage),
-            ),
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: errorMessage,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
           );
         }
       }
@@ -136,11 +139,12 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         _isLoading = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     }

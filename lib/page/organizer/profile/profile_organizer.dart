@@ -423,11 +423,12 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
       }
       // ถ้าสำเร็จ แสดง SnackBar
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.green,
-            content: Text('บันทึกข้อมูลสำเร็จ'),
-          ),
+        showDialogMsg(
+          context,
+          title: 'สำเร็จ',
+          subtitle: 'บันทึกข้อมูลสำเร็จ',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     } catch (e) {

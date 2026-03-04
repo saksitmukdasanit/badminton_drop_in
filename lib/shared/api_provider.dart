@@ -81,6 +81,7 @@ class ApiProvider {
                 // ถ้าไม่มี Refresh Token ก็ไม่ต้องทำอะไรต่อ
                 _isRefreshing = false;
                 _refreshCompleter?.complete(null);
+                _handleLogout(); // เพิ่ม: บังคับ Logout ถ้าไม่มี Refresh Token
                 return handler.next(e);
               }
 
@@ -125,26 +126,7 @@ class ApiProvider {
                 // ปลด Lock และแจ้งว่าล้มเหลว
                 _isRefreshing = false;
                 _refreshCompleter?.complete(null);
-
-                // --- NEW: ลบ Token ทิ้งทันที เพื่อตัดวงจร Error และบังคับ Login ใหม่ในครั้งหน้า ---
-                await prefs.remove('accessToken');
-                await prefs.remove('refreshToken');
-
-                // บังคับ Logout ทันที
-                final context = navigatorKey.currentContext;
-                
-                // --- FIX: ตรวจสอบและ Log ถ้าหา Context ไม่เจอ ---
-                if (context != null && context.mounted) {
-                  print('Refresh Failed. Logging out...');
-                  await Provider.of<AuthProvider>(
-                    context,
-                    listen: false,
-                  ).logout();
-                  context.go('/login');
-                } else {
-                  print('CRITICAL: Navigator Context is NULL. Cannot redirect to login.');
-                  print('ACTION REQUIRED: Please check main.dart and ensure navigatorKey is passed to MaterialApp or GoRouter.');
-                }
+                _handleLogout(); // ใช้ฟังก์ชันกลาง
                 return handler.next(e); // ส่ง Error 401 เดิมกลับไปให้ UI จัดการต่อ (ถ้าจำเป็น)
               }
             } on DioException catch (refreshError) {
@@ -152,47 +134,15 @@ class ApiProvider {
               _isRefreshing = false;
               _refreshCompleter?.complete(null);
 
-              // --- NEW: ลบ Token ทิ้งทันที ---
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('accessToken');
-              await prefs.remove('refreshToken');
-
-              // ถ้าการ Refresh Token ล้มเหลว (เช่น Refresh Token หมดอายุ)
-              // ให้ส่ง Error เดิมออกไป (ซึ่งจะทำให้ผู้ใช้ต้อง Login ใหม่)
-              // --- ADDED: เพิ่มการ print log เพื่อให้เห็นข้อผิดพลาดชัดเจนขึ้น ---
               print('--- TOKEN REFRESH FAILED ---');
               print('Error: ${refreshError.message}');
-              print('Response: ${refreshError.response?.data}');
-
-              // --- ADDED: บังคับ Logout เมื่อ Refresh Token ล้มเหลว ---
-              // ใช้ global context ที่เราสร้างไว้เพื่อเข้าถึง AuthProvider
-              final context = navigatorKey.currentContext;
-              if (context != null && context.mounted) {
-                await Provider.of<AuthProvider>(
-                  context,
-                  listen: false,
-                ).logout();
-
-                // --- NEW: สั่งเปลี่ยนหน้าไป Login ทันทีจากจุดเดียว (Global Redirect) ---
-                context.go('/login');
-              }
-
+              _handleLogout(); // ใช้ฟังก์ชันกลาง
               return handler.next(e);
             } catch (err) {
                _isRefreshing = false;
                _refreshCompleter?.complete(null);
+               _handleLogout(); // ใช้ฟังก์ชันกลาง
                return handler.next(e);
-            }
-          }
-          // --- NEW: General 401 handler (last resort) ---
-          if (e.response?.statusCode == 401) {
-            final context = navigatorKey.currentContext;
-            if (context != null && context.mounted) {
-              await Provider.of<AuthProvider>(
-                context,
-                listen: false,
-              ).logout();
-              context.go('/login');
             }
           }
 
@@ -200,6 +150,22 @@ class ApiProvider {
         },
       ),
     );
+  }
+
+  // --- NEW: ฟังก์ชันกลางสำหรับจัดการ Logout ---
+  Future<void> _handleLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('accessToken');
+    await prefs.remove('refreshToken');
+
+    final context = navigatorKey.currentContext;
+    if (context != null && context.mounted) {
+      print('Force Logout: Token expired or invalid');
+      await Provider.of<AuthProvider>(context, listen: false).logout();
+      context.go('/login');
+    } else {
+      print('CRITICAL: Navigator Context is NULL. Cannot redirect to login.');
+    }
   }
 
   /// Generic GET method
@@ -255,8 +221,11 @@ class ApiProvider {
   }
 
   void _handleDioException(DioException e) {
-    final errorMessage =
-        e.response?.data ?? e.message ?? 'An unknown error occurred';
+    var errorMessage = e.response?.data;
+    if (errorMessage is Map && errorMessage['message'] != null) {
+      errorMessage = errorMessage['message'];
+    }
+    errorMessage = errorMessage ?? e.message ?? 'An unknown error occurred';
     throw Exception(errorMessage);
   }
 

@@ -77,11 +77,12 @@ class ChangePasswordPageState extends State<ChangePasswordPage> {
     } catch (e) {
       // 6. จัดการเมื่อล้มเหลว: แสดง SnackBar พร้อมข้อความ Error
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-          ),
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     } finally {

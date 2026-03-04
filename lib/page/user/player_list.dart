@@ -1,5 +1,5 @@
-import 'dart:math';
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -18,6 +18,16 @@ class Player {
     required this.skillLevel,
     required this.imageUrl,
   });
+
+  factory Player.fromJson(Map<String, dynamic> json, int index) {
+    return Player(
+      id: index + 1,
+      nickname: json['nickname'] ?? '-',
+      gender: json['gender'] ?? '-',
+      skillLevel: json['skillLevelName'] ?? '-',
+      imageUrl: json['profilePhotoUrl'] ?? '',
+    );
+  }
 }
 
 // --- 2. หน้าจอหลักสำหรับแสดงรายชื่อ ---
@@ -31,30 +41,31 @@ class PlayerListPage extends StatefulWidget {
 
 class _PlayerListPageState extends State<PlayerListPage> {
   // --- 3. สร้างข้อมูลจำลอง ---
-  late List<Player> players;
+  List<Player> players = [];
   bool isUse = true;
-
-  
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    players = _generateMockPlayers(56);
+    _fetchPlayers();
   }
 
-  List<Player> _generateMockPlayers(int count) {
-    return List.generate(count, (i) {
-      return Player(
-        id: i + 1,
-        nickname: 'แก้ว',
-        gender: 'หญิง',
-        skillLevel: skillLevels.keys.elementAt(
-          Random().nextInt(skillLevels.length),
-        ),
-        imageUrl:
-            'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=687&q=80',
-      );
-    });
+  Future<void> _fetchPlayers() async {
+    try {
+      final response = await ApiProvider().get('/gamesessions/${widget.id}/roster');
+      if (mounted && response['status'] == 200) {
+        final List<dynamic> data = response['data'] ?? [];
+        setState(() {
+          players = data.asMap().entries.map((e) => Player.fromJson(e.value, e.key)).toList();
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -70,14 +81,16 @@ class _PlayerListPageState extends State<PlayerListPage> {
           children: [
             _buildHeader(context),
             const Divider(color: Colors.grey),
-            Expanded(
-              child: ListView.builder(
-                itemCount: players.length,
-                itemBuilder: (context, index) {
-                  return _buildPlayerRow(players[index]);
-                },
-              ),
-            ),
+            _isLoading
+                ? const Expanded(child: Center(child: CircularProgressIndicator()))
+                : Expanded(
+                    child: ListView.builder(
+                      itemCount: players.length,
+                      itemBuilder: (context, index) {
+                        return _buildPlayerRow(players[index]);
+                      },
+                    ),
+                  ),
             _buildPagination(),
           ],
         ),
@@ -156,10 +169,13 @@ class _PlayerListPageState extends State<PlayerListPage> {
             flex: 3,
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 12,
-                  backgroundImage: NetworkImage(player.imageUrl),
-                ),
+                if (player.imageUrl.isNotEmpty)
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundImage: NetworkImage(player.imageUrl),
+                  )
+                else
+                  const CircleAvatar(radius: 12, child: Icon(Icons.person, size: 16)),
                 const SizedBox(width: 8),
                 Text(
                   player.nickname,

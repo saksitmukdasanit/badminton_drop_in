@@ -148,13 +148,23 @@ class _MyAppState extends State<MyApp> {
           path: '/otp-verification-screen',
           // builder: (context, state) => const OtpVerificationScreen(phoneNumber: '',),
           builder: (context, state) {
-            final phoneNumber = state.extra as String?;
+            String? phoneNumber;
+            dynamic tokens;
+
+            if (state.extra is Map) {
+              final map = state.extra as Map;
+              phoneNumber = map['phoneNumber'];
+              tokens = map['tokens'];
+            } else if (state.extra is String) {
+              phoneNumber = state.extra as String;
+            }
+
             if (phoneNumber == null) {
               return const Scaffold(
                 body: Center(child: Text('Error: ไม่พบข้อมูลเบอร์โทรศัพท์')),
               );
             }
-            return OtpVerificationScreen(phoneNumber: phoneNumber);
+            return OtpVerificationScreen(phoneNumber: phoneNumber, tokens: tokens);
           },
         ),
         GoRoute(
