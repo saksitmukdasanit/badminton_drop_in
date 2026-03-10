@@ -23,17 +23,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
-  final defaultPinTheme = PinTheme(
-    width: 60,
-    height: 64,
-    textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-    decoration: BoxDecoration(
-      color: Colors.grey[200],
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Colors.transparent),
-    ),
-  );
-
   @override
   void dispose() {
     _pinController.dispose();

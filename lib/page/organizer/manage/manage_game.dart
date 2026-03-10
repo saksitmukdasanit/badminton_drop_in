@@ -807,6 +807,47 @@ class _ManageGamePage extends State<ManageGamePage> {
       readyTeams = newReadyTeams; // อัปเดต readyTeams ให้ตรงกับ playingCourts
       _groupName = liveState['groupName']; // หากมีข้อมูลชื่อก๊วนใน API
 
+      // --- FIX: อัปเดตข้อมูลผู้เล่นที่กำลังเปิดดู Profile อยู่ (ถ้ามี) ---
+      // เพื่อให้กาดและ Dropdown ระดับมือเปลี่ยนตามข้อมูลใหม่ทันที
+      if (_viewingPlayer != null) {
+        Player? updatedPlayer;
+        // 1. ลองหาใน Waiting List
+        try {
+           updatedPlayer = newWaitingPlayers.firstWhere((p) => p.id == _viewingPlayer!.id);
+        } catch (_) {}
+        
+        // 2. ถ้าไม่เจอ ลองหาในสนาม (Playing Courts)
+        if (updatedPlayer == null) {
+           for (var court in newPlayingCourts) {
+             for (var p in court.players) {
+               if (p != null && p.id == _viewingPlayer!.id) {
+                 updatedPlayer = p;
+                 break;
+               }
+             }
+             if (updatedPlayer != null) break;
+           }
+        }
+        
+        // 3. ถ้าไม่เจอ ลองหาในทีมสำรอง (Reserve Teams)
+        if (updatedPlayer == null) {
+           for (var team in newReserveTeams) {
+             for (var p in team.players) {
+               if (p != null && p.id == _viewingPlayer!.id) {
+                 updatedPlayer = p;
+                 break;
+               }
+             }
+             if (updatedPlayer != null) break;
+           }
+        }
+
+        // ถ้าเจอข้อมูลใหม่ ให้อัปเดตตัวแปร _viewingPlayer
+        if (updatedPlayer != null) {
+          _viewingPlayer = updatedPlayer;
+        }
+      }
+
       // --- FIX: อัปเดตจำนวนผู้เข้าร่วมจากข้อมูลจริงที่มีอยู่ ---
       // _currentParticipants = waitingPlayers.length; // เอาออก: ไม่ควรเอาจำนวนคนรอมาทับจำนวนคนทั้งหมด
       if (liveState['maxParticipants'] != null) {
@@ -966,6 +1007,26 @@ class _ManageGamePage extends State<ManageGamePage> {
       return;
     }
 
+    // --- FIX: ถ้าเป็นการ Resume (สถานะ Paused) ให้เริ่มจับเวลาต่อเลย ไม่ต้องยิง API ---
+    if (court.status == CourtStatus.paused) {
+      _timers[court.courtNumber]?.cancel();
+      setState(() {
+        court.status = CourtStatus.playing;
+        // court.isLocked = true; // ปกติ Locked อยู่แล้วตอน Pause แต่กันเหนียว
+      });
+      
+      _timers[court.courtNumber] = Timer.periodic(
+        const Duration(seconds: 1),
+        (timer) {
+          if (mounted) {
+            // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
+            court.elapsedTime += const Duration(seconds: 1);
+          }
+        },
+      );
+      return; // จบการทำงาน ไม่ยิง API เพราะแมตช์ยังรันอยู่ที่ Backend
+    }
+
     // --- NEW: Force Sync ข้อมูลล่าสุดขึ้น Server ก่อนเริ่มเกม ---
     // ป้องกันกรณีกดเริ่มเกมทันทีหลังจากลากผู้เล่นวาง (ก่อน Debounce ทำงาน)
     int teamIndex = playingCourts.indexOf(court);
@@ -1044,7 +1105,7 @@ class _ManageGamePage extends State<ManageGamePage> {
     if (mounted) {
       setState(() {
         court.status = CourtStatus.paused;
-        court.isLocked = false; // ปลดล็อกสนามเพื่อให้เปลี่ยนผู้เล่นได้
+        // court.isLocked = false; // FIX: ไม่ต้องปลดล็อกสนามเมื่อหยุดชั่วคราว
       });
     }
   }
@@ -3387,15 +3448,12 @@ class RosterPlayer {
       no: index,
       nickname: json['nickname'] ?? 'N/A',
       fullName: json['fullName'] ?? json['nickname'],
-      gender: json['genderName'] ?? 'N/A',
+      gender: json['gender'] ?? 'N/A', // FIX: Use 'gender' from DTO
       skillLevel: json['skillLevelId'] ?? 1, // FIX: ใส่ค่า default ป้องกัน null
-      isChecked:
-          json['isCheckedIn'] ??
-          (json['checkinTime'] !=
-              null), // FIX: ตรวจสอบ isCheckedIn ก่อน ถ้าไม่มีให้ดูที่ checkinTime
+      isChecked: json['isCheckedIn'] ?? false, // FIX: Use 'isCheckedIn' from DTO
       participantId: json['participantId'],
       participantType: json['participantType'],
-      status: json['status'] ?? 1,
+      status: json['status'] ?? 1, // NEW: Use 'status' from DTO
     );
   }
 }
@@ -3710,6 +3768,7 @@ class RosterManagementPanel extends StatefulWidget {
   final double shuttleFee;
   final VoidCallback? onPlayerAdded;
   final int maxParticipants; // NEW
+  final int refreshKey; // NEW: รับ Key
   const RosterManagementPanel({
     super.key,
     required this.onClose,
@@ -3719,6 +3778,7 @@ class RosterManagementPanel extends StatefulWidget {
     this.shuttleFee = 0.0,
     this.onPlayerAdded,
     this.maxParticipants = 0,
+    this.refreshKey = 0, // NEW
   });
 
   @override
@@ -3730,7 +3790,6 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
   // TODO: ควรเปลี่ยนเป็นการดึงข้อมูลจาก API live-state ในอนาคต
   late List<RosterPlayer> _rosterPlayers;
 
-  final Set<RosterPlayer> _modifiedPlayers = {};
   final Set<int> _processingPlayerIds = {}; // NEW: ป้องกันการกด Check-in ซ้ำรายคน
   // --- NEW: เพิ่ม State สำหรับเก็บ Skill Levels ---
   List<dynamic> _skillLevels = [];
@@ -3746,12 +3805,22 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
     _fetchSkillLevels();
   }
 
+  // --- NEW: ตรวจสอบการเปลี่ยนแปลงของ Widget ---
+  @override
+  void didUpdateWidget(covariant RosterManagementPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // ถ้า refreshKey เปลี่ยน แสดงว่ามีการเปิด Panel ใหม่ -> ให้โหลดข้อมูลล่าสุด
+    if (widget.refreshKey != oldWidget.refreshKey) {
+      _fetchRosterData();
+    }
+  }
+
   // --- UPDATED: ดึงข้อมูลจาก Session Details เพื่อให้ได้ Status ---
   Future<void> _fetchRosterData() async {
     try {
-      // เปลี่ยนไปใช้ API ที่ได้ข้อมูลครบถ้วน (รวม Status)
+      // FIX: เปลี่ยนไปใช้ API /roster ที่ถูกต้อง
       final response = await ApiProvider().get(
-        '/GameSessions/${widget.sessionId}',
+        '/gamesessions/${widget.sessionId}/roster',
       );
       if (mounted && response['data'] is List) {
         setState(() {
@@ -3761,57 +3830,9 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
               .map((e) => RosterPlayer.fromJson(e.value, e.key + 1))
               .toList();
         });
-      } else if (mounted && response['data'] != null && response['data']['participants'] is List) {
-         // กรณี response เป็น Object และมี key participants
-         setState(() {
-          _rosterPlayers = (response['data']['participants'] as List)
-              .asMap()
-              .entries
-              .map((e) => RosterPlayer.fromJson(e.value, e.key + 1))
-              .toList();
-        });
       }
     } catch (e) {
       // Handle error
-    }
-  }
-
-  Future<void> _saveSkillLevels() async {
-    if (_modifiedPlayers.isEmpty) return;
-
-    try {
-      await Future.wait(
-        _modifiedPlayers.map((player) {
-          return ApiProvider().put(
-            '/GameSessions/${widget.sessionId}/participants/${player.participantType}/${player.participantId}/skill-level',
-            data: {"skillLevelId": player.skillLevel},
-          );
-        }),
-      );
-
-      if (mounted) {
-        showDialogMsg(
-          context,
-          title: 'สำเร็จ',
-          subtitle: 'บันทึกระดับมือสำเร็จ',
-          btnLeft: 'ตกลง',
-          onConfirm: () {},
-        );
-        setState(() {
-          _modifiedPlayers.clear();
-        });
-        widget.onPlayerAdded?.call();
-      }
-    } catch (e) {
-      if (mounted) {
-        showDialogMsg(
-          context,
-          title: 'บันทึกระดับมือล้มเหลว',
-          subtitle: e.toString().replaceFirst('Exception: ', ''),
-          btnLeft: 'ตกลง',
-          onConfirm: () {},
-        );
-      }
     }
   }
 
@@ -3879,6 +3900,39 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
       }
     } catch (e) {
       // Handle error silently
+    }
+  }
+
+  // --- NEW: ฟังก์ชันสำหรับอัปเดตระดับมือทันทีเมื่อมีการเปลี่ยนแปลง ---
+  Future<void> _updatePlayerSkill(RosterPlayer player, int newSkillLevelId) async {
+    // เก็บค่าเก่าไว้เผื่อ Rollback
+    final oldSkillLevel = player.skillLevel;
+    // อัปเดต UI ทันที (Optimistic Update)
+    setState(() {
+      player.skillLevel = newSkillLevelId;
+    });
+
+    try {
+      await ApiProvider().put(
+        '/participants/${player.participantType.toLowerCase()}/${player.participantId}/skill',
+        data: {"skillLevelId": newSkillLevelId},
+      );
+      // ถ้าสำเร็จ ให้เรียก onPlayerAdded เพื่อ refresh หน้าหลัก (Live State)
+      widget.onPlayerAdded?.call();
+    } catch (e) {
+      // ถ้า Error ให้ Rollback ค่าใน UI และแสดงข้อความ
+      if (mounted) {
+        setState(() {
+          player.skillLevel = oldSkillLevel;
+        });
+        showDialogMsg(
+          context,
+          title: 'อัปเดตระดับมือล้มเหลว',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
     }
   }
 
@@ -3990,15 +4044,6 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
                 child: Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: _modifiedPlayers.isNotEmpty
-                            ? _saveSkillLevels
-                            : null,
-                        child: const Text('บันทึกระดับมือ'),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
                       child: ElevatedButton(
                         onPressed: _showAddGuestDialog,
                         style: ElevatedButton.styleFrom(
@@ -4062,10 +4107,8 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
                   }).toList(),
                   onChanged: (newValue) {
                     if (newValue != null) {
-                      setState(() {
-                        player.skillLevel = newValue;
-                        _modifiedPlayers.add(player);
-                      });
+                      // --- FIX: เรียก API ทันทีเมื่อมีการเปลี่ยนแปลง ---
+                      _updatePlayerSkill(player, newValue);
                     }
                   },
                 ),

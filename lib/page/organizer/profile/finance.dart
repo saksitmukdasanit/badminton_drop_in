@@ -1,5 +1,6 @@
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
+import 'package:badminton/component/details_card.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/page/organizer/history/history_organizer_payment.dart';

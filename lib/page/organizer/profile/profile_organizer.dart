@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
+import 'package:badminton/component/details_card.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/image_picker.dart';

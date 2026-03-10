@@ -1,6 +1,7 @@
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/add_guest_dialog.dart';
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/details_card.dart'; // Import Widget กลาง
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
@@ -179,8 +180,8 @@ class ManagePageState extends State<ManagePage> {
     });
     try {
       await ApiProvider().put(
-        // --- UPDATED: เปลี่ยน Endpoint ตามที่ร้องขอ ---
-        '/GameSessions/$sessionId/participants/$participantType/$participantId/skill-level',
+        // FIX: แปลงเป็นตัวพิมพ์เล็ก (member/guest) เพื่อให้ตรงกับ Backend Controller
+        '/participants/${participantType.toLowerCase()}/$participantId/skill',
         data: {'skillLevelId': int.parse(newSkillLevelId)},
       );
 
