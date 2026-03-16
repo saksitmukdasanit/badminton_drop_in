@@ -34,6 +34,10 @@ class SearchUserPageState extends State<SearchUserPage> {
   @override
   void initState() {
     searchController = TextEditingController();
+    // เพิ่ม Listener เพื่อให้ระบบ Rebuild เมื่อมีการพิมพ์ค้นหา
+    searchController.addListener(() {
+       if (mounted) setState(() {});
+    });
     _upcomingGamesFuture = _fetchUpcomingGames();
     super.initState();
   }
@@ -82,6 +86,22 @@ class SearchUserPageState extends State<SearchUserPage> {
     }
   }
 
+  // เพิ่มฟังก์ชันสำหรับจัดการ Bookmark
+  Future<void> _toggleBookmark(int sessionId, bool isBookmarked) async {
+    try {
+      // ตัวอย่างการยิง API (ต้องปรับ Path ให้ตรงกับ Backend)
+      if (isBookmarked) {
+         // await ApiProvider().post('/GameSessions/$sessionId/bookmark');
+         print('Bookmark Session: $sessionId');
+      } else {
+         // await ApiProvider().delete('/GameSessions/$sessionId/bookmark');
+         print('Unbookmark Session: $sessionId');
+      }
+    } catch (e) {
+      print('Bookmark error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,7 +134,7 @@ class SearchUserPageState extends State<SearchUserPage> {
 
             const SizedBox(height: 15),
             CustomDropdown(
-              labelText: 'จัดเรียงตาม',
+              labelText: 'จัดเรียงตาม', // Dropdown นี้จะทำงานได้แล้วเพราะ Logic ใน build
               initialValue: _selectedItem,
               items: _items,
               // isRequired: true,
@@ -147,7 +167,28 @@ class SearchUserPageState extends State<SearchUserPage> {
                   }
 
                   // --- กรณี 4: มีข้อมูล ---
-                  final games = snapshot.data!;
+                  var games = List<dynamic>.from(snapshot.data!);
+
+                  // --- Logic การค้นหา (Client-side filtering) ---
+                  if (searchController.text.isNotEmpty) {
+                    final kw = searchController.text.toLowerCase();
+                    games = games.where((g) {
+                      final name = (g['groupName'] ?? '').toString().toLowerCase();
+                      final court = (g['courtName'] ?? '').toString().toLowerCase();
+                      return name.contains(kw) || court.contains(kw);
+                    }).toList();
+                  }
+
+                  // --- Logic การเรียงลำดับ (Sorting) ---
+                  if (_selectedItem != null) {
+                    if (_selectedItem == 'ค่าสนาม') {
+                      games.sort((a, b) => (num.tryParse('${a['price']}') ?? 0).compareTo(num.tryParse('${b['price']}') ?? 0));
+                    } else if (_selectedItem == 'วันที่') {
+                       games.sort((a, b) => (a['sessionDate'] ?? '').compareTo(b['sessionDate'] ?? ''));
+                    }
+                    // สามารถเพิ่ม case อื่นๆ ได้ตามต้องการ
+                  }
+
                   return ListView.builder(
                     itemCount: games.length,
                     itemBuilder: (context, index) {
@@ -180,7 +221,11 @@ class SearchUserPageState extends State<SearchUserPage> {
                               game['organizerName'], // ไม่มีข้อมูลผู้จัด
                           organizerImageUrl:
                               game['organizerImageUrl'] ?? "", // Placeholder
-                          isInitiallyBookmarked: false,
+                          // แก้ไข: ดึงสถานะ Bookmark จริงจาก API
+                          isInitiallyBookmarked: game['isBookmarked'] ?? false,
+                          // เพิ่ม: รับค่าเมื่อกดหัวใจ
+                          onBookmarkTap: (val) => _toggleBookmark(game['sessionId'], val),
+                          // หมายเหตุ: หาก GameCard2 มี callback onBookmarkTap ให้ใส่ Logic ตรงนี้
                           onCardTap: () {
                             final imageUrlsFromApi =
                                 game['courtImageUrls'] as List<dynamic>? ??
@@ -211,6 +256,7 @@ class SearchUserPageState extends State<SearchUserPage> {
                               courtImageUrls: courtImageUrls,
                               status: game['status'],
                               notes: game['notes'],
+                              currentUserStatus: game['userStatus'] ?? 'NotJoined', // ส่งค่าจาก API
                             );
                             context.push(
                               '/booking-confirm',

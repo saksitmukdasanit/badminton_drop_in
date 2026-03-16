@@ -22,6 +22,7 @@ class GameCard2 extends StatefulWidget {
   final VoidCallback? onCardTap;
   final VoidCallback? onTapOrganizer;
   final VoidCallback? onTapPlayers;
+  final Function(bool isBookmarked)? onBookmarkTap; // เพิ่ม Callback รับค่า bool
 
   const GameCard2({
     super.key,
@@ -43,6 +44,7 @@ class GameCard2 extends StatefulWidget {
     this.onCardTap,
     this.onTapOrganizer,
     this.onTapPlayers,
+    this.onBookmarkTap,
     this.isInitiallyBookmarked = false,
   });
 
@@ -103,6 +105,9 @@ class _GameCard2State extends State<GameCard2> {
                         setState(() {
                           isBookmarked = !isBookmarked;
                         });
+                        if (widget.onBookmarkTap != null) {
+                          widget.onBookmarkTap!(isBookmarked);
+                        }
                       },
                     ),
                   ],

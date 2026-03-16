@@ -29,6 +29,7 @@ class BookingDetails {
   final List<String> courtImageUrls;
   final String notes;
   final int status;
+  final String currentUserStatus; // เพิ่ม field นี้
 
   BookingDetails({
     required this.code,
@@ -51,6 +52,7 @@ class BookingDetails {
     required this.courtImageUrls,
     required this.notes,
     required this.status,
+    this.currentUserStatus = 'NotJoined', // ค่า Default
   });
 }
 
@@ -328,6 +330,28 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   }
 
   Widget _buildBottomBar() {
+    // --- เพิ่ม: ตรวจสอบสถานะก่อนแสดงปุ่มจอง ---
+    if (widget.details.currentUserStatus == 'Joined') {
+       return Container(
+          padding: EdgeInsets.all(15),
+          child: CustomElevatedButton(
+            text: 'คุณเข้าร่วมก๊วนนี้แล้ว',
+            backgroundColor: Colors.grey, 
+            onPressed: () {}, // ปิดการกด
+          ),
+        );
+    } else if (widget.details.currentUserStatus == 'Waitlist') {
+       return Container(
+          padding: EdgeInsets.all(15),
+          child: CustomElevatedButton(
+            text: 'คุณอยู่ในคิวสำรอง',
+            backgroundColor: Colors.orangeAccent,
+            onPressed: () {}, 
+          ),
+        );
+    }
+    // ------------------------------------------
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,

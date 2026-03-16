@@ -30,6 +30,7 @@ class _HistoryOrganizerPaymentPageState
   bool _isLoading = true;
   Map<String, dynamic>? _sessionData;
   List<dynamic> _participants = [];
+  double _calculatedServiceFee = 10.0; // NEW: State for service fee
   
   // State สำหรับ Panel ขวา
   dynamic _selectedPlayer;
@@ -116,7 +117,7 @@ class _HistoryOrganizerPaymentPageState
     }
 
     // 2.2 ค่าธรรมเนียม
-    double serviceFee = 10.0;
+    double serviceFee = _calculatedServiceFee;
     if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
        final items = _selectedPlayerBill['lineItems'] as List;
        final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
@@ -240,11 +241,32 @@ class _HistoryOrganizerPaymentPageState
       // เปลี่ยนไปเรียก API financials แทน
       final response = await ApiProvider().get('/GameSessions/${widget.sessionId}/financials');
       if (mounted && response['status'] == 200) {
+        final sessionData = response['data'];
+        final participants = sessionData?['participants'] ?? [];
+
+        // --- NEW: Calculate service fee dynamically ---
+        double serviceFee = 10.0; // Default fallback
+        final firstUnpaidPlayer = participants.firstWhere(
+          (p) => (num.tryParse('${p['unpaidAmount']}') ?? 0) > 0,
+          orElse: () => null,
+        );
+
+        if (firstUnpaidPlayer != null) {
+          final totalCost = num.tryParse('${firstUnpaidPlayer['totalCost']}') ?? 0;
+          final cPart = num.tryParse('${firstUnpaidPlayer['courtFee']}') ?? 0;
+          final sPart = num.tryParse('${firstUnpaidPlayer['shuttleFee']}') ?? 0;
+          final calculatedFee = totalCost - cPart - sPart;
+          // The calculated fee should be a positive number and reasonable
+          if (calculatedFee > 0 && calculatedFee < 100) {
+            serviceFee = calculatedFee.toDouble();
+          }
+        }
+        // --- END NEW ---
+
         setState(() {
-          _sessionData = response['data'];
-          // สมมติว่า API ส่ง participants มาใน sessionData หรือต้องดึงแยก
-          // ถ้า API /GameSessions/{id} ส่ง participants มาด้วย:
-          _participants = _sessionData?['participants'] ?? [];
+          _sessionData = sessionData;
+          _participants = participants;
+          _calculatedServiceFee = serviceFee; // Store the calculated fee
           _isLoading = false;
         });
       }
@@ -289,6 +311,7 @@ class _HistoryOrganizerPaymentPageState
                     participants: _participants,
                     shuttlecockRate: shuttlecockRate,
                     courtFee: courtFee,
+                    serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                     onPlayerTap: _showPaymentPanel,
                     isScrollable: true,
                   ),
@@ -330,6 +353,7 @@ class _HistoryOrganizerPaymentPageState
                             participants: _participants,
                             shuttlecockRate: shuttlecockRate,
                             courtFee: courtFee,
+                            serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                             onPlayerTap: _showPaymentPanel,
                             isScrollable: true,
                           ),
@@ -362,6 +386,7 @@ class _HistoryOrganizerPaymentPageState
                     participants: _participants,
                     shuttlecockRate: shuttlecockRate,
                     courtFee: courtFee,
+                    serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                     onPlayerTap: _showPaymentPanel,
                   ),
                 if (_isPanelVisible)
@@ -406,14 +431,24 @@ class _HistoryOrganizerPaymentPageState
                   if (_isBillLoading)
                     const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())
                   else
-                    ExpensePanelWidget(
-                      billData: _selectedPlayerBill,
-                      courtFee: num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
-                      shuttlecockFee: num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
-                      totalGames: num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0,
-                      paidAmount: num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0,
-                      onConfirmPayment: _handlePayment, // ส่งฟังก์ชันจัดการจ่ายเงินเข้าไป
-                    ),
+                    Builder(builder: (context) {
+                      // --- NEW: ดึงค่า Service Fee จาก Bill Preview ---
+                      double serviceFee = 10.0; // Fallback
+                      if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
+                        final items = _selectedPlayerBill['lineItems'] as List;
+                        final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
+                        if (item != null) serviceFee = (item['amount'] ?? 10.0).toDouble();
+                      }
+                      return ExpensePanelWidget(
+                        billData: _selectedPlayerBill,
+                        courtFee: num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
+                        shuttlecockFee: num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0,
+                        totalGames: num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0,
+                        paidAmount: num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0,
+                        serviceFee: serviceFee, // --- NEW: ส่งค่า Service Fee เข้าไป ---
+                        onConfirmPayment: _handlePayment,
+                      );
+                    }),
                 ],
               ),
               Positioned(
@@ -755,6 +790,7 @@ class PlayerListCard extends StatelessWidget {
   final dynamic courtFee;
   final bool isScrollable;
   final EdgeInsetsGeometry padding;
+  final double serviceFee; // NEW
 
   const PlayerListCard({
     super.key,
@@ -762,6 +798,7 @@ class PlayerListCard extends StatelessWidget {
     this.participants = const [],
     this.shuttlecockRate = 0,
     this.courtFee = 0,
+    this.serviceFee = 10.0, // NEW
     this.isScrollable = false,
     this.padding = const EdgeInsets.fromLTRB(16, 16, 16, 16),
   });
@@ -793,18 +830,34 @@ class PlayerListCard extends StatelessWidget {
             : '${formatNum(shuttleNum)}';
 
         final totalFromApi = num.tryParse('${p['totalCost']}') ?? 0;
-        // FIX: ยอดรวมในตารางไม่ต้องรวมค่าบริการ 10 บาท ตามที่ผู้ใช้ร้องขอ
-        final totalDisplayVal = totalFromApi > 0 ? totalFromApi - 10 : 0;
+        final paidFromApi = num.tryParse('${p['paidAmount']}') ?? 0;
+        
+        // --- FIX: หักค่าบริการ (Service Fee) ออกจากทุกยอดเพื่อแสดงรายรับจริงของผู้จัด ---
+        double totalDisplayVal = 0;
+        double paidDisplayVal = 0;
+        double unpaidDisplayVal = 0;
+
+        if (totalFromApi > 0) {
+           // 1. ยอดรวม: หักค่าบริการออก (เช่น 185 - 10 = 175)
+           totalDisplayVal = (totalFromApi - serviceFee).clamp(0, double.infinity);
+           
+           // 2. จ่ายแล้ว: หักค่าบริการออก (ถือว่าลูกค้าจ่ายค่าบริการให้ระบบไปแล้ว ส่วนที่เหลือคือของผู้จัด)
+           // เช่น จ่ายมา 185 -> ระบบหัก 10 -> ผู้จัดเห็นว่าจ่ายแล้ว 175
+           paidDisplayVal = (paidFromApi >= serviceFee) ? (paidFromApi - serviceFee) : 0;
+           
+           // 3. ค้างจ่าย: คำนวณจาก ยอดรวมใหม่ - จ่ายแล้วใหม่
+           unpaidDisplayVal = (totalDisplayVal - paidDisplayVal).clamp(0, double.infinity);
+        }
+
         final total = formatNum(totalDisplayVal);
+        final paid = formatNum(paidDisplayVal);
+        final unpaid = formatNum(unpaidDisplayVal);
 
-        final paid = formatNum(num.tryParse('${p['paidAmount']}') ?? 0);
-        final unpaid = formatNum(num.tryParse('${p['unpaidAmount']}') ?? 0);
-
-        // FIX: คำนวณ "อื่นๆ" โดยหักค่าสนามและค่าลูกแบด (จาก API) ออกจากยอดรวม
+        // 4. อื่นๆ: คำนวณจากยอดรวมใหม่ (ไม่ต้องลบ serviceFee ซ้ำ เพราะ totalDisplayVal ลบไปแล้ว)
         final othersNum = totalDisplayVal - (courtNum + shuttleNum);
         final others = formatNum(othersNum);
 
-        final unpaidNum = num.tryParse(unpaid) ?? 0;
+        final unpaidNum = unpaidDisplayVal;
         final rowColor = unpaidNum > 0 ? Colors.red : Colors.green;
 
         return GestureDetector(

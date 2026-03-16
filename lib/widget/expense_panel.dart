@@ -30,6 +30,7 @@ class ExpensePanelWidget extends StatefulWidget {
   final double courtFee; // NEW: รับค่าสนามเริ่มต้น
   final double shuttlecockFee; // NEW: รับราคาลูกแบด
   final int totalGames; // NEW: รับจำนวนเกมที่เล่น
+  final double serviceFee; // NEW: รับค่าบริการ
   final double paidAmount; // NEW: รับยอดที่จ่ายไปแล้ว
 
   const ExpensePanelWidget({
@@ -39,6 +40,7 @@ class ExpensePanelWidget extends StatefulWidget {
     this.courtFee = 0.0,
     this.shuttlecockFee = 0.0,
     this.totalGames = 0,
+    this.serviceFee = 0.0, // NEW
     this.paidAmount = 0.0,
   });
 
@@ -215,8 +217,8 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildInfoRow('ค่าสนาม', '${_apiCourtFee.toStringAsFixed(0)} บาท'),
-            _buildInfoRow('ค่าธรรมเนียม', '${_apiServiceFee.toStringAsFixed(0)} บาท'), // FIX: ใช้ค่าจาก API
-            _buildInfoRow('ราคารวม', '${(_apiCourtFee + _apiServiceFee).toStringAsFixed(0)} บาท', isBold: true), // FIX: คำนวณรวมจาก API
+            _buildInfoRow('ค่าธรรมเนียม', '${widget.serviceFee.toStringAsFixed(0)} บาท'), // FIX: ใช้ค่าจาก Widget
+            _buildInfoRow('ราคารวม', '${(_apiCourtFee + widget.serviceFee).toStringAsFixed(0)} บาท', isBold: true), // FIX: คำนวณรวมจาก Widget
             const SizedBox(height: 16),
             const Text(
               'ชำระผ่าน',
@@ -261,6 +263,10 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
 
   // Widget สำหรับสรุปค่าลูกแบดและฟอร์ม
   Widget _buildShuttlecockFeeSection() {
+    double grandTotal = _apiCourtFee + _apiServiceFee + _totalShuttlecockFee;
+    double due = grandTotal - widget.paidAmount;
+    bool isFullyPaid = due <= 0; // ตรวจสอบว่าจ่ายครบแล้วหรือยัง
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -288,6 +294,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                   '${isAddition ? '+' : '-'}${adj.amount.toStringAsFixed(0)} บาท',
                   color: isAddition ? Colors.black : Colors.green,
                   idx: entry.key,
+                  isReadOnly: isFullyPaid, // NEW: ส่งสถานะไปเพื่อซ่อนปุ่มลบ
                 );
               }),
               
@@ -299,6 +306,8 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
               const Divider(height: 24),
               _buildGrandTotalSection(),
 
+              // --- FIX: ถ้าจ่ายครบแล้ว ให้ซ่อนส่วนฟอร์มและการชำระเงิน ---
+              if (!isFullyPaid) ...[
               const SizedBox(height: 16),
               // --- ฟอร์มสำหรับกรอกข้อมูล ---
               CustomTextFormField(
@@ -394,6 +403,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                   padding: EdgeInsetsGeometry.all(12),
                 ),
               ),
+              ], // End if (!isFullyPaid)
             ],
           ),
         ),
@@ -473,6 +483,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
     bool isBold = false,
     Color? color,
     int idx = 0,
+    bool isReadOnly = false, // NEW
   }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -487,10 +498,12 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                 fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 16, color: Colors.red),
-              onPressed: () => _deleteAdjustment(idx),
-            ),
+            // --- FIX: ซ่อนปุ่มลบถ้าอยู่ในโหมด Read-only ---
+            if (!isReadOnly)
+              IconButton(
+                icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                onPressed: () => _deleteAdjustment(idx),
+              ),
           ],
         ),
         Text(

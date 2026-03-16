@@ -206,9 +206,9 @@ class ProFileUserPageState extends State<ProFileUserPage> {
               onTap: () {},
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(100),
-                child: ((userData['data']['ProfilePhotoUrl'] ?? '') != '')
+                child: ((userData['data']['profilePhotoUrl'] ?? '') != '')
                     ? LoadingImageNetwork(
-                        userData['data']['ProfilePhotoUrl'],
+                        userData['data']['profilePhotoUrl'],
                         fit: BoxFit.cover,
                         isProfile: true,
                       )
