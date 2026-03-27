@@ -18,15 +18,16 @@ class GamePlayerPage extends StatefulWidget {
   GamePlayerPageState createState() => GamePlayerPageState();
 }
 
-class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProviderStateMixin {
+class GamePlayerPageState extends State<GamePlayerPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  
+
   // --- SignalR & State ---
   HubConnection? _hubConnection;
   bool _isLoading = true;
   int? _myUserId;
   int? _myParticipantId;
-  
+
   // --- ข้อมูล Live State ---
   Map<String, dynamic> _liveState = {};
   String _groupName = '';
@@ -35,7 +36,7 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
   bool _isStartGame = false;
   Duration _sessionDuration = Duration.zero;
   Timer? _sessionTimer;
-  
+
   // --- ข้อมูลส่วนตัวของผู้เล่น ---
   String _myCurrentStatus = 'รอโหลดข้อมูล...';
   bool _isPlayingInMainCourt = false;
@@ -114,7 +115,9 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
     if (_myUserId == null) return;
     try {
       // ดึงสถิติของตัวเอง
-      final res = await ApiProvider().get('/player/gamesessions/${widget.id}/my-stats');
+      final res = await ApiProvider().get(
+        '/player/gamesessions/${widget.id}/my-stats',
+      );
       if (mounted && res['data'] != null) {
         setState(() {
           _myMatchHistory = res['data']['matchHistory'] ?? [];
@@ -126,14 +129,16 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
   Future<void> _fetchMyBill() async {
     if (_myUserId == null) return;
     try {
-      final res = await ApiProvider().get('/player/gamesessions/${widget.id}/my-bill');
+      final res = await ApiProvider().get(
+        '/player/gamesessions/${widget.id}/my-bill',
+      );
       if (mounted) setState(() => _myBillData = res['data']);
     } catch (e) {}
   }
 
   Future<void> _initSignalR() async {
     _hubConnection = ApiProvider().createHubConnection('/managementGameHub');
-    
+
     _hubConnection!.on("ReceiveLiveStateUpdate", (arguments) {
       if (arguments != null && arguments.isNotEmpty && arguments[0] is Map) {
         _processLiveStateData(Map<String, dynamic>.from(arguments[0] as Map));
@@ -151,7 +156,9 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
 
   Future<void> _fetchLiveState() async {
     try {
-      final response = await ApiProvider().get('/player/gamesessions/${widget.id}/live-state');
+      final response = await ApiProvider().get(
+        '/player/gamesessions/${widget.id}/live-state',
+      );
       if (response['data'] != null) {
         _processLiveStateData(response['data']);
       }
@@ -173,7 +180,8 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
         _isStartGame = true;
         final startTime = DateTime.parse(data['competitionStartTime']);
         _sessionDuration = DateTime.now().difference(startTime);
-        if (_sessionTimer == null || !_sessionTimer!.isActive) _startSessionTimer();
+        if (_sessionTimer == null || !_sessionTimer!.isActive)
+          _startSessionTimer();
       } else {
         _isStartGame = false;
         _sessionDuration = Duration.zero;
@@ -196,10 +204,26 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
     final stagedMatches = data['stagedMatches'] as List? ?? [];
     final waitingPool = data['waitingPool'] as List? ?? [];
     final allPlayerIds = <String>{};
-    courts.forEach((c) => (c['currentMatch']?['teamA'] as List? ?? []).forEach((p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}")));
-    courts.forEach((c) => (c['currentMatch']?['teamB'] as List? ?? []).forEach((p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}")));
-    stagedMatches.forEach((m) => (m['teamA'] as List? ?? []).forEach((p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}")));
-    stagedMatches.forEach((m) => (m['teamB'] as List? ?? []).forEach((p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}")));
+    courts.forEach(
+      (c) => (c['currentMatch']?['teamA'] as List? ?? []).forEach(
+        (p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}"),
+      ),
+    );
+    courts.forEach(
+      (c) => (c['currentMatch']?['teamB'] as List? ?? []).forEach(
+        (p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}"),
+      ),
+    );
+    stagedMatches.forEach(
+      (m) => (m['teamA'] as List? ?? []).forEach(
+        (p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}"),
+      ),
+    );
+    stagedMatches.forEach(
+      (m) => (m['teamB'] as List? ?? []).forEach(
+        (p) => allPlayerIds.add("p_${p['userId'] ?? p['walkinId']}"),
+      ),
+    );
     waitingPool.forEach((p) => allPlayerIds.add("w_${p['participantId']}"));
     _currentParticipants = allPlayerIds.length;
 
@@ -208,25 +232,39 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
       if (match != null) {
         final teamA = match['teamA'] as List? ?? [];
         final teamB = match['teamB'] as List? ?? [];
-        
-        bool inTeamA = teamA.any((p) => p['userId']?.toString() == _myParticipantId.toString());
-        bool inTeamB = teamB.any((p) => p['userId']?.toString() == _myParticipantId.toString());
+
+        bool inTeamA = teamA.any(
+          (p) => p['userId']?.toString() == _myParticipantId.toString(),
+        );
+        bool inTeamB = teamB.any(
+          (p) => p['userId']?.toString() == _myParticipantId.toString(),
+        );
 
         if (inTeamA || inTeamB) {
-           final courtId = court['courtIdentifier'] ?? court['courtNumber'] ?? '-';
-           List<dynamic> myTeam = inTeamA ? teamA : teamB;
-           List<dynamic> opponents = inTeamA ? teamB : teamA;
+          final courtId =
+              court['courtIdentifier'] ?? court['courtNumber'] ?? '-';
+          List<dynamic> myTeam = inTeamA ? teamA : teamB;
+          List<dynamic> opponents = inTeamA ? teamB : teamA;
 
-           String myTeammate = myTeam.where((p) => p['userId']?.toString() != _myParticipantId.toString()).map((p) => p['nickname'] ?? 'N/A').join(', ');
-           String oppNames = opponents.map((p) => p['nickname'] ?? 'N/A').join(', ');
+          String myTeammate = myTeam
+              .where(
+                (p) => p['userId']?.toString() != _myParticipantId.toString(),
+              )
+              .map((p) => p['nickname'] ?? 'N/A')
+              .join(', ');
+          String oppNames = opponents
+              .map((p) => p['nickname'] ?? 'N/A')
+              .join(', ');
 
-           if (match['startTime'] != null) {
-              _isPlayingInMainCourt = true;
-              _myCurrentStatus = 'กำลังเล่นอยู่: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
-           } else {
-              _myCurrentStatus = 'เตรียมลงเล่น: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
-           }
-           return;
+          if (match['startTime'] != null) {
+            _isPlayingInMainCourt = true;
+            _myCurrentStatus =
+                'กำลังเล่นอยู่: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
+          } else {
+            _myCurrentStatus =
+                'เตรียมลงเล่น: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
+          }
+          return;
         }
       }
     }
@@ -235,28 +273,43 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
       final teamA = match['teamA'] as List? ?? [];
       final teamB = match['teamB'] as List? ?? [];
 
-      bool inTeamA = teamA.any((p) => p['userId']?.toString() == _myParticipantId.toString());
-      bool inTeamB = teamB.any((p) => p['userId']?.toString() == _myParticipantId.toString());
-      
+      bool inTeamA = teamA.any(
+        (p) => p['userId']?.toString() == _myParticipantId.toString(),
+      );
+      bool inTeamB = teamB.any(
+        (p) => p['userId']?.toString() == _myParticipantId.toString(),
+      );
+
       if (inTeamA || inTeamB) {
-          final cId = match['courtIdentifier'] ?? match['courtNumber'];
-          List<dynamic> myTeam = inTeamA ? teamA : teamB;
-          List<dynamic> opponents = inTeamA ? teamB : teamA;
+        final cId = match['courtIdentifier'] ?? match['courtNumber'];
+        List<dynamic> myTeam = inTeamA ? teamA : teamB;
+        List<dynamic> opponents = inTeamA ? teamB : teamA;
 
-          String myTeammate = myTeam.where((p) => p['userId']?.toString() != _myParticipantId.toString()).map((p) => p['nickname'] ?? 'N/A').join(', ');
-          String oppNames = opponents.map((p) => p['nickname'] ?? 'N/A').join(', ');
+        String myTeammate = myTeam
+            .where(
+              (p) => p['userId']?.toString() != _myParticipantId.toString(),
+            )
+            .map((p) => p['nickname'] ?? 'N/A')
+            .join(', ');
+        String oppNames = opponents
+            .map((p) => p['nickname'] ?? 'N/A')
+            .join(', ');
 
-          if (cId != null && cId.toString().startsWith('-')) {
-            _myCurrentStatus = 'อยู่ในคิวสำรอง: ทีมที่ ${cId.toString().substring(1)}\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
-          } else {
-            _myCurrentStatus = 'ถูกจัดทีมแล้ว รอลงสนาม\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
-          }
-          return;
+        if (cId != null && cId.toString().startsWith('-')) {
+          _myCurrentStatus =
+              'อยู่ในคิวสำรอง: ทีมที่ ${cId.toString().substring(1)}\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
+        } else {
+          _myCurrentStatus =
+              'ถูกจัดทีมแล้ว รอลงสนาม\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
+        }
+        return;
       }
     }
 
     // 4. ถ้าไม่เจอใน_สนามหรือทีมสำรอง ให้เช็ค waiting pool
-    bool isInWaitingPool = waitingPool.any((p) => p['participantId']?.toString() == _myParticipantId.toString());
+    bool isInWaitingPool = waitingPool.any(
+      (p) => p['participantId']?.toString() == _myParticipantId.toString(),
+    );
 
     if (isInWaitingPool && _isPaused) {
       _myCurrentStatus = 'หยุดพักการแข่งขัน';
@@ -281,23 +334,29 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
 
   Future<void> _togglePause() async {
     if (_isPlayingInMainCourt) return;
-    
+
     try {
       // สมมติว่ามี API สำหรับขอพัก (หรือเรียกใช้ endpoint ที่มีอยู่)
       // หากไม่มี API นี้ในระบบ ให้ใช้ Local State ไปก่อน
       // await ApiProvider().put('/participants/member/$_myUserId/pause', data: {"isPaused": !_isPaused});
-      
+
       setState(() {
         _isPaused = !_isPaused;
         if (_isPaused) {
-           _myCurrentStatus = 'หยุดพักการแข่งขัน';
+          _myCurrentStatus = 'หยุดพักการแข่งขัน';
         } else {
-           _fetchLiveState(); // โหลดสถานะใหม่
+          _fetchLiveState(); // โหลดสถานะใหม่
         }
       });
       _closeFabMenu();
     } catch (e) {
-      showDialogMsg(context, title: 'ผิดพลาด', subtitle: e.toString(), btnLeft: 'ตกลง', onConfirm: () {});
+      showDialogMsg(
+        context,
+        title: 'ผิดพลาด',
+        subtitle: e.toString(),
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
     }
   }
 
@@ -312,8 +371,10 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
 
   // --- FAB MENU ---
   void _toggleFabMenu() {
-    if (_fabMenuOverlay == null) _openFabMenu();
-    else _closeFabMenu();
+    if (_fabMenuOverlay == null)
+      _openFabMenu();
+    else
+      _closeFabMenu();
   }
 
   void _closeFabMenu() {
@@ -335,8 +396,14 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
             child: Stack(
               children: [
                 Positioned(
-                  bottom: MediaQuery.of(context).size.height - fabPosition.dy - fabSize.height,
-                  right: MediaQuery.of(context).size.width - fabPosition.dx - fabSize.width,
+                  bottom:
+                      MediaQuery.of(context).size.height -
+                      fabPosition.dy -
+                      fabSize.height,
+                  right:
+                      MediaQuery.of(context).size.width -
+                      fabPosition.dx -
+                      fabSize.width,
                   child: _buildFabMenu(),
                 ),
               ],
@@ -361,10 +428,16 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
             padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
             child: Text.rich(
               TextSpan(
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
                 children: [
                   const TextSpan(text: 'เข้าร่วมแล้ว '),
-                  TextSpan(text: '$_currentParticipants/$_maxParticipants', style: const TextStyle(color: Colors.black)),
+                  TextSpan(
+                    text: '$_currentParticipants/$_maxParticipants',
+                    style: const TextStyle(color: Colors.black),
+                  ),
                   const TextSpan(text: ' คน'),
                 ],
               ),
@@ -375,7 +448,11 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
             child: Text(
               'เวลา ${_formatSessionDuration(_sessionDuration)} น.',
-              style: const TextStyle(fontSize: 16, color: Colors.black, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -387,7 +464,14 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
             },
             child: const Padding(
               padding: EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
-              child: Text('ดูค่าใช้จ่าย', style: TextStyle(fontSize: 16, color: Colors.green, fontWeight: FontWeight.bold)),
+              child: Text(
+                'ดูค่าใช้จ่าย',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -395,13 +479,16 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
           InkWell(
             onTap: _isPlayingInMainCourt ? null : _togglePause,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+              padding: const EdgeInsets.symmetric(
+                vertical: 16.0,
+                horizontal: 24.0,
+              ),
               child: Text(
                 _isPaused ? 'กลับสู่การแข่งขัน' : 'หยุดการแข่งขัน',
                 style: TextStyle(
-                  fontSize: 16, 
-                  color: _isPlayingInMainCourt ? Colors.grey : Colors.red, 
-                  fontWeight: FontWeight.bold
+                  fontSize: 16,
+                  color: _isPlayingInMainCourt ? Colors.grey : Colors.red,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -446,14 +533,26 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('ยอดรวมทั้งหมด', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text('$totalAmount ฿', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      const Text(
+                        'ยอดรวมทั้งหมด',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '$totalAmount ฿',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                      ),
                     ],
-                  )
+                  ),
                 ],
               ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('ปิด')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ปิด'),
+          ),
         ],
       ),
     );
@@ -492,10 +591,7 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [
-                _buildMyStatusTab(),
-                _buildAllCourtsTab(),
-              ],
+              children: [_buildMyStatusTab(), _buildAllCourtsTab()],
             ),
           ),
         ],
@@ -521,19 +617,24 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
         // การ์ดบอกสถานะปัจจุบัน
         Card(
           color: _isPaused ? Colors.red[50] : Colors.teal[50],
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                const Text('สถานะปัจจุบัน', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                const Text(
+                  'สถานะปัจจุบัน',
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   _myCurrentStatus,
                   style: TextStyle(
-                    fontSize: 22, 
-                    fontWeight: FontWeight.bold, 
-                    color: _isPaused ? Colors.red : Colors.teal[800]
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: _isPaused ? Colors.red : Colors.teal[800],
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -542,20 +643,30 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
           ),
         ),
         const SizedBox(height: 24),
-        const Text('เกมส์ทั้งหมดที่เล่นแล้ว', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text(
+          'เกมส์ทั้งหมดที่เล่นแล้ว',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 12),
-        
+
         if (_myMatchHistory.isEmpty)
-           const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('คุณยังไม่ได้เล่นเกมใดๆ')))
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('คุณยังไม่ได้เล่นเกมใดๆ'),
+            ),
+          )
         else
-           // แสดงเกมล่าสุดไว้ด้านบนสุด
-           ..._myMatchHistory.reversed.toList().asMap().entries.map((entry) {
-             return PlayerMatchCard(match: entry.value, index: _myMatchHistory.length - entry.key);
-           }).toList(),
+          // แสดงเกมล่าสุดไว้ด้านบนสุด
+          ..._myMatchHistory.reversed.toList().asMap().entries.map((entry) {
+            return PlayerMatchCard(
+              match: entry.value,
+              index: _myMatchHistory.length - entry.key,
+            );
+          }).toList(),
       ],
     );
   }
-
 
   // ==========================================
   // TAB 2: ดูสนามทั้งหมด (Read Only)
@@ -567,7 +678,10 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('สนามทั้งหมด', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text(
+          'สนามทั้งหมด',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 230,
@@ -578,19 +692,58 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
               final court = courts[index];
               return Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: SizedBox(width: 210, child: _buildReadOnlyCourtCard(court)),
+                child: SizedBox(
+                  width: 210,
+                  child: _buildReadOnlyCourtCard(court),
+                ),
               );
             },
           ),
         ),
         const SizedBox(height: 24),
-        Text('ผู้เล่นที่รอ (${waitingPool.length} คน)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(
+          'ผู้เล่นที่รอ (${waitingPool.length} คน)',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: waitingPool.map((p) => _buildReadOnlyPlayerAvatar(p)).toList(),
-        )
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: waitingPool.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text(
+                      'ไม่มีผู้เล่นที่รอคิว',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                )
+              : Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.start,
+                  children: waitingPool
+                      .map(
+                        (p) => _buildReadOnlyPlayerAvatar(
+                          p,
+                          isDarkBackground: false,
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
       ],
     );
   }
@@ -598,11 +751,12 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
   Widget _buildReadOnlyCourtCard(dynamic court) {
     final match = court['currentMatch'];
     final isPlaying = match != null && match['startTime'] != null;
-    
+
     List<dynamic> teamA = match != null ? match['teamA'] : [];
     List<dynamic> teamB = match != null ? match['teamB'] : [];
 
     return Card(
+      elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -632,18 +786,35 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildReadOnlyPlayerSlot(teamB.isNotEmpty ? teamB[0] : null),
-                        _buildReadOnlyPlayerSlot(teamB.length > 1 ? teamB[1] : null),
+                        _buildReadOnlyPlayerSlot(
+                          teamB.isNotEmpty ? teamB[0] : null,
+                        ),
+                        _buildReadOnlyPlayerSlot(
+                          teamB.length > 1 ? teamB[1] : null,
+                        ),
                       ],
                     ),
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(isPlaying ? 'กำลังเล่น' : 'รอกดเริ่ม', style: TextStyle(color: isPlaying ? Colors.greenAccent : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                      Text('สนาม ${court['courtIdentifier'] ?? court['courtNumber'] ?? '-'}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(
+                        isPlaying ? 'กำลังเล่น' : 'รอกดเริ่ม',
+                        style: TextStyle(
+                          color: isPlaying ? Colors.greenAccent : Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'สนาม ${court['courtIdentifier'] ?? court['courtNumber'] ?? '-'}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
-                  )
+                  ),
                 ],
               ),
             ),
@@ -656,18 +827,33 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
   Widget _buildReadOnlyPlayerSlot(dynamic player) {
     if (player == null) {
       return Container(
-        width: 45, height: 45,
-        decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
+        width: 45,
+        height: 45,
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(8),
+        ),
       );
     }
-    return _buildReadOnlyPlayerAvatar(player, isSmall: true);
+    return _buildReadOnlyPlayerAvatar(
+      player,
+      isSmall: true,
+      isDarkBackground: true,
+    );
   }
 
-  Widget _buildReadOnlyPlayerAvatar(dynamic player, {bool isSmall = false}) {
+  Widget _buildReadOnlyPlayerAvatar(
+    dynamic player, {
+    bool isSmall = false,
+    bool isDarkBackground = false,
+  }) {
     final String name = player['nickname'] ?? '-';
     final String? img = player['profilePhotoUrl'];
     final String level = player['skillLevelName'] ?? '-';
-    
+
+    final textColor = isDarkBackground ? Colors.white : Colors.black87;
+    final subTextColor = isDarkBackground ? Colors.white70 : Colors.grey[600];
+
     return SizedBox(
       width: isSmall ? 60 : 80,
       child: Column(
@@ -675,13 +861,33 @@ class GamePlayerPageState extends State<GamePlayerPage> with SingleTickerProvide
         children: [
           CircleAvatar(
             radius: isSmall ? 20 : 30,
-            backgroundImage: img != null && img.isNotEmpty ? NetworkImage(img) : null,
-            child: img == null || img.isEmpty ? const Icon(Icons.person) : null,
+            backgroundColor: isDarkBackground
+                ? Colors.black26
+                : Colors.grey[200],
+            backgroundImage: img != null && img.isNotEmpty
+                ? NetworkImage(img)
+                : null,
+            child: img == null || img.isEmpty
+                ? Icon(
+                    Icons.person,
+                    color: isDarkBackground ? Colors.white70 : Colors.grey[600],
+                  )
+                : null,
           ),
-          const SizedBox(height: 4),
-          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isSmall ? 10 : 12, fontWeight: FontWeight.bold, color: Colors.white)),
+
+          const SizedBox(height: 6),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: isSmall ? 10 : 12,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
           if (!isSmall)
-            Text(level, style: const TextStyle(fontSize: 10, color: Colors.white70)),
+            Text(level, style: TextStyle(fontSize: 10, color: subTextColor)),
         ],
       ),
     );
