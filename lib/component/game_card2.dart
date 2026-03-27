@@ -166,57 +166,101 @@ class _GameCard2State extends State<GameCard2> {
             color: Colors.teal[600],
             fontWeight: FontWeight.bold,
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        Text(widget.location, style: TextStyle(color: Colors.grey[700])),
-        // const SizedBox(height: 12),
+        Text(
+          widget.location, 
+          style: TextStyle(
+            color: Colors.grey[700],
+            fontSize: getResponsiveFontSize(context, fontSize: 10),
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 8),
+        
+        // --- ข้อมูลจัดแบบ 2 คอลัมน์ ---
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoColumn('ค่าสนาม', widget.price),
-            _buildInfoColumn('เล่น 21 แต้ม', widget.gameInfo),
+            Expanded(
+              child: _buildInfoColumn('ค่าใช้จ่าย', widget.price),
+            ),
+            Expanded(
+              child: _buildInfoColumn('รูปแบบ', '21 แต้ม\n${widget.gameInfo}'),
+            ),
           ],
         ),
-        _buildInfoColumn(widget.shuttlecockBrand,widget.shuttlecockInfo),
+        const SizedBox(height: 6),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('ผู้เล่น '),
-            Text(
-              '${widget.currentPlayers}/${widget.maxPlayers}',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.teal[600],
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-              ),
+            Expanded(
+              child: _buildInfoColumn('ลูกแบด', '${widget.shuttlecockBrand}\n${widget.shuttlecockInfo}'),
             ),
-            const Text(' คน '),
-            GestureDetector(
-              onTap: widget.onTapPlayers,
-              child: Text(
-                'ดูผู้เล่น',
-                style: TextStyle(
-                  color: Colors.teal[600],
-                  fontWeight: FontWeight.bold,
-                  decoration: TextDecoration.underline,
-                ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ผู้เล่น',
+                    style: TextStyle(
+                      fontSize: getResponsiveFontSize(context, fontSize: 10),
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        '${widget.currentPlayers}/${widget.maxPlayers} คน',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                          fontSize: getResponsiveFontSize(context, fontSize: 10),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        onTap: widget.onTapPlayers,
+                        child: Text(
+                          '(ดู)',
+                          style: TextStyle(
+                            color: Colors.teal[600],
+                            fontWeight: FontWeight.bold,
+                            fontSize: getResponsiveFontSize(context, fontSize: 10),
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
+        
+        // --- ผู้จัด ---
         Row(
           children: [
             CircleAvatar(
-              radius: 12,
+              radius: 10,
               backgroundImage: NetworkImage(widget.organizerImageUrl),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: widget.onTapOrganizer,
-              child: Text(
-                widget.organizerName,
-                style: TextStyle(
-                  fontSize: getResponsiveFontSize(context, fontSize: 14),
-                  decoration: TextDecoration.underline,
+            const SizedBox(width: 6),
+            Expanded(
+              child: GestureDetector(
+                onTap: widget.onTapOrganizer,
+                child: Text(
+                  'ผู้จัด: ${widget.organizerName}',
+                  style: TextStyle(
+                    fontSize: getResponsiveFontSize(context, fontSize: 10),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),

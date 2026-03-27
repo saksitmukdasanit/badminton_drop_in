@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -36,6 +38,17 @@ class HistoryUserPage extends StatefulWidget {
 class HistoryUserPageState extends State<HistoryUserPage> {
   late TextEditingController searchController;
   String? _selectedItem;
+
+  Timer? _debounce;
+
+  int _page = 1;
+  final int _limit = 10;
+  bool _isLoadingInitial = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  List<dynamic> _games = [];
+  final ScrollController _scrollController = ScrollController();
+
   final List<dynamic> _items = [
     {"code": 1, "value": 'ล่าสุด'},
     {"code": 2, "value": 'ยอดนิยม'},
@@ -44,53 +57,85 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     {"code": 5, "value": 'ค่าสนาม'},
     {"code": 6, "value": 'ค่าลูก'},
   ];
-  late List<BookingDetails> bookingDetails;
+
   @override
   void initState() {
-    searchController = TextEditingController();
-    bookingDetails = _generateMockGangs(15);
     super.initState();
+    searchController = TextEditingController();
+    searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
+    _fetchHistoryGames(refresh: true);
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    searchController.removeListener(_onSearchChanged);
     searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  List<BookingDetails> _generateMockGangs(int count) {
-    final random = Random();
-    return List.generate(count, (i) {
-      return BookingDetails(
-        code: i + 1,
-        teamName: 'ก๊วนแมวเหมียว',
-        imageUrl:
-            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-        day: 'wed',
-        date: '16/05/2025 18.00-21.00 น.',
-        time: 'time',
-        courtName: 'courtName',
-        location: 'location',
-        price: '210',
-        shuttlecockInfo: 'shuttlecockInfo',
-        shuttlecockBrand: 'shuttlecockBrand',
-        gameInfo: 'gameInfo',
-        courtNumbers:'',
-        currentPlayers: 56,
-        maxPlayers: 60,
-        organizerName: 'สมยศ คงยิ่ง',
-        organizerImageUrl:
-            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-        status: [1, 2, 3, 4][random.nextInt([1, 2, 3, 4].length)],
-        notes: '',
-        courtImageUrls: [
-          'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-          'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-          'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-          'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-        ],
-      );
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMore) {
+        _fetchHistoryGames(refresh: false);
+      }
+    }
+  }
+
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) _fetchHistoryGames(refresh: true);
     });
+  }
+
+  Future<void> _fetchHistoryGames({bool refresh = false}) async {
+    if (refresh) {
+      _page = 1;
+      _hasMore = true;
+      if (mounted) setState(() => _isLoadingInitial = true);
+    } else {
+      if (mounted) setState(() => _isLoadingMore = true);
+    }
+
+    try {
+      final queryParams = <String, dynamic>{};
+      if (searchController.text.isNotEmpty)
+        queryParams['keyword'] = searchController.text;
+      if (_selectedItem != null) queryParams['sortBy'] = _selectedItem;
+      queryParams['page'] = _page;
+      queryParams['limit'] = _limit;
+
+      final response = await ApiProvider().get(
+        '/player/gamesessions/history',
+        queryParameters: queryParams,
+      );
+      if (response['status'] == 200) {
+        final List<dynamic> newData = response['data'] ?? [];
+        if (mounted) {
+          setState(() {
+            if (refresh)
+              _games = newData;
+            else
+              _games.addAll(newData);
+
+            if (newData.length < _limit) _hasMore = false;
+            _page++;
+          });
+        }
+      }
+    } catch (e) {
+      print('Failed to load history games: $e');
+    } finally {
+      if (mounted)
+        setState(() {
+          _isLoadingInitial = false;
+          _isLoadingMore = false;
+        });
+    }
   }
 
   @override
@@ -144,14 +189,24 @@ class HistoryUserPageState extends State<HistoryUserPage> {
             const SizedBox(height: 15),
             _buildHeader(context),
             Expanded(
-              child: ListView.builder(
-                itemCount: bookingDetails.length,
-                itemBuilder: (context, index) {
-                  return _buildGangRow(bookingDetails[index]);
-                },
-              ),
+              child: _isLoadingInitial
+                  ? const Center(child: CircularProgressIndicator())
+                  : _games.isEmpty
+                  ? const Center(child: Text('ไม่พบประวัติก๊วน'))
+                  : ListView.builder(
+                      controller: _scrollController,
+                      itemCount: _games.length + (_isLoadingMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == _games.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        return _buildGangRow(_games[index]);
+                      },
+                    ),
             ),
-            _buildPagination(),
           ],
         ),
       ),
@@ -219,8 +274,35 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     );
   }
 
+  String _getStatusDisplay(dynamic status) {
+    final matches = statusColors.where((d) => d['code'] == status.toString());
+    if (matches.isNotEmpty) return matches.first['display'];
+
+    if (status == 1 || status == 2) return 'สำเร็จ';
+    if (status == 3 || status == 4) return 'ยกเลิก';
+    return 'สำเร็จ';
+  }
+
+  Color _getStatusColor(dynamic status) {
+    final matches = statusColors.where((d) => d['code'] == status.toString());
+    if (matches.isNotEmpty) return matches.first['color'];
+
+    if (status == 3 || status == 4) return const Color(0xFF64646D);
+    return const Color(0xFF0E9D7A);
+  }
+
   // Widget สำหรับแสดงข้อมูลผู้เล่นแต่ละแถว
-  Widget _buildGangRow(BookingDetails data) {
+  Widget _buildGangRow(dynamic game) {
+    final formattedDateTime = formatSessionStart(
+      game['sessionStart'] ?? DateTime.now().toIso8601String(),
+    );
+    final courtFee = game['courtFeePerPerson'] ?? game['courtFee'] ?? '0';
+    final shuttleFee =
+        game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'] ?? '0';
+    final totalCost =
+        (double.tryParse(courtFee.toString()) ?? 0) +
+        (double.tryParse(shuttleFee.toString()) ?? 0);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
       child: Row(
@@ -228,7 +310,7 @@ class HistoryUserPageState extends State<HistoryUserPage> {
           Expanded(
             flex: 2,
             child: Text(
-              data.date,
+              '${game['sessionDate']} ${game['startTime']}',
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 10),
                 fontWeight: FontWeight.w300,
@@ -238,27 +320,31 @@ class HistoryUserPageState extends State<HistoryUserPage> {
           Expanded(
             flex: 2,
             child: Text(
-              data.teamName,
+              game['groupName'] ?? 'N/A',
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
                 fontWeight: FontWeight.w700,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
-              data.organizerName,
+              game['organizerName'] ?? 'N/A',
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
                 fontWeight: FontWeight.w500,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           Expanded(
             flex: 1,
             child: Text(
-              data.price,
+              totalCost.toStringAsFixed(0),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
@@ -270,57 +356,64 @@ class HistoryUserPageState extends State<HistoryUserPage> {
             flex: 1,
             child: GestureDetector(
               onTap: () {
+                final imageUrlsFromApi =
+                    game['courtImageUrls'] as List<dynamic>? ?? [];
+                final List<String> courtImageUrls = List<String>.from(
+                  imageUrlsFromApi,
+                );
+                final data = BookingDetails(
+                  code: game['sessionId'] ?? 0,
+                  teamName: game['groupName'] ?? '',
+                  imageUrl: game['imageUrl'] ?? '',
+                  day: formattedDateTime['day'] ?? 'Mon',
+                  date: '${game['dayOfWeek']} ${game['sessionDate']}'.trim(),
+                  time: '${game['startTime']}-${game['endTime']}',
+                  courtName: game['courtName'] ?? '',
+                  location: game['location'] ?? '',
+                  price: (game['price'] ?? 0).toString(),
+                  shuttlecockInfo: game['shuttlecockModelName'] ?? '',
+                  shuttlecockBrand: game['shuttlecockBrandName'] ?? '',
+                  gameInfo: game['gameTypeName'] ?? '',
+                  courtNumbers: game['courtNumbers'] ?? '',
+                  currentPlayers: game['currentParticipants'] ?? 0,
+                  maxPlayers: game['maxParticipants'] ?? 0,
+                  organizerName: game['organizerName'] ?? '',
+                  organizerImageUrl: game['organizerImageUrl'] ?? '',
+                  notes: game['notes'] ?? '',
+                  courtImageUrls: courtImageUrls.isNotEmpty
+                      ? courtImageUrls
+                      : [
+                          'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+                        ],
+                  status: game['status'] ?? 1,
+                  currentUserStatus: game['userStatus'] ?? 'Joined',
+                  courtFee: double.tryParse(
+                    (game['courtFeePerPerson'] ?? game['courtFee'])
+                            ?.toString() ??
+                        '',
+                  ),
+                  shuttleFee: double.tryParse(
+                    (game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'])
+                            ?.toString() ??
+                        '',
+                  ),
+                  isBuffet: game['costingMethod'] == 2,
+                  sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
+                );
                 context.push('/booking-confirm-history', extra: data);
               },
               child: Text(
-                statusColors.firstWhere(
-                  (d) => d['code'] == data.status,
-                )['display'],
+                _getStatusDisplay(game['status']),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: getResponsiveFontSize(context, fontSize: 14),
                   fontWeight: FontWeight.w500,
-                  color: statusColors.firstWhere(
-                    (d) => d['code'] == data.status,
-                  )['color'],
+                  color: _getStatusColor(game['status']),
                 ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // Widget สำหรับ Pagination ด้านล่าง
-  Widget _buildPagination() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _buildPageNumber('1', isActive: true),
-          _buildPageNumber('2'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPageNumber(String text, {bool isActive = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: GestureDetector(
-        onTap: () {
-          setState(() {});
-        },
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isActive ? Colors.green : Colors.grey,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            fontSize: 16,
-          ),
-        ),
       ),
     );
   }

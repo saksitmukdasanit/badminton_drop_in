@@ -21,7 +21,8 @@ import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/page/user/history/history_detail.dart';
 import 'package:badminton/page/user/history/history_user.dart';
 import 'package:badminton/page/user/home_user.dart';
-import 'package:badminton/page/user/mygame_user.dart';
+import 'package:badminton/page/user/my_game/game_player.dart';
+import 'package:badminton/page/user/my_game/mygame_user.dart';
 import 'package:badminton/page/user/otp.dart';
 import 'package:badminton/page/user/payment/payment.dart';
 import 'package:badminton/page/user/payment/payment_cancel.dart';
@@ -34,7 +35,7 @@ import 'package:badminton/page/user/profile/edit_profile.dart';
 import 'package:badminton/page/user/profile/favourite.dart';
 import 'package:badminton/page/user/profile/saved_payment.dart';
 import 'package:badminton/page/user/profile/profile_user.dart';
-import 'package:badminton/page/user/search_user.dart';
+import 'package:badminton/page/user/search/search_user.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/navigator_key.dart'; // --- FIX: Import navigator_key เพื่อใช้ Global Key ตัวเดียวกับ ApiProvider ---
 import 'package:flutter/material.dart';
@@ -164,220 +165,211 @@ class _MyAppState extends State<MyApp> {
                 body: Center(child: Text('Error: ไม่พบข้อมูลเบอร์โทรศัพท์')),
               );
             }
-            return OtpVerificationScreen(phoneNumber: phoneNumber, tokens: tokens);
+            return OtpVerificationScreen(
+              phoneNumber: phoneNumber,
+              tokens: tokens,
+            );
           },
         ),
         GoRoute(
           path: '/personal-info-screen',
           builder: (context, state) => const PersonalInfoScreen(),
         ),
+
+        // ========================================================
+        // --- เส้นทางที่ต้องการให้ซ่อนแถบเมนูด้านล่าง (Full Screen) ---
+        // ========================================================
+        GoRoute(
+          path: '/login',
+          builder: (context, state) => const LoginScreen(),
+        ),
+        GoRoute(
+          path: '/player-list/:id',
+          builder: (context, state) {
+            final String teamId = state.pathParameters['id']!;
+            return PlayerListPage(id: teamId);
+          },
+        ),
+        GoRoute(
+          path: '/booking-confirm',
+          builder: (context, state) {
+            final details = state.extra as BookingDetails;
+            return BookingConfirmPage(details: details);
+          },
+        ),
+        GoRoute(
+          path: '/game-player/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return GamePlayerPage(id: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/payment/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return PaymentPage(bookingId: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/booking-confirm-game',
+          builder: (context, state) {
+            final details = state.extra as BookingDetails;
+            return BookingConfirmPage(details: details);
+          },
+        ),
+        GoRoute(
+          path: '/payment-cancel/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return PaymentCancelPage(code: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/payment-now/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return PaymentNowPage(code: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/payment-history/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return PaymentHistoryPage(code: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/history-detail/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return HistoryDetailPage(code: bookingId);
+          },
+        ),
+        GoRoute(
+          path: '/booking-confirm-history',
+          builder: (context, state) {
+            final details = state.extra as BookingDetails;
+            return BookingConfirmPage(details: details);
+          },
+        ),
+        GoRoute(
+          path: '/edit-profile-user',
+          builder: (context, state) => const EditProFileUserPage(),
+        ),
+        GoRoute(
+          path: '/change-password',
+          builder: (context, state) => const ChangePasswordPage(),
+        ),
+        GoRoute(
+          path: '/saved-payment',
+          builder: (context, state) => const SavedPaymentPage(),
+        ),
+        GoRoute(
+          path: '/favourite',
+          builder: (context, state) => const FavouritePage(),
+        ),
+        GoRoute(
+          path: '/apply-organizer',
+          builder: (context, state) => const ApplyOrganizerPage(),
+        ),
+        GoRoute(
+          path: '/otp',
+          builder: (context, state) {
+            final phoneNumber = state.extra as String?;
+            if (phoneNumber == null) {
+              return const Scaffold(
+                body: Center(child: Text('Error: ไม่พบข้อมูลเบอร์โทรศัพท์')),
+              );
+            }
+            return OTPPage(phoneNumber: phoneNumber);
+          },
+        ),
+        GoRoute(
+          path: '/new-game',
+          builder: (context, state) => const NewGamePage(),
+        ),
+        GoRoute(
+          path: '/add-game/:id',
+          builder: (context, state) {
+            final String bookingId = state.pathParameters['id']!;
+            return AddGamePage(code: bookingId, extra: state.extra);
+          },
+        ),
+        GoRoute(
+          path: '/manage-game/:id',
+          builder: (context, state) {
+            final String teamId = state.pathParameters['id']!;
+            return ManageGamePage(id: teamId);
+          },
+        ),
+        GoRoute(
+          path: '/history-organizer-payment',
+          builder: (context, state) {
+            final sessionId = state.extra as int? ?? 0;
+            return HistoryOrganizerPaymentPage(sessionId: sessionId);
+          },
+        ),
+        GoRoute(
+          path: '/edit-profile-organizer',
+          builder: (context, state) => EditProFileOrganizerPage(),
+        ),
+        GoRoute(
+          path: '/edit-transfer',
+          builder: (context, state) => EditTransferPage(),
+        ),
+        GoRoute(
+          path: '/edit-skill-level',
+          builder: (context, state) => EditSkillLevelsPage(),
+        ),
+        GoRoute(
+          path: '/change-password-organizer',
+          builder: (context, state) => const ChangePasswordOrganizerPage(),
+        ),
+        GoRoute(
+          path: '/finance',
+          builder: (context, state) => const FinancePage(),
+        ),
+
+        // ========================================================
+        // --- เมนูหลักของแอป (มีแถบ MenuBar ด้านล่างเสมอ) -----------
+        // ========================================================
         ShellRoute(
           builder: (context, state, child) {
             return MenuBarPage(child: child);
           },
           routes: [
-            //login
-            GoRoute(
-              path: '/login',
-              builder: (context, state) => const LoginScreen(),
-            ),
-            //screen
             GoRoute(
               path: '/',
               builder: (context, state) => const HomeUserPage(),
             ),
-            //หาก๊วน
             GoRoute(
               path: '/search-user',
               builder: (context, state) => const SearchUserPage(),
             ),
             GoRoute(
-              path: '/player-list/:id',
-              builder: (context, state) {
-                final String teamId = state.pathParameters['id']!;
-                return PlayerListPage(id: teamId);
-              },
-            ),
-            GoRoute(
-              path: '/booking-confirm',
-              builder: (context, state) {
-                // ดึงค่า extra ที่ส่งมา และ cast type ให้ถูกต้อง
-                final details = state.extra as BookingDetails;
-
-                // ส่ง object ที่ได้ไปให้หน้า BookingConfirmPage
-                return BookingConfirmPage(details: details);
-              },
-            ),
-            GoRoute(
-              path: '/payment/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return PaymentPage(bookingId: bookingId);
-              },
-            ),
-
-            // --- เกมของฉัน ---
-            GoRoute(
               path: '/my-game-user',
               builder: (context, state) => const MyGameUserPage(),
             ),
-            GoRoute(
-              path: '/booking-confirm-game',
-              builder: (context, state) {
-                // ดึงค่า extra ที่ส่งมา และ cast type ให้ถูกต้อง
-                final details = state.extra as BookingDetails;
-
-                // ส่ง object ที่ได้ไปให้หน้า BookingConfirmPage
-                return BookingConfirmPage(details: details);
-              },
-            ),
-            GoRoute(
-              path: '/payment-cancel/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return PaymentCancelPage(code: bookingId);
-              },
-            ),
-            GoRoute(
-              path: '/payment-now/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return PaymentNowPage(code: bookingId);
-              },
-            ),
-
-            // ---ประวัติ---
             GoRoute(
               path: '/history-user',
               builder: (context, state) => const HistoryUserPage(),
             ),
             GoRoute(
-              path: '/payment-history/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return PaymentHistoryPage(code: bookingId);
-              },
-            ),
-            GoRoute(
-              path: '/history-detail/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return HistoryDetailPage(code: bookingId);
-              },
-            ),
-            GoRoute(
-              path: '/booking-confirm-history',
-              builder: (context, state) {
-                // ดึงค่า extra ที่ส่งมา และ cast type ให้ถูกต้อง
-                final details = state.extra as BookingDetails;
-
-                // ส่ง object ที่ได้ไปให้หน้า BookingConfirmPage
-                return BookingConfirmPage(details: details);
-              },
-            ),
-
-            //โปรโฟล์
-            GoRoute(
               path: '/profile-user',
               builder: (context, state) => const ProFileUserPage(),
             ),
-            GoRoute(
-              path: '/edit-profile-user',
-              builder: (context, state) => const EditProFileUserPage(),
-            ),
-            GoRoute(
-              path: '/change-password',
-              builder: (context, state) => const ChangePasswordPage(),
-            ),
-            GoRoute(
-              path: '/saved-payment',
-              builder: (context, state) => const SavedPaymentPage(),
-            ),
-            GoRoute(
-              path: '/favourite',
-              builder: (context, state) => const FavouritePage(),
-            ),
-            GoRoute(
-              path: '/apply-organizer',
-              builder: (context, state) => const ApplyOrganizerPage(),
-            ),
-            GoRoute(
-              path: '/otp', //builder: (context, state) => const OTPPage()
-              builder: (context, state) {
-                final phoneNumber = state.extra as String?;
-                if (phoneNumber == null) {
-                  return const Scaffold(
-                    body: Center(
-                      child: Text('Error: ไม่พบข้อมูลเบอร์โทรศัพท์'),
-                    ),
-                  );
-                }
-                return OTPPage(phoneNumber: phoneNumber);
-              },
-            ),
-
-            //---- ผู้จัด -----
-            //------- New Game ----------
-            GoRoute(
-              path: '/new-game',
-              builder: (context, state) => const NewGamePage(),
-            ),
-            GoRoute(
-              path: '/add-game/:id',
-              builder: (context, state) {
-                final String bookingId = state.pathParameters['id']!;
-                return AddGamePage(code: bookingId, extra: state.extra);
-              },
-            ),
-            //---- Manage ---
             GoRoute(
               path: '/manage',
               builder: (context, state) => const ManagePage(),
             ),
             GoRoute(
-              path: '/manage-game/:id',
-              builder: (context, state) {
-                final String teamId = state.pathParameters['id']!;
-                return ManageGamePage(id: teamId);
-              },
-            ),
-            //---- ประวัติ ---
-            GoRoute(
               path: '/history-organizer',
               builder: (context, state) => const HistoryOrganizerPage(),
             ),
             GoRoute(
-              path: '/history-organizer-payment',
-              builder: (context, state) {
-                final sessionId = state.extra as int? ?? 0;
-                return HistoryOrganizerPaymentPage(sessionId: sessionId);
-              },
-            ),
-
-            //---- โปรโฟล์---
-            GoRoute(
               path: '/profile-organizer',
               builder: (context, state) => const ProFileOrganizerPage(),
-            ),
-            GoRoute(
-              path: '/edit-profile-organizer',
-              builder: (context, state) => EditProFileOrganizerPage(),
-            ),
-            GoRoute(
-              path: '/edit-transfer',
-              builder: (context, state) => EditTransferPage(),
-            ),
-            GoRoute(
-              path: '/edit-skill-level',
-              builder: (context, state) => EditSkillLevelsPage(),
-            ),
-            GoRoute(
-              path: '/change-password-organizer',
-              builder: (context, state) => const ChangePasswordOrganizerPage(),
-            ),
-            GoRoute(
-              path: '/finance',
-              builder: (context, state) => const FinancePage(),
             ),
           ],
         ),

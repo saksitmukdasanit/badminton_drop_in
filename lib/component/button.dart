@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 class CustomElevatedButton extends StatelessWidget {
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed; // เพิ่ม ? เพื่อให้รองรับค่า null สำหรับปิดปุ่ม (Disable)
   final double fontSize;
   final FontWeight fontWeight;
   final Color backgroundColor;
@@ -19,7 +19,7 @@ class CustomElevatedButton extends StatelessWidget {
   const CustomElevatedButton({
     super.key,
     required this.text,
-    required this.onPressed,
+    this.onPressed, // เอา required ออก เพื่อให้เราสามารถข้ามไม่ส่งค่า หรือส่งเป็น null ได้
     this.fontSize = 20,
     this.fontWeight = FontWeight.bold,
     this.backgroundColor = Colors.black,

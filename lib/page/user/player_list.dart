@@ -10,6 +10,7 @@ class Player {
   final String gender;
   String skillLevel; // ทำให้สามารถเปลี่ยนแปลงได้
   final String imageUrl;
+  final int status; // 1 = ตัวจริง, 2 = สำรอง
 
   Player({
     required this.id,
@@ -17,15 +18,17 @@ class Player {
     required this.gender,
     required this.skillLevel,
     required this.imageUrl,
+    required this.status,
   });
 
   factory Player.fromJson(Map<String, dynamic> json, int index) {
     return Player(
       id: index + 1,
       nickname: json['nickname'] ?? '-',
-      gender: json['gender'] ?? '-',
+      gender: json['genderName'] ?? json['gender'] ?? '-', // เปลี่ยนเป็น genderName ตาม API
       skillLevel: json['skillLevelName'] ?? '-',
       imageUrl: json['profilePhotoUrl'] ?? '',
+      status: json['status'] ?? 1, // ดึงสถานะมาเก็บไว้
     );
   }
 }
@@ -44,6 +47,7 @@ class _PlayerListPageState extends State<PlayerListPage> {
   List<Player> players = [];
   bool isUse = true;
   bool _isLoading = true;
+  String teamName = ''; // เพิ่มตัวแปรสำหรับเก็บชื่อก๊วน
 
   @override
   void initState() {
@@ -53,10 +57,13 @@ class _PlayerListPageState extends State<PlayerListPage> {
 
   Future<void> _fetchPlayers() async {
     try {
-      final response = await ApiProvider().get('/gamesessions/${widget.id}/roster');
+      // แก้ไข: เปลี่ยนไปใช้ API ของฝั่งผู้เล่นเพื่อดึงข้อมูล session ซึ่งมีรายชื่อผู้เล่นอยู่ข้างใน
+      final response = await ApiProvider().get('/player/gamesessions/${widget.id}');
       if (mounted && response['status'] == 200) {
-        final List<dynamic> data = response['data'] ?? [];
+        // แก้ไข: ดึงข้อมูลจาก key 'participants' ที่อยู่ใน object data
+        final List<dynamic> data = response['data']['participants'] ?? [];
         setState(() {
+          teamName = response['data']['groupName'] ?? 'รายชื่อผู้เล่น'; // ดึงชื่อก๊วนมาเก็บ
           players = data.asMap().entries.map((e) => Player.fromJson(e.value, e.key)).toList();
           _isLoading = false;
         });
@@ -70,10 +77,13 @@ class _PlayerListPageState extends State<PlayerListPage> {
 
   @override
   Widget build(BuildContext context) {
+    // กรองผู้เล่น: isUse = true คือผู้เล่น (1), isUse = false คือสำรอง (2)
+    final filteredPlayers = players.where((p) => p.status == (isUse ? 1 : 2)).toList();
+
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.white,
-      appBar: AppBarSubMain(title: widget.id),
+      appBar: AppBarSubMain(title: teamName.isNotEmpty ? teamName : 'กำลังโหลด...'), // ใช้ชื่อก๊วนมาเป็น Title
       body: Container(
         padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
         color: Colors.white,
@@ -83,14 +93,20 @@ class _PlayerListPageState extends State<PlayerListPage> {
             const Divider(color: Colors.grey),
             _isLoading
                 ? const Expanded(child: Center(child: CircularProgressIndicator()))
-                : Expanded(
-                    child: ListView.builder(
-                      itemCount: players.length,
-                      itemBuilder: (context, index) {
-                        return _buildPlayerRow(players[index]);
-                      },
-                    ),
-                  ),
+                : filteredPlayers.isEmpty
+                    ? Expanded(
+                        child: Center(
+                          child: Text(isUse ? 'ไม่มีผู้เล่นตัวจริงในขณะนี้' : 'ไม่มีรายชื่อคิวสำรอง'),
+                        ),
+                      )
+                    : Expanded(
+                        child: ListView.builder(
+                          itemCount: filteredPlayers.length,
+                          itemBuilder: (context, index) {
+                            return _buildPlayerRow(filteredPlayers[index]);
+                          },
+                        ),
+                      ),
             _buildPagination(),
           ],
         ),

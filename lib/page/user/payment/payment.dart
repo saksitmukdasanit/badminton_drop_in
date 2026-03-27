@@ -44,6 +44,9 @@ class _PaymentPageState extends State<PaymentPage> {
   Duration _remainingTime = const Duration(minutes: 10);
 
   bool _isLoading = false;
+  bool _isLoadingData = true;
+  double _courtFee = 0.0;
+  double _serviceFee = 10.0;
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _PaymentPageState extends State<PaymentPage> {
     _expiryYearController = TextEditingController();
     _cvvController = TextEditingController();
     _startTimer();
+    _fetchSessionData();
     super.initState();
   }
 
@@ -67,6 +71,24 @@ class _PaymentPageState extends State<PaymentPage> {
     super.dispose();
   }
 
+  // --- ดึงข้อมูลค่าใช้จ่ายจริงจาก API ---
+  Future<void> _fetchSessionData() async {
+    try {
+      final response = await ApiProvider().get('/GameSessions/${widget.bookingId}');
+      if (mounted && response['data'] != null) {
+        setState(() {
+          _courtFee = double.tryParse(response['data']['courtFeePerPerson']?.toString() ?? '0') ?? 0;
+          _serviceFee = double.tryParse(response['data']['serviceFee']?.toString() ?? '10') ?? 10.0; // ดึงค่าบริการจาก API
+          _isLoadingData = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingData = false);
+      }
+    }
+  }
+
   void _startTimer() {
     _timer?.cancel();
     _remainingTime = const Duration(minutes: 10);
@@ -77,12 +99,28 @@ class _PaymentPageState extends State<PaymentPage> {
       }
       if (_remainingTime.inSeconds == 0) {
         timer.cancel();
+        _handleTimeout(); // เรียกฟังก์ชันเมื่อเวลาหมด
       } else {
         setState(() {
           _remainingTime = _remainingTime - const Duration(seconds: 1);
         });
       }
     });
+  }
+
+  // --- ฟังก์ชันจัดการเมื่อเวลาชำระเงินหมด ---
+  void _handleTimeout() {
+    if (!mounted) return;
+    showDialogMsg(
+      context,
+      title: 'หมดเวลาทำรายการ',
+      subtitle: 'เวลาในการชำระเงินของคุณหมดแล้ว\nกรุณาทำรายการจองใหม่อีกครั้ง',
+      btnLeft: 'ตกลง',
+      onConfirm: () {
+        context.pop(); // ปิด Dialog
+        context.go('/search-user'); // กลับไปหน้าค้นหา
+      },
+    );
   }
 
   Future<void> _handlePayment() async {
@@ -137,7 +175,7 @@ class _PaymentPageState extends State<PaymentPage> {
       // --- 6. ยิง API ---
       // (ApiProvider จะแนบ Token ไปใน Header ให้เอง)
       await ApiProvider().post(
-        '/GameSessions/${widget.bookingId}/join',
+        '/player/gamesessions/${widget.bookingId}/join',
         // data: paymentData,
       );
 
@@ -145,8 +183,8 @@ class _PaymentPageState extends State<PaymentPage> {
       if (mounted) {
         showDialogMsg(
           context,
-          title: 'ชำระเงินเรียบร้อย',
-          subtitle: 'คุณได้ชำระเงินจำนวน 130 บาท \n ยืนยันการจอง ก๊วนแมวเหมียว',
+          title: 'การจองสำเร็จ', // เปลี่ยนข้อความให้ยืดหยุ่นขึ้น
+          subtitle: 'คุณได้ชำระเงินและยืนยัน\nการเข้าร่วมก๊วนเรียบร้อยแล้ว',
           btnLeft: 'ไปหน้าการจอง',
           onConfirm: () {
             context.pop(); // ปิด Dialog
@@ -249,31 +287,41 @@ class _PaymentPageState extends State<PaymentPage> {
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start, // ให้ชิดขอบบนเสมอเมื่อข้อความปัดบรรทัด
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'ถ้าไม่ได้รับเลือกจะโอนเงินคืนภายใน 7 วันทำการ ',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w300,
-                          fontSize: getResponsiveFontSize(
-                            context,
-                            fontSize: 14,
+                  Expanded( // เพิ่ม Expanded เพื่อให้ข้อความตัดขึ้นบรรทัดใหม่เมื่อจอด้านขวาไม่พอ
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ถ้าไม่ได้รับเลือกจะโอนเงินคืนภายใน 7 วันทำการ ',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w300,
+                            fontSize: getResponsiveFontSize(
+                              context,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                     onPressed: () {},
-                    child: Text(
-                      'T&C',
-                      style: TextStyle(
-                        // --- (แก้ไข) ปรับสีให้เข้ากับ Theme ใหม่ ---
-                        color: Theme.of(context).primaryColor,
-                        decoration: TextDecoration.underline,
-                        decorationColor: Theme.of(context).primaryColor,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: Text(
+                        'T&C',
+                        style: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          decoration: TextDecoration.underline,
+                          decorationColor: Theme.of(context).primaryColor,
+                        ),
                       ),
                     ),
                   ),
@@ -303,9 +351,14 @@ class _PaymentPageState extends State<PaymentPage> {
                 activeColor: Theme.of(context).primaryColor,
                 checkColor: Colors.white,
               ),
-              _buildPriceRow(context, 'ค่าสนาน', '120 บาท'),
-              _buildPriceRow(context, 'ค่าธรรมเนียม', '10 บาท'),
-              _buildPriceRow(context, 'ราคารวม', '130 บาท', isBold: true),
+              
+              if (_isLoadingData)
+                const Padding(padding: EdgeInsets.all(16.0), child: Center(child: CircularProgressIndicator()))
+              else ...[
+                _buildPriceRow(context, 'ค่าสนาม', '${_courtFee.toStringAsFixed(0)} บาท'),
+                _buildPriceRow(context, 'ค่าบริการ', '${_serviceFee.toStringAsFixed(0)} บาท'),
+                _buildPriceRow(context, 'ราคารวม', '${(_courtFee + _serviceFee).toStringAsFixed(0)} บาท', isBold: true),
+              ],
               SizedBox(height: 20),
               // --- เวลานับถอยหลัง ---
               Row(
@@ -338,7 +391,6 @@ class _PaymentPageState extends State<PaymentPage> {
               ),
               const SizedBox(height: 15),
               _buildPaymentDetails(),
-              const Spacer(), // ใช้ Spacer เพื่อดันปุ่ม (ใน bottomNavigationBar) ลงไปอีก
             ],
           ),
         ),

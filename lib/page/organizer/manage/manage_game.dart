@@ -3266,6 +3266,7 @@ class _ManageGamePage extends State<ManageGamePage> {
               : menuItem(
                   'จบการแข่งขัน',
                   onTap: () {
+                    _closeFabMenu();
                     showDialogMsg(
                       context,
                       title: 'ยืนยันการจบเกม',

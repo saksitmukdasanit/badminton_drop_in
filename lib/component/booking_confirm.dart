@@ -50,31 +50,46 @@ class BookingConfirmDialog extends StatelessWidget {
                     side: BorderSide(width: 0, color: Colors.transparent),
                   ),
                 ),
-                // --- รายละเอียดค่าใช้จ่ายและผู้เล่น ---
-                _buildDetailRow(
-                  'ค่าสนาม',
-                  details.price,
-                  'Yonex',
-                  details.shuttlecockInfo,
-                ),
-                SizedBox(height: 8),
-                _buildDetailRow('เล่น 21 แต้ม', details.gameInfo, '', ''),
-                SizedBox(height: 8),
-                _buildDetailRow(
-                  'ผู้เล่น',
-                  '${details.currentPlayers}',
-                  'สำรอง',
-                  '10',
+                // --- รายละเอียดค่าใช้จ่ายและผู้เล่น (ปรับใหม่ให้อ่านง่ายขึ้น) ---
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildIconDetail(context, Icons.payments_outlined, 'ค่าสนาม', '${details.courtFee ?? details.price} บาท')),
+                          Expanded(child: _buildIconDetail(context, Icons.sports_tennis, 'ค่าลูกแบด', details.isBuffet ? 'เหมาจ่าย ${details.shuttleFee ?? 0}บ.' : '${details.shuttleFee ?? 0}บ./เกม')),
+                        ],
+                      ),
+                      SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildIconDetail(context, Icons.score, 'รูปแบบ', '21 แต้ม ${details.gameInfo}')),
+                          Expanded(child: _buildIconDetail(context, Icons.group_outlined, 'ผู้เล่น', '${details.currentPlayers}/${details.maxPlayers} คน\n(สำรอง 10)')),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
                 SizedBox(height: 24),
                 // --- ข้อความยืนยัน ---
-                Center(
-                  child: Text(
-                    'จองเป็นผู้เล่นตัวสำรอง',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                if (details.currentPlayers >= details.maxPlayers) ...[
+                  Center(
+                    child: Text(
+                      'คิวผู้เล่นเต็มแล้ว (จองเป็นตัวสำรอง)',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
+                    ),
                   ),
-                ),
-                SizedBox(height: 16),
+                  SizedBox(height: 16),
+                ],
                 // --- ปุ่ม Confirm ---
                 SizedBox(
                   width: double.infinity,
@@ -114,39 +129,34 @@ class BookingConfirmDialog extends StatelessWidget {
     );
   }
 
-  // Widget ย่อยสำหรับสร้างแถวของรายละเอียด
-  Widget _buildDetailRow(
-    String title1,
-    String value1,
-    String title2,
-    String value2,
+  // Widget ย่อยสำหรับสร้างกล่องรายละเอียดพร้อมไอคอน (แบบใหม่)
+  Widget _buildIconDetail(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String value,
   ) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        SizedBox(width: 8),
         Expanded(
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '$title1 ',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                title,
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
               ),
+              SizedBox(height: 2),
               Text(
-                value1,
-                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              Text(
-                '$title2 ',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              Text(
-                value2,
-                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                value,
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
             ],
           ),
@@ -168,9 +178,9 @@ Future<void> showBookingConfirmDialog(
       return BookingConfirmDialog(
         details: data,
         onConfirm: () {
-          // ฟังก์ชันที่จะทำงานเมื่อกดปุ่ม Confirm
-          context.push('/payment/${data.code}');
+          // BEST PRACTICE: ปิด Dialog ก่อน ค่อย Push หน้าต่างใหม่ เพื่อป้องกัน Stack ขัดข้อง
           Navigator.of(context).pop();
+          context.push('/payment/${data.code}');
         },
       );
     },
