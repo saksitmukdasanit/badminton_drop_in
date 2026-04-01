@@ -286,17 +286,6 @@ class _MyAppState extends State<MyApp> {
           },
         ),
         GoRoute(
-          path: '/new-game',
-          builder: (context, state) => const NewGamePage(),
-        ),
-        GoRoute(
-          path: '/add-game/:id',
-          builder: (context, state) {
-            final String bookingId = state.pathParameters['id']!;
-            return AddGamePage(code: bookingId, extra: state.extra);
-          },
-        ),
-        GoRoute(
           path: '/manage-game/:id',
           builder: (context, state) {
             final String teamId = state.pathParameters['id']!;
@@ -342,6 +331,17 @@ class _MyAppState extends State<MyApp> {
             GoRoute(
               path: '/',
               builder: (context, state) => const HomeUserPage(),
+            ),
+            GoRoute(
+              path: '/new-game',
+              builder: (context, state) => const NewGamePage(),
+            ),
+            GoRoute(
+              path: '/add-game/:id',
+              builder: (context, state) {
+                final String bookingId = state.pathParameters['id']!;
+                return AddGamePage(code: bookingId, extra: state.extra);
+              },
             ),
             GoRoute(
               path: '/search-user',

@@ -26,7 +26,7 @@ class ExpenseAdjustment {
 
 class ExpensePanelWidget extends StatefulWidget {
   final dynamic billData;
-  final Function(String paymentMethod, List<ExpenseAdjustment> adjustments)? onConfirmPayment;
+  final dynamic onConfirmPayment; // รองรับ Function(String, List) และ Function(List)
   final double courtFee; // NEW: รับค่าสนามเริ่มต้น
   final double shuttlecockFee; // NEW: รับราคาลูกแบด
   final int totalGames; // NEW: รับจำนวนเกมที่เล่น
@@ -216,9 +216,9 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('ค่าสนาม', '${_apiCourtFee.toStringAsFixed(0)} บาท'),
-            _buildInfoRow('ค่าธรรมเนียม', '${widget.serviceFee.toStringAsFixed(0)} บาท'), // FIX: ใช้ค่าจาก Widget
-            _buildInfoRow('ราคารวม', '${(_apiCourtFee + widget.serviceFee).toStringAsFixed(0)} บาท', isBold: true), // FIX: คำนวณรวมจาก Widget
+            if (_apiCourtFee > 0) _buildInfoRow('ค่าสนาม', '${_apiCourtFee.toStringAsFixed(0)} บาท'),
+            if (_apiServiceFee > 0) _buildInfoRow('ค่าธรรมเนียม', '${_apiServiceFee.toStringAsFixed(0)} บาท'),
+            if ((_apiCourtFee + _apiServiceFee) > 0) _buildInfoRow('ราคารวม', '${(_apiCourtFee + _apiServiceFee).toStringAsFixed(0)} บาท', isBold: true),
             const SizedBox(height: 16),
             const Text(
               'ชำระผ่าน',
@@ -359,44 +359,46 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'วิธีการชำระเงิน',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              // --- ช่องทางชำระเงิน ---
-              CustomDropdown(
-                labelText: '',
-                initialValue: _selectedPaymentMethod,
-                items: _paymentMethods,
-                onChanged: (value) {
-                  setState(() {
-                    _selectedPaymentMethod = value;
-                    if (value == 'QR Code') {
-                      // _startTimer();
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
+              if (widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)) ...[
+                const SizedBox(height: 24),
+                const Text(
+                  'วิธีการชำระเงิน',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                // --- ช่องทางชำระเงิน ---
+                CustomDropdown(
+                  labelText: '',
+                  initialValue: _selectedPaymentMethod,
+                  items: _paymentMethods,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentMethod = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
 
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: CustomElevatedButton(
-                  text: _selectedPaymentMethod == 'QR Code'
-                      ? 'แสดง QR Code'
-                      : 'จ่ายเงินสด',
+                  text: widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)
+                      ? (_selectedPaymentMethod == 'QR Code' ? 'แสดง QR Code' : 'จ่ายเงินสด')
+                      : 'ชำระเงินและจบเกม',
                   onPressed: () {
-                    if (_selectedPaymentMethod == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
-                      );
-                      return;
+                    if (widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)) {
+                      if (_selectedPaymentMethod == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
+                        );
+                        return;
+                      }
+                      widget.onConfirmPayment(_selectedPaymentMethod!, _adjustments);
+                    } else if (widget.onConfirmPayment != null) {
+                      widget.onConfirmPayment(_adjustments);
                     }
-                    // ส่งข้อมูลกลับไปให้หน้าหลักจัดการ (Batch Submission)
-                    widget.onConfirmPayment?.call(_selectedPaymentMethod!, _adjustments);
                   },
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,

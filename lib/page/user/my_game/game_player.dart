@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:badminton/component/button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
+import 'package:badminton/component/manage_game_models.dart';
 import 'package:badminton/component/player_match_card.dart';
 import 'package:badminton/component/dropdown.dart';
+import 'package:badminton/model/player.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +29,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
   bool _isLoading = true;
   int? _myUserId;
   int? _myParticipantId;
+  List<dynamic> _allParticipants = [];
 
   // --- ข้อมูล Live State ---
   Map<String, dynamic> _liveState = {};
@@ -36,9 +39,13 @@ class GamePlayerPageState extends State<GamePlayerPage>
   bool _isStartGame = false;
   Duration _sessionDuration = Duration.zero;
   Timer? _sessionTimer;
+  // --- NEW: Data for Expense Panel ---
+  double _shuttlecockFee = 0.0;
+  double _courtFee = 0.0;
 
   // --- ข้อมูลส่วนตัวของผู้เล่น ---
-  String _myCurrentStatus = 'รอโหลดข้อมูล...';
+  String _myStatusBaseText = 'รอโหลดข้อมูล...';
+  DateTime? _myMatchStartTime; // NEW: เก็บเวลาเริ่มแมตช์ของตัวเอง
   bool _isPlayingInMainCourt = false;
   bool _isPaused = false;
   List<dynamic> _myMatchHistory = [];
@@ -89,11 +96,12 @@ class GamePlayerPageState extends State<GamePlayerPage>
           (p) => p['userId']?.toString() == myIdStr,
           orElse: () => null,
         );
-        if (myParticipantData != null) {
-          setState(() {
+        setState(() {
+          _allParticipants = participants;
+          if (myParticipantData != null) {
             _myParticipantId = myParticipantData['participantId'];
-          });
-        }
+          }
+        });
       }
     } catch (e) {
       debugPrint('Error fetching participant ID: $e');
@@ -104,8 +112,12 @@ class GamePlayerPageState extends State<GamePlayerPage>
     try {
       final res = await ApiProvider().get('/GameSessions/${widget.id}');
       if (mounted && res['data'] != null) {
+        final data = res['data'];
         setState(() {
-          _maxParticipants = res['data']['maxParticipants'] ?? 0;
+          _maxParticipants = data['maxParticipants'] ?? 0;
+          // NOTE: This assumes 'shuttlecockFeePerPerson' is the per-game fee.
+          _shuttlecockFee = (data['shuttlecockFeePerPerson'] ?? 0.0).toDouble();
+          _courtFee = (data['courtFeePerPerson'] ?? 0.0).toDouble();
         });
       }
     } catch (e) {}
@@ -196,7 +208,8 @@ class GamePlayerPageState extends State<GamePlayerPage>
 
   void _updateMyStatus(Map<String, dynamic> data) {
     if (_myUserId == null) return;
-    _myCurrentStatus = 'รอจัดลงสนาม';
+    _myStatusBaseText = 'รอจัดลงสนาม';
+    _myMatchStartTime = null;
     _isPlayingInMainCourt = false; // Reset this flag
 
     // คำนวณจำนวนผู้เข้าร่วมทั้งหมดจากทุกส่วน
@@ -258,10 +271,16 @@ class GamePlayerPageState extends State<GamePlayerPage>
 
           if (match['startTime'] != null) {
             _isPlayingInMainCourt = true;
-            _myCurrentStatus =
+            try {
+              _myMatchStartTime = DateTime.parse(match['startTime']).toLocal();
+            } catch (e) {
+              _myMatchStartTime = null;
+            }
+            _myStatusBaseText =
                 'กำลังเล่นอยู่: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
           } else {
-            _myCurrentStatus =
+            _myMatchStartTime = null;
+            _myStatusBaseText =
                 'เตรียมลงเล่น: สนาม $courtId\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
           }
           return;
@@ -296,10 +315,10 @@ class GamePlayerPageState extends State<GamePlayerPage>
             .join(', ');
 
         if (cId != null && cId.toString().startsWith('-')) {
-          _myCurrentStatus =
+          _myStatusBaseText =
               'อยู่ในคิวสำรอง: ทีมที่ ${cId.toString().substring(1)}\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
         } else {
-          _myCurrentStatus =
+          _myStatusBaseText =
               'ถูกจัดทีมแล้ว รอลงสนาม\nคู่กับ: ${myTeammate.isEmpty ? '-' : myTeammate}\nVS: ${oppNames.isEmpty ? '-' : oppNames}';
         }
         return;
@@ -312,7 +331,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
     );
 
     if (isInWaitingPool && _isPaused) {
-      _myCurrentStatus = 'หยุดพักการแข่งขัน';
+      _myStatusBaseText = 'หยุดพักการแข่งขัน';
       return;
     }
   }
@@ -323,6 +342,11 @@ class GamePlayerPageState extends State<GamePlayerPage>
       if (mounted) {
         _sessionDuration += const Duration(seconds: 1);
         _fabMenuOverlay?.markNeedsBuild(); // รีเฟรชเมนูถ้าเปิดอยู่
+        
+        // รีเฟรชหน้าจอเพื่อให้เวลาแมตช์เดิน
+        if (_isPlayingInMainCourt && _myMatchStartTime != null) {
+          setState(() {});
+        }
       }
     });
   }
@@ -343,7 +367,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
       setState(() {
         _isPaused = !_isPaused;
         if (_isPaused) {
-          _myCurrentStatus = 'หยุดพักการแข่งขัน';
+          _myStatusBaseText = 'หยุดพักการแข่งขัน';
         } else {
           _fetchLiveState(); // โหลดสถานะใหม่
         }
@@ -459,17 +483,15 @@ class GamePlayerPageState extends State<GamePlayerPage>
           // 3. ดูค่าใช้จ่าย
           InkWell(
             onTap: () {
-              _closeFabMenu();
-              _showExpenseDialog();
+              _closeFabMenu(); // Close FAB menu
+              context.push('/payment-now/${widget.id}'); // วิ่งไปหน้าชำระเงินเต็มจอเลย
             },
             child: const Padding(
               padding: EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
               child: Text(
                 'ดูค่าใช้จ่าย',
                 style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.green,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 16, color: Colors.green, fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -492,66 +514,6 @@ class GamePlayerPageState extends State<GamePlayerPage>
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showExpenseDialog() {
-    // ดึงค่ายอดสุทธิมาแสดง (คำนวณเบื้องต้นจาก _myBillData)
-    double totalAmount = 0.0;
-    if (_myBillData != null && _myBillData!['lineItems'] != null) {
-      for (var item in _myBillData!['lineItems']) {
-        totalAmount += (item['amount'] ?? 0).toDouble();
-      }
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('รายละเอียดค่าใช้จ่ายของฉัน'),
-        content: _myBillData == null
-            ? const Text('ไม่พบข้อมูลค่าใช้จ่าย')
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ...(_myBillData!['lineItems'] as List).map((item) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(item['description'] ?? '-'),
-                          Text('${item['amount']} ฿'),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  const Divider(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'ยอดรวมทั้งหมด',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        '$totalAmount ฿',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ปิด'),
           ),
         ],
       ),
@@ -591,7 +553,14 @@ class GamePlayerPageState extends State<GamePlayerPage>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [_buildMyStatusTab(), _buildAllCourtsTab()],
+              children: [
+                Stack(
+                  children: [
+                    _buildMyStatusTab(),
+                  ],
+                ),
+                _buildAllCourtsTab()
+              ],
             ),
           ),
         ],
@@ -611,6 +580,14 @@ class GamePlayerPageState extends State<GamePlayerPage>
   // TAB 1: สถานะของฉัน
   // ==========================================
   Widget _buildMyStatusTab() {
+    String statusDisplay = _myStatusBaseText;
+    if (_isPlayingInMainCourt && _myMatchStartTime != null) {
+      final diff = DateTime.now().difference(_myMatchStartTime!);
+      String mins = diff.inMinutes.toString().padLeft(2, '0');
+      String secs = (diff.inSeconds % 60).toString().padLeft(2, '0');
+      statusDisplay += '\nเวลาที่เล่น: $mins:$secs นาที';
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -630,7 +607,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _myCurrentStatus,
+                  statusDisplay,
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -673,7 +650,14 @@ class GamePlayerPageState extends State<GamePlayerPage>
   // ==========================================
   Widget _buildAllCourtsTab() {
     final courts = _liveState['courts'] as List? ?? [];
+    final stagedMatches = _liveState['stagedMatches'] as List? ?? [];
     final waitingPool = _liveState['waitingPool'] as List? ?? [];
+
+    // กรองเฉพาะทีมสำรอง (Identifier เริ่มด้วย - หรือเป็น null)
+    final reserveTeams = stagedMatches.where((m) {
+      final cId = m['courtIdentifier']?.toString();
+      return cId == null || cId.startsWith('-');
+    }).toList();
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -700,6 +684,31 @@ class GamePlayerPageState extends State<GamePlayerPage>
             },
           ),
         ),
+        if (reserveTeams.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          const Text(
+            'ทีมสำรอง',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 230,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: reserveTeams.length,
+              itemBuilder: (context, index) {
+                final reserve = reserveTeams[index];
+                return Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: SizedBox(
+                    width: 210,
+                    child: _buildReadOnlyCourtCard(reserve, isReserve: true, index: index),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
         Text(
           'ผู้เล่นที่รอ (${waitingPool.length} คน)',
@@ -737,7 +746,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
                   children: waitingPool
                       .map(
                         (p) => _buildReadOnlyPlayerAvatar(
-                          p,
+                          _getFullParticipant(p),
                           isDarkBackground: false,
                         ),
                       )
@@ -748,12 +757,53 @@ class GamePlayerPageState extends State<GamePlayerPage>
     );
   }
 
-  Widget _buildReadOnlyCourtCard(dynamic court) {
-    final match = court['currentMatch'];
-    final isPlaying = match != null && match['startTime'] != null;
+  // FIX: ทำให้ Function นี้ Robust ขึ้นโดยการเช็คทั้ง userId และ participantId
+  dynamic _getFullParticipant(dynamic player) {
+    if (player == null) {
+      return null;
+    }
+    // The player object from the live state might be minimal.
+    // Find the full participant details from the list we fetched.
+    final participantId = player['participantId']?.toString();
+    final userId = player['userId']?.toString();
+
+    if (participantId == null && userId == null) {
+      return player; // Not enough info to find full details
+    }
+
+    final fullParticipant = _allParticipants.firstWhere(
+        (p) {
+          // Try to match by participantId first as it's more specific to the session
+          if (participantId != null && p['participantId']?.toString() == participantId) return true;
+          // Fallback to userId if no match
+          if (userId != null && p['userId']?.toString() == userId) return true;
+          return false;
+        },
+        orElse: () => null);
+    return fullParticipant ?? player; // Fallback to the original player object
+  }
+
+  Widget _buildReadOnlyCourtCard(dynamic data, {bool isReserve = false, int index = 0}) {
+    final match = isReserve ? data : data['currentMatch'];
+    final isPlaying = !isReserve && match != null && match['startTime'] != null;
 
     List<dynamic> teamA = match != null ? match['teamA'] : [];
     List<dynamic> teamB = match != null ? match['teamB'] : [];
+
+    String titleText;
+    if (isReserve) {
+      final cId = data['courtIdentifier']?.toString();
+      if (cId != null && cId.startsWith('-')) {
+        titleText = 'ทีมสำรอง ${cId.substring(1)}';
+      } else {
+        titleText = 'ทีมสำรอง ${index + 1}';
+      }
+    } else {
+      titleText = 'สนาม ${data['courtIdentifier'] ?? data['courtNumber'] ?? '-'}';
+    }
+
+    final Color topColor = isReserve ? Colors.blueGrey[800]! : const Color(0xFF2E9A8A);
+    final Color bottomColor = isReserve ? Colors.blueGrey[700]! : const Color(0xFF2A3A8A);
 
     return Card(
       elevation: 4,
@@ -764,13 +814,15 @@ class GamePlayerPageState extends State<GamePlayerPage>
           // ครึ่งบน
           Expanded(
             child: Container(
-              color: const Color(0xFF2E9A8A),
+              color: topColor,
               padding: const EdgeInsets.all(12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildReadOnlyPlayerSlot(teamA.isNotEmpty ? teamA[0] : null),
-                  _buildReadOnlyPlayerSlot(teamA.length > 1 ? teamA[1] : null),
+                  _buildReadOnlyPlayerSlot(
+                      _getFullParticipant(teamA.isNotEmpty ? teamA[0] : null)),
+                  _buildReadOnlyPlayerSlot(
+                      _getFullParticipant(teamA.length > 1 ? teamA[1] : null)),
                 ],
               ),
             ),
@@ -778,7 +830,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
           // ครึ่งล่าง
           Expanded(
             child: Container(
-              color: const Color(0xFF2A3A8A),
+              color: bottomColor,
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
@@ -786,12 +838,10 @@ class GamePlayerPageState extends State<GamePlayerPage>
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildReadOnlyPlayerSlot(
-                          teamB.isNotEmpty ? teamB[0] : null,
-                        ),
-                        _buildReadOnlyPlayerSlot(
-                          teamB.length > 1 ? teamB[1] : null,
-                        ),
+                        _buildReadOnlyPlayerSlot(_getFullParticipant(
+                            teamB.isNotEmpty ? teamB[0] : null)),
+                        _buildReadOnlyPlayerSlot(_getFullParticipant(
+                            teamB.length > 1 ? teamB[1] : null)),
                       ],
                     ),
                   ),
@@ -799,7 +849,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        isPlaying ? 'กำลังเล่น' : 'รอกดเริ่ม',
+                        isReserve ? 'รอลงสนาม' : (isPlaying ? 'กำลังเล่น' : 'รอกดเริ่ม'),
                         style: TextStyle(
                           color: isPlaying ? Colors.greenAccent : Colors.white,
                           fontSize: 12,
@@ -807,7 +857,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
                         ),
                       ),
                       Text(
-                        'สนาม ${court['courtIdentifier'] ?? court['courtNumber'] ?? '-'}',
+                        titleText,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,

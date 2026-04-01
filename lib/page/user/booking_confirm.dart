@@ -7,7 +7,7 @@ import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
 
@@ -122,8 +122,8 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       return _buildBottomBarWRC();
     }
 
-    // 2. ถ้าก๊วนจบแล้ว
-    if (widget.details.status == 6) {
+    // 2. ถ้าผู้เล่น Check Out และชำระเงินเรียบร้อยแล้ว
+    if (widget.details.currentUserStatus == 'CheckedOut') {
       return _buildBottomBarS();
     }
 
@@ -454,95 +454,76 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     );
   }
 
-  void _showQrScannerDialog() {
-    final MobileScannerController controller = MobileScannerController(
-      detectionSpeed: DetectionSpeed.normal,
-      facing: CameraFacing.back,
-    );
-    bool isScanCompleted = false;
-
+  Future<void> _showMyQrCodeDialog() async {
+    // แสดง Loading ระหว่างดึงข้อมูล User ID
     showDialog(
       context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: SizedBox(
-            width: 300,
-            height: 350,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Scan QR Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: MobileScanner(
-                        controller: controller,
-                        onDetect: (capture) async {
-                          if (isScanCompleted) return;
-                          final List<Barcode> barcodes = capture.barcodes;
-                          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                            isScanCompleted = true;
-                            final String scannedData = barcodes.first.rawValue!;
-                            
-                            try {
-                                await ApiProvider().post(
-                                    '/player/gamesessions/${widget.details.code}/checkin',
-                                    data: { "scannedQrCode": scannedData }
-                                );
-                                
-                                if (mounted) {
-                                    Navigator.of(context).pop(); // ปิดกล้อง
-                                    setState(() {
-                                        _isCheckedInLocal = true;
-                                    });
-                                    showDialogMsg(
-                                        context,
-                                        title: 'สำเร็จ',
-                                        subtitle: 'Check-in เรียบร้อยแล้ว',
-                                        btnLeft: 'ตกลง',
-                                        onConfirm: () {},
-                                    );
-                                }
-                            } catch (e) {
-                                if (mounted) {
-                                    Navigator.of(context).pop(); // ปิดกล้อง
-                                    showDialogMsg(
-                                        context,
-                                        title: 'เกิดข้อผิดพลาด',
-                                        subtitle: e.toString().replaceFirst('Exception: ', ''),
-                                        btnLeft: 'ตกลง',
-                                        onConfirm: () {},
-                                    );
-                                }
-                            }
-                          }
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // ดึงข้อมูล User ของตัวเองเพื่อเอาไปสร้าง QR Code (ส่ง Public ID หรือ User ID ให้ผู้จัดสแกน)
+      final res = await ApiProvider().get('/Profiles/me');
+      final qrData = res['data']['userPublicId'] ?? res['data']['userId'] ?? res['data']['id'];
+
+      if (mounted) {
+        Navigator.pop(context); // ปิดหน้า Loading
+        showDialog(
+          context: context,
+          builder: (context) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'QR Code สำหรับเช็คอิน',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'โปรดแสดง QR Code นี้ให้ผู้จัดสแกน\nเพื่อยืนยันการมาถึงของคุณ',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
+                    QrImageView(
+                      data: qrData.toString(),
+                      version: QrVersions.auto,
+                      size: 200.0,
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: CustomElevatedButton(
+                        text: 'ปิด',
+                        onPressed: () {
+                          Navigator.of(context).pop();
                         },
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
-      },
-    ).whenComplete(() {
-      controller.dispose();
-    });
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // ปิดหน้า Loading
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: 'ไม่สามารถโหลดข้อมูล QR Code ได้',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    }
   }
 
   Future<void> _cancelBooking() async {
@@ -646,7 +627,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   if (isCheckedIn) {
                     context.push('/game-player/${widget.details.code}');
                   } else {
-                    _showQrScannerDialog();
+                    _showMyQrCodeDialog();
                   }
                 },
               ),
@@ -714,31 +695,25 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'ชำระเงินแล้ว',
+              'ชำระเงินและจบเกมแล้ว',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 20),
+                fontSize: getResponsiveFontSize(context, fontSize: 18),
                 fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              '190 บาท',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 20),
-                fontWeight: FontWeight.w600,
+                color: const Color(0xFF0E9D7A),
               ),
             ),
           ],
         ),
-
+        const SizedBox(height: 12),
         Container(
-          padding: EdgeInsets.all(15),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: CustomElevatedButton(
-            text: 'รายละเอียดเกม',
+            text: 'ดูประวัติและบิลค่าใช้จ่าย',
             fontSize: 16,
             backgroundColor: Colors.white,
             foregroundColor: Theme.of(context).colorScheme.primary,
             onPressed: () {
-              context.push('/history-detail/1');
+              context.push('/history-detail/${widget.details.code}');
             },
           ),
         ),
