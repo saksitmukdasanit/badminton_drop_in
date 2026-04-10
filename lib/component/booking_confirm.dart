@@ -73,7 +73,7 @@ class BookingConfirmDialog extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(child: _buildIconDetail(context, Icons.score, 'รูปแบบ', '21 แต้ม ${details.gameInfo}')),
-                          Expanded(child: _buildIconDetail(context, Icons.group_outlined, 'ผู้เล่น', '${details.currentPlayers}/${details.maxPlayers} คน\n(สำรอง 10)')),
+                          Expanded(child: _buildIconDetail(context, Icons.group_outlined, 'ผู้เล่น', '${details.currentPlayers}/${details.maxPlayers} คน')),
                         ],
                       ),
                     ],

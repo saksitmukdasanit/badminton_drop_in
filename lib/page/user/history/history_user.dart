@@ -274,20 +274,26 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     );
   }
 
-  String _getStatusDisplay(dynamic status) {
-    final matches = statusColors.where((d) => d['code'] == status.toString());
-    if (matches.isNotEmpty) return matches.first['display'];
+  String _getStatusDisplay(dynamic game) {
+    final status = game['status'];
+    final userStatus = game['userStatus'];
 
-    if (status == 1 || status == 2) return 'สำเร็จ';
-    if (status == 3 || status == 4) return 'ยกเลิก';
+    if (userStatus == 'Refund') return 'รอคืนเงิน';
+    if (status == 5 || userStatus == 'PendingPayment' || userStatus == 'Unpaid') return 'ค้างชำระ';
+    if (status == 3) return 'ยกเลิก';
+    if (status == 1 || status == 2 || status == 4) return 'สำเร็จ';
+    
     return 'สำเร็จ';
   }
 
-  Color _getStatusColor(dynamic status) {
-    final matches = statusColors.where((d) => d['code'] == status.toString());
-    if (matches.isNotEmpty) return matches.first['color'];
+  Color _getStatusColor(dynamic game) {
+    final status = game['status'];
+    final userStatus = game['userStatus'];
 
-    if (status == 3 || status == 4) return const Color(0xFF64646D);
+    if (userStatus == 'Refund') return Colors.orange;
+    if (status == 5 || userStatus == 'PendingPayment' || userStatus == 'Unpaid') return Colors.red;
+    if (status == 3) return const Color(0xFF64646D);
+    
     return const Color(0xFF0E9D7A);
   }
 
@@ -403,12 +409,12 @@ class HistoryUserPageState extends State<HistoryUserPage> {
                 context.push('/booking-confirm-history', extra: data);
               },
               child: Text(
-                _getStatusDisplay(game['status']),
+            _getStatusDisplay(game),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: getResponsiveFontSize(context, fontSize: 14),
                   fontWeight: FontWeight.w500,
-                  color: _getStatusColor(game['status']),
+              color: _getStatusColor(game),
                 ),
               ),
             ),

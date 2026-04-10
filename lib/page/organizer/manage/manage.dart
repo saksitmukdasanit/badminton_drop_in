@@ -27,7 +27,8 @@ class ManagePageState extends State<ManagePage> {
   int indexData = 0;
   bool _showDetailsOnMobile = false;
 
-  late Future<List<dynamic>> _futureMyGames;
+  bool _isLoading = true;
+  String? _errorMessage;
   List<dynamic> _myGamesData = [];
   List<dynamic> _skillLevels = [];
   final Map<int, bool> _updatingSkill =
@@ -41,7 +42,7 @@ class ManagePageState extends State<ManagePage> {
 
   @override
   void initState() {
-    _futureMyGames = _fetchMyUpcomingGames();
+    _initialLoad();
     _fetchSkillLevels();
     super.initState();
   }
@@ -49,6 +50,25 @@ class ManagePageState extends State<ManagePage> {
   @override
   void dispose() {
     super.dispose();
+  }
+
+  Future<void> _initialLoad() async {
+    try {
+      final data = await _fetchMyUpcomingGames();
+      if (mounted) {
+        setState(() {
+          _myGamesData = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<List<dynamic>> _fetchMyUpcomingGames() async {
@@ -74,7 +94,6 @@ class ManagePageState extends State<ManagePage> {
       if (mounted) {
         setState(() {
           _myGamesData = data;
-          _futureMyGames = Future.value(data); // ใช้ Future.value เพื่อให้ FutureBuilder แสดงผลทันที
         });
       }
     } catch (e) {
@@ -351,7 +370,7 @@ class ManagePageState extends State<ManagePage> {
                             // --- FIX: แก้ไข Endpoint และ Body ให้ตรงกับ API ---
                             ApiProvider()
                                 .post(
-                                  '/gamesessions/${_myGamesData[indexData]['id']}/checkin',
+                                  '/gamesessions/${_myGamesData[indexData]['sessionId']}/checkin',
                                   data: {
                                     // "scannedData" คือ key ที่ API ต้องการ
                                     "scannedData": scannedData,
@@ -527,44 +546,23 @@ class ManagePageState extends State<ManagePage> {
           ),
         ),
         // --- CHANGED: ครอบ LayoutBuilder ด้วย FutureBuilder ---
-        child: FutureBuilder<List<dynamic>>(
-          future: _futureMyGames,
-          builder: (context, snapshot) {
-            // --- 1. กรณี: กำลังโหลดข้อมูล ---
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            // --- 2. กรณี: เกิด Error ---
-            if (snapshot.hasError) {
-              return Center(
-                child: Text('เกิดข้อผิดพลาดในการดึงข้อมูล: ${snapshot.error}'),
-              );
-            }
-
-            // --- 3. กรณี: ไม่มีข้อมูล ---
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const Center(child: Text('ไม่พบก๊วนที่คุณกำลังจะไป'));
-            }
-
-            // --- 4. กรณี: มีข้อมูล ---
-            // นำข้อมูลที่ได้มาเก็บไว้ใน State
-            _myGamesData = snapshot.data!;
-
-            // สร้าง Layout เดิมโดยใช้ข้อมูลที่ดึงมาได้
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth > 820) {
-                  return _buildTabletLayout();
-                } else if (constraints.maxWidth > 600) {
-                  return _buildTabletVerticalLayout();
-                } else {
-                  return _buildMobileLayout();
-                }
-              },
-            );
-          },
-        ),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _errorMessage != null
+                ? Center(child: Text('เกิดข้อผิดพลาดในการดึงข้อมูล: $_errorMessage'))
+                : _myGamesData.isEmpty
+                    ? const Center(child: Text('ไม่พบก๊วนที่คุณกำลังจะไป'))
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth > 820) {
+                            return _buildTabletLayout();
+                          } else if (constraints.maxWidth > 600) {
+                            return _buildTabletVerticalLayout();
+                          } else {
+                            return _buildMobileLayout();
+                          }
+                        },
+                      ),
       ),
     );
   }
@@ -825,6 +823,7 @@ class ManagePageState extends State<ManagePage> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(6, 16, 16, 16),
             child: CustomScrollView(
+              key: const PageStorageKey('tablet_vertical_scroll'),
               slivers: [
                 SliverToBoxAdapter(
                   child: Text(
@@ -918,6 +917,7 @@ class ManagePageState extends State<ManagePage> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(7, 16, 7, 16),
             child: ListView(
+              key: const PageStorageKey('tablet_scroll'),
               children: [
                 GroupInfoCard(model: _myGamesData[indexData]),
                 SizedBox(height: 16),
@@ -950,6 +950,7 @@ class ManagePageState extends State<ManagePage> {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: CustomScrollView(
+        key: const PageStorageKey('mobile_details_scroll'),
         slivers: [
           // ปุ่ม Back สำหรับ Mobile
           if (isMobile)
@@ -1050,6 +1051,7 @@ class ManagePageState extends State<ManagePage> {
 
         Expanded(
           child: ListView.builder(
+            key: const PageStorageKey('playing_list_scroll'),
             itemCount: listData!.length,
             itemBuilder: (context, index) {
               final game = listData[index];
@@ -1072,7 +1074,9 @@ class ManagePageState extends State<ManagePage> {
                   shuttlecockInfo: game['shuttlecockModelName'],
                   shuttlecockBrand: game['shuttlecockBrandName'],
                   gameInfo: game['gameTypeName'],
-                  currentPlayers: game['currentParticipants'] ?? 0,
+                  currentPlayers: game['participants'] != null 
+                      ? (game['participants'] as List).where((p) => p['status'] == 1).length 
+                      : (game['currentParticipants'] ?? 0),
                   maxPlayers: game['maxParticipants'] ?? 0,
                   organizerName: game['organizerName'], // ไม่มีข้อมูลผู้จัด
                   organizerImageUrl:

@@ -375,7 +375,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
         SizedBox(height: 16),
         DetailsCard(model: model),
         SizedBox(height: 16),
-        ActionButtons(model: model),
+        ActionButtons(model: model, onNavigateBack: _fetchHistory),
         SizedBox(height: 16),
       ],
     );
@@ -536,7 +536,8 @@ class ImageSlideshow extends StatelessWidget {
 // --- Widget ย่อย: ปุ่ม Action ด้านล่าง ---
 class ActionButtons extends StatelessWidget {
   final dynamic model;
-  const ActionButtons({super.key, this.model});
+  final VoidCallback? onNavigateBack;
+  const ActionButtons({super.key, this.model, this.onNavigateBack});
 
   @override
   Widget build(BuildContext context) {
@@ -550,9 +551,10 @@ class ActionButtons extends StatelessWidget {
               backgroundColor: Color(0xFFFFFFFF),
               foregroundColor: Color(0xFF0E9D7A),
               fontSize: 11,
-              onPressed: () {
+              onPressed: () async {
                 final sessionId = model['gameSessionId'] ?? model['sessionId'];
-                context.push('/history-organizer-payment', extra: sessionId);
+                await context.push('/history-organizer-payment', extra: sessionId);
+                onNavigateBack?.call();
               },
             ),
           ),
@@ -720,8 +722,9 @@ class SummaryCard extends StatelessWidget {
 
     // FIX: ปรับโครงสร้าง Row เพื่อป้องกัน Overflow และจัด Layout ให้สวยงาม
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. Title
           Text(title, style: titleStyle),
@@ -729,37 +732,32 @@ class SummaryCard extends StatelessWidget {
 
           // 2. Value (Expanded เพื่อให้ยืดหดได้และไม่ดันจนหลุดขอบ)
           Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end, // จัดชิดขวาให้สวยงาม
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.end,
               children: [
-                Flexible(
-                  child: Text(
-                    value,
-                    style: valueStyle,
-                    textAlign: TextAlign.right, // จัดชิดขวา และยอมให้ขึ้นบรรทัดใหม่
-                  ),
+                Text(
+                  value,
+                  style: valueStyle,
+                  textAlign: TextAlign.right,
                 ),
                 if (unit != null) ...[
                   const SizedBox(width: 4),
                   Text(unit, style: unitStyle),
                 ],
+                if (trailingTitle != null) ...[
+                  const SizedBox(width: 12),
+                  Text(trailingTitle, style: titleStyle),
+                ],
+                if (trailingValue != null) ...[
+                  const SizedBox(width: 4),
+                  Text(trailingValue, style: valueStyle),
+                  if (trailingUnit != null) const SizedBox(width: 4),
+                  if (trailingUnit != null) Text(trailingUnit, style: unitStyle),
+                ],
               ],
             ),
           ),
-
-          // 3. Trailing (ข้อมูลเพิ่มเติมด้านหลัง)
-          if (trailingTitle != null || trailingValue != null) ...[
-            const SizedBox(width: 12),
-            if (trailingTitle != null) ...[
-              Text(trailingTitle, style: titleStyle),
-              const SizedBox(width: 4),
-            ],
-            if (trailingValue != null) ...[
-              Text(trailingValue, style: valueStyle),
-              if (trailingUnit != null) const SizedBox(width: 4),
-              if (trailingUnit != null) Text(trailingUnit, style: unitStyle),
-            ],
-          ],
         ],
       ),
     );
@@ -810,7 +808,7 @@ class _GameTimingCardState extends State<GameTimingCard> {
             // Header ของตาราง
             Row(
               children: [
-                _buildHeaderCell('สนาม/ลูก', flex: 2),
+                _buildHeaderCell('สนาม', flex: 2),
                 _buildHeaderCell('ทีม A', flex: 3),
                 _buildHeaderCell('vs', flex: 1),
                 _buildHeaderCell('ทีม B', flex: 3),

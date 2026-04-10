@@ -26,9 +26,9 @@ class _PaymentPageState extends State<PaymentPage> {
   bool isMemCard = true;
   String? _selectedPaymentMethod;
   final List<dynamic> _paymentMethods = [
-    {"code": 1, "value": 'Credit/Debit Card'},
-    {"code": 2, "value": 'Mobile Banking'},
-    {"code": 3, "value": 'QR Code'},
+    {"code": 'Credit/Debit Card', "value": 'Credit/Debit Card'},
+    {"code": 'Mobile Banking', "value": 'Mobile Banking'},
+    {"code": 'QR Code', "value": 'QR Code'},
   ];
 
   // -----Credit/Debit Card----
@@ -124,31 +124,20 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   Future<void> _handlePayment() async {
-    // // --- 1. จัดการกรณี QR Code (ซึ่งไม่ยิง API นี้) ---
-    // if (_selectedPaymentMethod == 'QR Code') {
-    //   // TODO: เพิ่ม Logic การดาวน์โหลดรูป QR Code
-    //   ScaffoldMessenger.of(context).showSnackBar(
-    //     const SnackBar(
-    //       content: Text('กำลังดาวน์โหลด QR Code... (Logicยังไม่เสร็จ)'),
-    //     ),
-    //   );
-    //   return; // หยุดทำงาน
-    // }
+    // --- 1. ตรวจสอบว่าเลือกวิธีชำระเงินหรือยัง ---
+    if (_selectedPaymentMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
+      );
+      return;
+    }
 
-    // // --- 2. ตรวจสอบว่าเลือกวิธีชำระเงินหรือยัง ---
-    // if (_selectedPaymentMethod == null) {
-    //   ScaffoldMessenger.of(context).showSnackBar(
-    //     const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
-    //   );
-    //   return;
-    // }
-
-    // // --- 3. ตรวจสอบ Form บัตรเครดิต (ถ้าเลือก) ---
-    // if (_selectedPaymentMethod == 'Credit/Debit Card') {
-    //   if (!(_formKeyCard.currentState?.validate() ?? false)) {
-    //     return; // หยุดถ้ากรอกบัตรไม่ถูกต้อง
-    //   }
-    // }
+    // --- 2. ตรวจสอบ Form บัตรเครดิต (ถ้าเลือก) ---
+    if (_selectedPaymentMethod == 'Credit/Debit Card') {
+      if (!(_formKeyCard.currentState?.validate() ?? false)) {
+        return; // หยุดถ้ากรอกบัตรไม่ถูกต้อง
+      }
+    }
 
     // --- 4. เริ่ม Loading ---
     setState(() {
@@ -156,27 +145,30 @@ class _PaymentPageState extends State<PaymentPage> {
     });
 
     try {
-      // 5. รวบรวมข้อมูลการชำระเงิน (นี่เป็นข้อมูลตัวอย่าง คุณต้องปรับแก้ให้ตรงกับ DTO ที่ API ต้องการ)
-      // dynamic paymentData;
-      // if (_selectedPaymentMethod == 'Credit/Debit Card') {
-      //   paymentData = {
-      //     'method': 'CreditCard',
-      //     'cardNumber': _cardNumberController.text,
-      //     'cardName': _cardNameController.text,
-      //     'expiryMonth': _expiryMonthController.text,
-      //     'expiryYear': _expiryYearController.text,
-      //     'cvv': _cvvController.text,
-      //     'saveCard': isMemCard,
-      //   };
-      // } else if (_selectedPaymentMethod == 'Mobile Banking') {
-      //   paymentData = {'method': 'MobileBanking', 'bank': 'KBank'}; // ตัวอย่าง
-      // }
+      // 5. รวบรวมข้อมูลการชำระเงิน
+      Map<String, dynamic> paymentData = {
+        'paymentMethod': _selectedPaymentMethod,
+        'autoPromote': _autoConfirm, // ส่งข้อมูลว่าต้องการเป็นตัวจริงอัตโนมัติหรือไม่
+      };
+
+      if (_selectedPaymentMethod == 'Credit/Debit Card') {
+        paymentData.addAll({
+          'cardNumber': _cardNumberController.text,
+          'cardName': _cardNameController.text,
+          'expiryMonth': _expiryMonthController.text,
+          'expiryYear': _expiryYearController.text,
+          'cvv': _cvvController.text,
+          'saveCard': isMemCard,
+        });
+      } else if (_selectedPaymentMethod == 'Mobile Banking') {
+        paymentData.addAll({'bank': 'KBank'}); // ตัวอย่างสำหรับ Mobile Banking
+      }
 
       // --- 6. ยิง API ---
       // (ApiProvider จะแนบ Token ไปใน Header ให้เอง)
       await ApiProvider().post(
         '/player/gamesessions/${widget.bookingId}/join',
-        // data: paymentData,
+        data: paymentData,
       );
 
       // --- 7. ถ้าสำเร็จ: แสดง Dialog ---
@@ -271,127 +263,159 @@ class _PaymentPageState extends State<PaymentPage> {
           //     : null,
         ),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: ListView(
-            // crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // --- T&C Link ---
-              Text(
-                'จองเป็นผู้เล่นตัวสำรอง',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: getResponsiveFontSize(context, fontSize: 16),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start, // ให้ชิดขอบบนเสมอเมื่อข้อความปัดบรรทัด
-                children: [
-                  Expanded( // เพิ่ม Expanded เพื่อให้ข้อความตัดขึ้นบรรทัดใหม่เมื่อจอด้านขวาไม่พอ
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ถ้าไม่ได้รับเลือกจะโอนเงินคืนภายใน 7 วันทำการ ',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w300,
-                            fontSize: getResponsiveFontSize(
-                              context,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 0),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onPressed: () {},
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 8.0),
-                      child: Text(
-                        'T&C',
-                        style: TextStyle(
-                          color: Theme.of(context).primaryColor,
-                          decoration: TextDecoration.underline,
-                          decorationColor: Theme.of(context).primaryColor,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // --- Checkbox ---
-              CheckboxListTile(
-                title: Text(
-                  'เปลี่ยนเป็นตัวจริงอัตโนมัติ',
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: ListView(
+              children: [
+                // --- รายละเอียดการจอง ---
+                Text(
+                  'จองเป็นผู้เล่นตัวสำรอง',
                   style: TextStyle(
-                    color: Color(0xFF64646D),
-                    fontWeight: FontWeight.w400,
+                    fontWeight: FontWeight.w700,
                     fontSize: getResponsiveFontSize(context, fontSize: 16),
                   ),
                 ),
-                value: _autoConfirm,
-                onChanged: (bool? newValue) {
-                  setState(() {
-                    _autoConfirm = newValue!;
-                  });
-                },
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-                activeColor: Theme.of(context).primaryColor,
-                checkColor: Colors.white,
-              ),
-              
-              if (_isLoadingData)
-                const Padding(padding: EdgeInsets.all(16.0), child: Center(child: CircularProgressIndicator()))
-              else ...[
-                _buildPriceRow(context, 'ค่าสนาม', '${_courtFee.toStringAsFixed(0)} บาท'),
-                _buildPriceRow(context, 'ค่าบริการ', '${_serviceFee.toStringAsFixed(0)} บาท'),
-                _buildPriceRow(context, 'ราคารวม', '${(_courtFee + _serviceFee).toStringAsFixed(0)} บาท', isBold: true),
-              ],
-              SizedBox(height: 20),
-              // --- เวลานับถอยหลัง ---
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'วิธีการชำระเงิน',
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ถ้าไม่ได้รับเลือกจะโอนเงินคืนภายใน 7 วันทำการ ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w300,
+                              fontSize: getResponsiveFontSize(context, fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 0),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {},
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Text(
+                          'T&C',
+                          style: TextStyle(
+                            color: Theme.of(context).primaryColor,
+                            decoration: TextDecoration.underline,
+                            decorationColor: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                // --- Checkbox ---
+                CheckboxListTile(
+                  title: Text(
+                    'เปลี่ยนเป็นตัวจริงอัตโนมัติ',
                     style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 20),
+                      color: Color(0xFF64646D),
                       fontWeight: FontWeight.w400,
+                      fontSize: getResponsiveFontSize(context, fontSize: 16),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
+                  value: _autoConfirm,
+                  onChanged: (bool? newValue) {
+                    setState(() {
+                      _autoConfirm = newValue!;
+                    });
+                  },
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  activeColor: Theme.of(context).primaryColor,
+                  checkColor: Colors.white,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // --- การ์ดสรุปค่าใช้จ่าย ---
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'รายละเอียดค่าใช้จ่าย',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Color(0xFF0E9D7A),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (_isLoadingData)
+                          const Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else ...[
+                          _buildPriceRow(context, 'ค่าสนาม', '${_courtFee.toStringAsFixed(0)} บาท'),
+                          _buildPriceRow(context, 'ค่าบริการ', '${_serviceFee.toStringAsFixed(0)} บาท'),
+                          const Divider(height: 24),
+                          _buildPriceRow(context, 'ราคารวม', '${(_courtFee + _serviceFee).toStringAsFixed(0)} บาท', isBold: true),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
 
-              // --- Dropdown เลือกวิธีชำระเงิน ---
-              CustomDropdown(
-                labelText: '',
-                initialValue: _selectedPaymentMethod,
-                items: _paymentMethods,
-                onChanged: (value) {
-                  setState(() {
-                    _selectedPaymentMethod = value;
-                    if (value == 'QR Code') {
-                      _startTimer();
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 15),
-              _buildPaymentDetails(),
-            ],
+                const SizedBox(height: 24),
+                
+                // --- เวลานับถอยหลัง ---
+                const Text(
+                  'วิธีการชำระเงิน',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // --- Dropdown เลือกวิธีชำระเงิน ---
+                CustomDropdown(
+                  labelText: '',
+                  initialValue: _selectedPaymentMethod,
+                  items: _paymentMethods,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentMethod = value;
+                      if (value == 'QR Code') {
+                        _startTimer();
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 15),
+                _buildPaymentDetails(),
+              ],
+            ),
           ),
         ),
       ),

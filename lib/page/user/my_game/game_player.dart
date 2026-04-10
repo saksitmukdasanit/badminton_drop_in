@@ -49,6 +49,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
   bool _isPlayingInMainCourt = false;
   bool _isPaused = false;
   List<dynamic> _myMatchHistory = [];
+  String _totalMinutesPlayed = "0";
   Map<String, dynamic>? _myBillData;
 
   // FAB Menu
@@ -123,6 +124,16 @@ class GamePlayerPageState extends State<GamePlayerPage>
     } catch (e) {}
   }
 
+  String _formatTotalMinutes(String minutesStr) {
+    int total = int.tryParse(minutesStr) ?? 0;
+    if (total == 0) return "0 นาที";
+    int h = total ~/ 60;
+    int m = total % 60;
+    if (h > 0 && m > 0) return "$h ชม. $m นาที";
+    if (h > 0) return "$h ชม.";
+    return "$m นาที";
+  }
+
   Future<void> _fetchMyMatchHistory() async {
     if (_myUserId == null) return;
     try {
@@ -132,7 +143,35 @@ class GamePlayerPageState extends State<GamePlayerPage>
       );
       if (mounted && res['data'] != null) {
         setState(() {
-          _myMatchHistory = res['data']['matchHistory'] ?? [];
+          // หาข้อมูลของตัวเองจากรายชื่อทั้งหมดเพื่อนำไปแสดงรูป
+          final myInfo = _allParticipants.firstWhere(
+            (p) => p['userId']?.toString() == _myUserId.toString(),
+            orElse: () => null,
+          );
+
+          _totalMinutesPlayed = res['data']['totalMinutesPlayed']?.toString() ?? "0";
+
+          List<dynamic> history = res['data']['matchHistory'] ?? [];
+          for (var match in history) {
+            if (match['teammate'] != null) {
+              match['teammate'] = _getFullParticipant(match['teammate']);
+            }
+            if (match['opponents'] != null && match['opponents'] is List) {
+              match['opponents'] = (match['opponents'] as List)
+                  .map((o) => _getFullParticipant(o))
+                  .toList();
+            }
+
+            // ประกอบร่างข้อมูลตัวเองใส่เข้าไปใน match เพื่อให้ Widget การ์ดนำรูปไปแสดงผลได้
+            if (myInfo != null) {
+              match['me'] = myInfo;
+              match['myTeam'] = [
+                myInfo,
+                if (match['teammate'] != null && match['teammate']['nickname'] != 'N/A') match['teammate']
+              ];
+            }
+          }
+          _myMatchHistory = history;
         });
       }
     } catch (e) {}
@@ -359,25 +398,32 @@ class GamePlayerPageState extends State<GamePlayerPage>
   Future<void> _togglePause() async {
     if (_isPlayingInMainCourt) return;
 
-    try {
-      // สมมติว่ามี API สำหรับขอพัก (หรือเรียกใช้ endpoint ที่มีอยู่)
-      // หากไม่มี API นี้ในระบบ ให้ใช้ Local State ไปก่อน
-      // await ApiProvider().put('/participants/member/$_myUserId/pause', data: {"isPaused": !_isPaused});
+    setState(() {
+      _isPaused = !_isPaused;
+      if (_isPaused) {
+        _myStatusBaseText = 'หยุดพักการแข่งขัน';
+      }
+    });
 
-      setState(() {
-        _isPaused = !_isPaused;
-        if (_isPaused) {
-          _myStatusBaseText = 'หยุดพักการแข่งขัน';
-        } else {
-          _fetchLiveState(); // โหลดสถานะใหม่
-        }
-      });
+    try {
+      // เรียก API เพื่อส่ง SignalR ไปให้ผู้จัดรับทราบว่าหยุดพัก
+      await ApiProvider().post(
+        '/player/gamesessions/${widget.id}/toggle-pause',
+        data: {"isPaused": _isPaused},
+      );
+
+      if (!_isPaused) {
+        _fetchLiveState(); // โหลดสถานะใหม่
+      }
       _closeFabMenu();
     } catch (e) {
+      setState(() {
+        _isPaused = !_isPaused; // ถ้ายิง API ไม่ผ่านให้กลับมาสถานะเดิม
+      });
       showDialogMsg(
         context,
         title: 'ผิดพลาด',
-        subtitle: e.toString(),
+        subtitle: e.toString().replaceFirst('Exception: ', ''),
         btnLeft: 'ตกลง',
         onConfirm: () {},
       );
@@ -483,15 +529,26 @@ class GamePlayerPageState extends State<GamePlayerPage>
           // 3. ดูค่าใช้จ่าย
           InkWell(
             onTap: () {
-              _closeFabMenu(); // Close FAB menu
-              context.push('/payment-now/${widget.id}'); // วิ่งไปหน้าชำระเงินเต็มจอเลย
+              if (_isPlayingInMainCourt) {
+                _closeFabMenu();
+                showDialogMsg(
+                  context,
+                  title: 'แจ้งเตือน',
+                  subtitle: 'คุณกำลังแข่งขันอยู่ในสนาม\nไม่สามารถชำระเงินเพื่อเช็คเอาท์ได้ในขณะนี้',
+                  btnLeft: 'ตกลง',
+                  onConfirm: () {},
+                );
+                return;
+              }
+              _closeFabMenu();
+              context.push('/payment-now/${widget.id}');
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
               child: Text(
                 'ดูค่าใช้จ่าย',
                 style: TextStyle(
-                  fontSize: 16, color: Colors.green, fontWeight: FontWeight.bold,
+                  fontSize: 16, color: _isPlayingInMainCourt ? Colors.grey : Colors.green, fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -620,9 +677,22 @@ class GamePlayerPageState extends State<GamePlayerPage>
           ),
         ),
         const SizedBox(height: 24),
-        const Text(
-          'เกมส์ทั้งหมดที่เล่นแล้ว',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'เกมส์ทั้งหมดที่เล่นแล้ว',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              'เวลาเล่นรวม: ${_formatTotalMinutes(_totalMinutesPlayed)}',
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
 
@@ -762,25 +832,37 @@ class GamePlayerPageState extends State<GamePlayerPage>
     if (player == null) {
       return null;
     }
-    // The player object from the live state might be minimal.
-    // Find the full participant details from the list we fetched.
+    
     final participantId = player['participantId']?.toString();
     final userId = player['userId']?.toString();
+    final walkinId = player['walkinId']?.toString();
 
-    if (participantId == null && userId == null) {
-      return player; // Not enough info to find full details
+    if (participantId == null && userId == null && walkinId == null) {
+      return player;
     }
 
     final fullParticipant = _allParticipants.firstWhere(
         (p) {
-          // Try to match by participantId first as it's more specific to the session
-          if (participantId != null && p['participantId']?.toString() == participantId) return true;
-          // Fallback to userId if no match
-          if (userId != null && p['userId']?.toString() == userId) return true;
+          final pId = p['participantId']?.toString();
+          final uId = p['userId']?.toString();
+          final wId = p['walkinId']?.toString();
+          
+          // เนื่องจาก API มีการส่ง participantId กลับมาในฟิลด์ userId 
+          if (participantId != null && (pId == participantId || uId == participantId)) return true;
+          if (userId != null && (pId == userId || uId == userId)) return true;
+          if (walkinId != null && (wId == walkinId || pId == walkinId)) return true;
+          
           return false;
         },
         orElse: () => null);
-    return fullParticipant ?? player; // Fallback to the original player object
+        
+    if (fullParticipant != null) {
+      final merged = Map<String, dynamic>.from(player as Map);
+      merged.addAll(Map<String, dynamic>.from(fullParticipant as Map));
+      merged['profilePhotoUrl'] = fullParticipant['profilePhotoUrl'] ?? player['profilePhotoUrl'];
+      return merged;
+    }
+    return player;
   }
 
   Widget _buildReadOnlyCourtCard(dynamic data, {bool isReserve = false, int index = 0}) {

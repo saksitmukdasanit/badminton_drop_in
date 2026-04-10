@@ -91,25 +91,33 @@ class _ExpensePanelState extends State<ExpensePanel> {
       double estimatedTotal = 0.0;
       List<Map<String, dynamic>> customLineItems = [];
 
-      double courtAmount = widget.courtFee;
+      // --- FIX: ตรวจสอบว่าจ่ายค่าสนามไปแล้วหรือยัง ---
+      double courtAmount = 0.0;
       if (_billData != null && _billData['lineItems'] != null) {
          final items = _billData['lineItems'] as List;
-         final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท', orElse: () => null);
+         final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท' || i['description'] == 'ค่าสนาม', orElse: () => null);
          if (item != null) courtAmount = (item['amount'] ?? 0).toDouble();
+      } else {
+         courtAmount = widget.courtFee; // Fallback
       }
       if (courtAmount > 0) {
-         customLineItems.add({'description': 'ค่าคอร์ท', 'amount': courtAmount});
+         customLineItems.add({'description': 'ค่าสนาม', 'amount': courtAmount});
          estimatedTotal += courtAmount;
       }
 
-      double serviceFee = 10.0;
+      // --- FIX: ตรวจสอบว่าจ่ายค่าธรรมเนียมไปแล้วหรือยัง ---
+      double serviceFee = 0.0;
       if (_billData != null && _billData['lineItems'] != null) {
          final items = _billData['lineItems'] as List;
          final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
          if (item != null) serviceFee = (item['amount'] ?? 0).toDouble();
+      } else {
+         serviceFee = 10.0; // Fallback
       }
-      customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': serviceFee});
-      estimatedTotal += serviceFee;
+      if (serviceFee > 0) {
+         customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': serviceFee});
+         estimatedTotal += serviceFee;
+      }
 
       double shuttleTotal = 0.0;
       final int totalGames = _playerStats?.totalGamesPlayed ?? 0;
@@ -146,7 +154,19 @@ class _ExpensePanelState extends State<ExpensePanel> {
       final checkoutRes = await ApiProvider().post('/participants/$pType/$pId/checkout', data: {'customLineItems': customLineItems});
       final int billId = checkoutRes['data']['billId'];
 
-      await _confirmPaymentAPI(billId, paymentMethod, estimatedTotal);
+      // --- NEW: ดักไว้ว่าถ้ายังไม่จ่าย ให้แค่ปิดหน้าจอ ไม่ต้องเรียก API ยืนยันรับเงิน ---
+      if (paymentMethod == 'ยังไม่จ่าย' || paymentMethod == 'ค้างชำระ') {
+        if (mounted) {
+          showDialogMsg(
+            context, title: 'บันทึกสำเร็จ', subtitle: 'สร้างบิลและบันทึกค้างชำระเรียบร้อยแล้ว', btnLeft: 'ตกลง', btnLeftBackColor: const Color(0xFF0E9D7A), btnLeftForeColor: Colors.white,
+            onConfirm: () { widget.onClose(); widget.onPaymentSuccess?.call(); },
+          );
+        }
+      } else if (estimatedTotal > 0) {
+        await _confirmPaymentAPI(billId, paymentMethod, estimatedTotal);
+      } else {
+        widget.onClose(); widget.onPaymentSuccess?.call();
+      }
     } catch (e) {
       if (mounted) {
         final errStr = e.toString();
@@ -236,7 +256,6 @@ class _ExpensePanelState extends State<ExpensePanel> {
                     style: const TextStyle(fontSize: 16, color: Colors.black87),
                     children: [
                       const TextSpan(text: 'เล่นไป '), TextSpan(text: '${_playerStats?.totalGamesPlayed ?? 0} เกม  ', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                      TextSpan(text: '${_billData != null ? _billData['totalShuttlecocks'] ?? 0 : 0} ลูก  ', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                       const TextSpan(text: 'เวลาที่รอ '), TextSpan(text: '${_playerStats?.totalMinutesPlayed ?? "00:00"} นาที', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                     ],
                   ),

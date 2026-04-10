@@ -283,6 +283,40 @@ class _ManageGamePage extends State<ManageGamePage> {
       }
     });
 
+    // --- NEW: ดักฟัง Event เมื่อผู้เล่นกดหยุด/เริ่มเกมจากแอปตัวเอง ---
+    _hubConnection!.on("PlayerPauseStateChanged", (arguments) {
+      if (arguments != null && arguments.isNotEmpty && arguments[0] is Map) {
+        final data = Map<String, dynamic>.from(arguments[0] as Map);
+        final String? playerId = data['playerId']?.toString();
+        final bool? isPaused = data['isPaused'] as bool?;
+
+        if (playerId != null && isPaused != null && mounted) {
+          setState(() {
+            if (isPaused) {
+              // 1. ถ้ากำลังอยู่ในสนามหลัก ให้เพิกเฉย ไม่ให้พัก
+              bool inMainCourt = playingCourts.any((c) => c.players.any((p) => p?.id == playerId));
+              if (inMainCourt) return;
+
+              // 2. ถ้าอยู่ในทีมสำรอง ให้เด้งออกกลับไป Waiting List
+              for (var team in reserveTeams) {
+                final playerIndex = team.players.indexWhere((p) => p?.id == playerId);
+                if (playerIndex != -1) {
+                  _removePlayerFromCourt(team, playerIndex);
+                  break;
+                }
+              }
+
+              _pausedPlayerIds.add(playerId);
+              selectedPlayers.removeWhere((p) => p.id == playerId);
+            } else {
+              _pausedPlayerIds.remove(playerId);
+            }
+          });
+          _savePausedPlayers();
+        }
+      }
+    });
+
     // (Optional) จัดการสถานะการเชื่อมต่อ
     _hubConnection!.onclose(({error}) {
       print("SignalR: Connection Closed: $error");
@@ -421,6 +455,12 @@ class _ManageGamePage extends State<ManageGamePage> {
         courtNumber: int.tryParse(courtStatus.courtIdentifier) ?? 0,
         identifier: courtStatus.courtIdentifier, // FIX: เก็บชื่อสนาม
       );
+
+      // --- FIX: ดึงจำนวนเกมส์ที่เล่นแล้วจาก state เดิมมาใส่ เพื่อไม่ให้รีเซ็ตเป็น 0 ---
+      int oldCourtIndex = playingCourts.indexWhere((c) => c.identifier == courtStatus.courtIdentifier);
+      if (oldCourtIndex != -1) {
+        court.gamesPlayedCount = playingCourts[oldCourtIndex].gamesPlayedCount;
+      }
 
       // --- FIX: สร้าง ReadyTeam ที่คู่กันก่อน แล้วค่อยกำหนดค่า ---
       final newTeam = ReadyTeam(id: newReadyTeams.length + 1);
@@ -2174,10 +2214,25 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   // --- NEW: ฟังก์ชันสำหรับลบสนาม ---
   void _deleteCourt(PlayingCourt court) {
-    setState(() {
-      playingCourts.remove(court);
-    });
-    _updateSessionCourtsAPI(); // อัปเดตข้อมูลไปที่ Server
+    int index = playingCourts.indexOf(court);
+    if (index != -1) {
+      setState(() {
+        // ดึงคนที่ค้างอยู่ในสนามและทีมเตรียมพร้อม (ถ้ามี) กลับไปที่ Waiting List
+        for (var p in court.players) {
+          if (p != null && !waitingPlayers.any((wp) => wp.id == p.id)) {
+            waitingPlayers.add(p);
+            selectedPlayers.remove(p);
+          }
+        }
+        
+        // ลบสนาม และ ลบทีมจัดคู่ที่สอดคล้องกับสนามนี้ออกเพื่อไม่ให้ index เหลื่อมกัน
+        playingCourts.removeAt(index);
+        readyTeams.removeAt(index);
+      });
+      
+      // อัปเดตข้อมูลไปที่ Server
+      _updateSessionCourtsAPI(); 
+    }
   }
 
   // --- NEW: ฟังก์ชันสำหรับเคลียร์ทีมสำรอง (เสมือนการลบ) ---
@@ -2288,6 +2343,8 @@ class _ManageGamePage extends State<ManageGamePage> {
         : const Color(0xFF2A3A8A);
     final dynamic courtOrTeam = isReserveTeam ? reserveTeam! : court;
     final bool isFull = court.players.every((p) => p != null);
+    final bool isEmpty = court.players.every((p) => p == null); // NEW: เช็คว่าสนามว่างหรือไม่
+
     return Card(
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -2316,34 +2373,35 @@ class _ManageGamePage extends State<ManageGamePage> {
               ),
             ],
           ),
-          // --- NEW: ปุ่มลบสนาม (แสดงเฉพาะตอนที่ไม่ได้เล่นเกม) ---
-          // if (court.status != CourtStatus.playing)
-          //   Positioned(
-          //     top: 4,
-          //     right: 4,
-          //     child: InkWell(
-          //       onTap: () {
-          //         showDialogMsg(
-          //           context,
-          //           title: 'ลบสนาม',
-          //           subtitle: 'คุณต้องการลบสนาม ${court.identifier} หรือไม่?',
-          //           isWarning: true,
-          //           btnLeft: 'ลบ',
-          //           btnLeftBackColor: Colors.red,
-          //           btnLeftForeColor: Colors.white,
-          //           onConfirm: () => _deleteCourt(court),
-          //         );
-          //       },
-          //       child: Container(
-          //         padding: const EdgeInsets.all(4),
-          //         decoration: BoxDecoration(
-          //           color: Colors.black.withOpacity(0.3),
-          //           shape: BoxShape.circle,
-          //         ),
-          //         child: const Icon(Icons.close, color: Colors.white, size: 16),
-          //       ),
-          //     ),
-          //   ),
+          // --- NEW: ปุ่มลบสนาม (แสดงเฉพาะตอนที่ไม่ได้เล่นเกม และ สนามต้องว่างเปล่า) ---
+          if (court.status != CourtStatus.playing && isEmpty)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: InkWell(
+                onTap: () {
+                  showDialogMsg(
+                    context,
+                    title: 'ลบสนาม',
+                    subtitle: 'คุณต้องการลบสนาม ${court.identifier} หรือไม่?',
+                    isWarning: true,
+                    btnLeft: 'ลบ',
+                    btnLeftBackColor: Colors.red,
+                    btnLeftForeColor: Colors.white,
+                    btnRight: 'ยกเลิก',
+                    onConfirm: () => _deleteCourt(court),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
           if (!isReserveTeam) _buildCenterPauseButton(court, isFull: isFull),
           if (court.status == CourtStatus.playing)
             Positioned.fill(
@@ -2399,44 +2457,8 @@ class _ManageGamePage extends State<ManageGamePage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         children: [
-          // --- แถวควบคุมด้านบนสุด ---
-          if (!isReserveTeam && courtOrTeam is PlayingCourt)
-            Row(
-              mainAxisAlignment: MainAxisAlignment
-                  .spaceBetween, // จัดให้มีระยะห่างระหว่างซ้ายขวา
-              children: [
-                // --- RESTORED: ไอคอนจัดการลูกแบด (UI เดิม) ---
-                const Row(
-                  children: [
-                    Icon(Icons.remove_circle_outline, color: Colors.white),
-                    SizedBox(width: 3),
-                    Icon(Icons.sports_tennis_sharp, color: Colors.white),
-                    SizedBox(width: 3),
-                    Icon(Icons.add_circle_outline, color: Colors.white),
-                  ],
-                ),
-                // --- ตัวนับจำนวนเกมส์ที่มุมขวาบน ---
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white.withOpacity(0.8)),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${courtOrTeam.gamesPlayedCount}', // FIX: แสดงจำนวนเกมที่เล่นในสนามนี้
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            )
-          else
-            const SizedBox(height: 30), // Spacer for reserve teams
+          // --- Spacer ดันให้รูปผู้เล่นอยู่ตรงกลาง ---
+          const SizedBox(height: 30),
           // --- ช่องผู้เล่น ---
           Expanded(
             child: Row(

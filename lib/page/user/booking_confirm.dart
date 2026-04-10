@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:signalr_netcore/signalr_client.dart';
 
 class BookingDetails {
   final int code;
@@ -82,6 +83,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   int _currentPage = 0;
   bool _isCheckedInLocal = false;
 
+  // --- NEW: สำหรับ SignalR และ QR Dialog ---
+  HubConnection? _hubConnection;
+  int? _myUserId;
+  bool _isQrDialogOpen = false;
+
   // --- (แก้ไข) ใช้ข้อมูลรูปภาพจาก parameter ---
   late final List<String> _imageUrls;
 
@@ -89,6 +95,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   void initState() {
     super.initState();
     _imageUrls = widget.details.courtImageUrls; // <-- ใช้ข้อมูลที่ส่งมา
+
+    // --- NEW: โหลดข้อมูล User และต่อ SignalR เพื่อรอรับสัญญาณ Check-in ---
+    _fetchMyUserId();
+    _initSignalR();
 
     // --- ตั้งค่า Timer ให้เลื่อนรูปทุก 3 วินาที ---
     if (_imageUrls.length > 1) {
@@ -113,12 +123,57 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   void dispose() {
     _timer?.cancel();
     _pageController.dispose();
+    _hubConnection?.stop(); // ปิดการเชื่อมต่อเมื่อออกจากหน้า
     super.dispose();
+  }
+
+  // --- NEW: ดึงข้อมูล User ID ของตัวเอง ---
+  Future<void> _fetchMyUserId() async {
+    try {
+      final res = await ApiProvider().get('/Profiles/me');
+      if (mounted) {
+        setState(() {
+          _myUserId = res['data']['userId'] ?? res['data']['id'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching user profile: $e');
+    }
+  }
+
+  // --- NEW: เชื่อมต่อ SignalR เพื่อรอ Event Check-in ---
+  Future<void> _initSignalR() async {
+    _hubConnection = ApiProvider().createHubConnection('/managementGameHub');
+
+    _hubConnection!.on("PlayerCheckedIn", (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        // ป้องกัน Error Type 'Object?' can't be assigned to 'int' โดยการแปลงค่าก่อน
+        int checkedInUserId = int.tryParse(arguments[0].toString()) ?? 0;
+        if (_myUserId != null && checkedInUserId == _myUserId) {
+          if (mounted) {
+            setState(() => _isCheckedInLocal = true);
+
+            // 1. ปิด Dialog QR Code ถ้ากำลังเปิดอยู่
+            if (_isQrDialogOpen) Navigator.of(context).pop();
+
+            // 2. เด้งไปหน้ากระดานแข่งขันทันที
+            context.pushReplacement('/game-player/${widget.details.code}');
+          }
+        }
+      }
+    });
+
+    try {
+      await _hubConnection!.start();
+      await _hubConnection!.invoke("JoinSessionGroup", args: [widget.details.code.toString()]);
+    } catch (e) {
+      debugPrint("SignalR error: $e");
+    }
   }
 
   Widget _buildbottomBar() {
     // 1. ถ้าก๊วนถูกยกเลิก หรือรอคืนเงิน
-    if (widget.details.status == 3 || widget.details.status == 4 || widget.details.currentUserStatus == 'Refund') {
+    if (widget.details.status == 3 || widget.details.currentUserStatus == 'Refund') {
       return _buildBottomBarWRC();
     }
 
@@ -395,6 +450,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   '* หมายเหตุ: ค่าลูกแบดและส่วนต่างอื่นๆ จะถูกคำนวณและเรียกเก็บเพิ่มหลังจบเกม ตามรูปแบบที่ผู้จัดได้ตั้งค่าไว้',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
+                const SizedBox(height: 4),
+                const Text(
+                  '* นโยบายคืนเงิน: หากคุณกดยกเลิกการจองด้วยตนเอง จะได้รับคืนเฉพาะค่าสนาม (ไม่รวมค่าธรรมเนียมแพลตฟอร์ม) แต่หากผู้จัดเป็นผู้ยกเลิกก๊วน คุณจะได้รับเงินคืนเต็มจำนวน',
+                  style: TextStyle(fontSize: 12, color: Colors.redAccent),
+                ),
               ],
             ),
           ),
@@ -469,6 +529,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
       if (mounted) {
         Navigator.pop(context); // ปิดหน้า Loading
+            _isQrDialogOpen = true; // มาร์คไว้ว่า Dialog กำลังเปิด
         showDialog(
           context: context,
           builder: (context) {
@@ -510,7 +571,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
               ),
             );
           },
-        );
+        ).then((_) => _isQrDialogOpen = false); // มาร์คเมื่อ Dialog ถูกปิด
       }
     } catch (e) {
       if (mounted) {
@@ -530,7 +591,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     showDialogMsg(
       context,
       title: 'ยืนยันการยกเลิก',
-      subtitle: 'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?',
+      subtitle: 'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?\n\n*หมายเหตุ: ตามนโยบายคืนเงิน ค่าธรรมเนียมแพลตฟอร์มจะไม่สามารถขอคืนได้ในกรณีที่คุณเป็นผู้กดยกเลิกเอง',
       isWarning: true,
       btnLeft: 'ยกเลิกก๊วน',
       btnLeftBackColor: Colors.red,
@@ -737,10 +798,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
               ),
             ),
             Text(
-              '90 บาท',
+              '${widget.details.price} บาท', // ดึงยอดค่าใช้จ่ายหรือราคาที่ตั้งไว้มาแสดง
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 20),
                 fontWeight: FontWeight.w600,
+                color: Colors.red,
               ),
             ),
           ],
@@ -757,7 +819,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   backgroundColor: Colors.white,
                   foregroundColor: Theme.of(context).colorScheme.primary,
                   onPressed: () {
-                    context.push('/history-detail/1');
+                    context.push('/history-detail/${widget.details.code}');
                   },
                 ),
               ),
@@ -782,6 +844,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   }
 
   Widget _buildBottomBarWRC() {
+    // เช็คว่าสถานะคือรอคืนเงิน หรือ คืนเงินเสร็จสิ้นแล้ว (ยกเลิกสมบูรณ์)
+    bool isPendingRefund = widget.details.currentUserStatus == 'Refund';
+    String titleText = isPendingRefund ? 'รอคืนเงิน' : 'ยกเลิก / คืนเงินเรียบร้อย';
+    Color titleColor = isPendingRefund ? Colors.orange : Colors.grey;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -790,14 +857,15 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              widget.details.status == "C" ? 'คืนเงินเรียบร้อย' : 'รอคืนเงิน',
+              titleText,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 20),
                 fontWeight: FontWeight.w600,
+                color: titleColor,
               ),
             ),
             Text(
-              '210 บาท',
+              '${widget.details.price} บาท', // ดึงยอดคืนเงินที่ควรจะได้มาแสดง
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 20),
                 fontWeight: FontWeight.w600,
@@ -817,7 +885,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   backgroundColor: Colors.white,
                   foregroundColor: Theme.of(context).colorScheme.primary,
                   onPressed: () {
-                    context.push('/payment-history/1');
+                    context.push('/payment-history/${widget.details.code}'); // ส่ง ID ก๊วนไปหน้าประวัติการจ่ายเงิน
                   },
                 ),
               ),

@@ -80,13 +80,11 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
 
   @override
   Widget build(BuildContext context) {
-    // สร้างลิสต์ของทีมตัวเอง โดยมี "ฉัน" และ teammate
-    List<dynamic> myTeam = [
+    // ใช้ myTeam ที่ประกอบร่างมาจากหน้าหลัก ถ้าไม่มีให้สร้าง default
+    List<dynamic> myTeam = widget.match['myTeam'] ?? [
       {'nickname': 'ฉัน', 'profilePhotoUrl': null},
+      if (widget.match['teammate'] != null && widget.match['teammate']['nickname'] != 'N/A') widget.match['teammate']
     ];
-    if (widget.match['teammate'] != null &&  widget.match['teammate']['nickname'] != 'N/A') {
-      myTeam.add(widget.match['teammate']);
-    }
 
     List<dynamic> opponents = widget.match['opponents'] ?? [];
 
@@ -100,7 +98,18 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
             // --- ส่วนผู้เล่นด้านซ้าย ---
             Expanded(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text('เกมที่ ${widget.index}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(width: 8),
+                      Text('สนาม ${widget.match['courtNumber']}', style: const TextStyle(color: Colors.black54, fontSize: 14)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   _buildPlayerTeamBlock(
                     const Color(0xFF1ABC9C),
                     const Radius.circular(12),
@@ -114,8 +123,6 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
                     const Radius.circular(12),
                     true,
                     opponents,
-                    duration: widget.match['durationMinutes']?.toString() ?? '0',
-                    courtName: widget.match['courtNumber']?.toString() ?? '-',
                   ),
                 ],
               ),
@@ -127,14 +134,8 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('เกมที่ ${widget.index}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text('สนาม ${widget.match['courtNumber']}', style: const TextStyle(color: Colors.black54, fontSize: 14)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+                    Text('เวลาเล่น: ${widget.match['durationMinutes'] ?? 0} นาที', style: const TextStyle(color: Colors.black54, fontSize: 14), textAlign: TextAlign.right),
+                    const SizedBox(height: 10),
                     // Dropdown สำหรับผลการแข่งขัน
                     CustomDropdown(
                       labelText: '',
@@ -179,7 +180,7 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
     );
   }
 
-  Widget _buildPlayerTeamBlock(Color bgColor, Radius top, Radius bottom, bool isBottom, List<dynamic> players, {String duration = '', String courtName = ''}) {
+  Widget _buildPlayerTeamBlock(Color bgColor, Radius top, Radius bottom, bool isBottom, List<dynamic> players) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(

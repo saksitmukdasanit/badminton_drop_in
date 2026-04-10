@@ -3,6 +3,7 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:badminton/component/qr_payment_dialog.dart';
 
 // (สมมติว่า Custom Widgets ของคุณถูก import เข้ามา)
 // import 'custom_dropdown.dart';
@@ -32,6 +33,7 @@ class ExpensePanelWidget extends StatefulWidget {
   final int totalGames; // NEW: รับจำนวนเกมที่เล่น
   final double serviceFee; // NEW: รับค่าบริการ
   final double paidAmount; // NEW: รับยอดที่จ่ายไปแล้ว
+  final bool isHistoryMode; // NEW: แยกโหมดหน้าประวัติ vs หน้าคิดเงิน
 
   const ExpensePanelWidget({
     super.key,
@@ -42,6 +44,7 @@ class ExpensePanelWidget extends StatefulWidget {
     this.totalGames = 0,
     this.serviceFee = 0.0, // NEW
     this.paidAmount = 0.0,
+    this.isHistoryMode = false, // ค่าเริ่มต้นคือหน้าคิดเงินปกติ
   });
 
   @override
@@ -58,6 +61,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   final List<dynamic> _paymentMethods = [
     {"code": 'QR Code', "value": 'QR Code'},
     {"code": 'Cash', "value": 'เงินสด'},
+    {"code": 'ยังไม่จ่าย', "value": 'ยังไม่จ่าย (ค้างชำระ)'},
   ];
 
   @override
@@ -92,7 +96,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
         final desc = item['description'] ?? '';
         // FIX: กรองค่าธรรมเนียมและค่าลูกแบดรูปแบบต่างๆ ออกจากรายการปรับปรุง (Adjustments)
         // เพื่อไม่ให้แสดงซ้ำซ้อนในรายการที่แก้ไขได้
-        if (desc != 'ค่าคอร์ท' && desc != 'ค่าธรรมเนียม' && !desc.startsWith('ค่าลูกแบด')) {
+        if (desc != 'ค่าคอร์ท' && desc != 'ค่าสนาม' && desc != 'ค่าธรรมเนียม' && !desc.startsWith('ค่าลูกแบด')) {
           final amount = (item['amount'] ?? 0.0).toDouble();
           _adjustments.add(ExpenseAdjustment(
             name: desc,
@@ -135,28 +139,28 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
 
   // --- คำนวณยอดรวมใหม่ ---
   double get _apiCourtFee {
-    if (widget.billData == null || widget.billData['lineItems'] == null) return widget.courtFee; // Use fallback
-    final items = widget.billData['lineItems'] as List;
-    final item = items.firstWhere(
-      (i) => i['description'] == 'ค่าคอร์ท',
-      orElse: () => null,
-    );
-    
-    if (item != null) {
-      return (item['amount'] ?? 0.0).toDouble();
+    // ถ้ามีข้อมูล billData จาก API ให้ยึดตามนั้นเป็นหลัก
+    if (widget.billData != null && widget.billData['lineItems'] != null) {
+      final items = widget.billData['lineItems'] as List;
+      final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท' || i['description'] == 'ค่าสนาม', orElse: () => null);
+      // ถ้าไม่เจอใน lineItems แสดงว่าจ่ายไปแล้ว ให้เป็น 0
+      return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
     }
-    return widget.courtFee; // Use fallback if item not found
+    // ถ้าไม่มีข้อมูล billData (เช่น API error) ให้ใช้ค่าเริ่มต้นที่ส่งมา
+    return widget.courtFee;
   }
 
   // --- NEW: ดึงค่าธรรมเนียมจาก API ---
   double get _apiServiceFee {
-    if (widget.billData == null || widget.billData['lineItems'] == null) return 0.0;
-    final items = widget.billData['lineItems'] as List;
-    final item = items.firstWhere(
-      (i) => i['description'] == 'ค่าธรรมเนียม',
-      orElse: () => null,
-    );
-    return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
+    // ถ้ามีข้อมูล billData จาก API ให้ยึดตามนั้นเป็นหลัก
+    if (widget.billData != null && widget.billData['lineItems'] != null) {
+      final items = widget.billData['lineItems'] as List;
+      final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
+      // ถ้าไม่เจอ 'ค่าธรรมเนียม' ใน lineItems แสดงว่าจ่ายไปแล้ว ให้เป็น 0
+      return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
+    }
+    // ถ้าไม่มีข้อมูล billData ให้ใช้ค่าเริ่มต้นที่ส่งมา
+    return widget.serviceFee;
   }
 
   double get _apiShuttleFee {
@@ -170,12 +174,14 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
     return item != null ? (item['amount'] ?? 0.0).toDouble() : 0.0;
   }
 
+  // --- NEW: Helper properties แยกการแสดงผลตามโหมด ---
+  double get _displayCourtFee => widget.isHistoryMode ? widget.courtFee : _apiCourtFee;
+  double get _displayServiceFee => widget.isHistoryMode ? widget.serviceFee : _apiServiceFee;
+  double get _displayShuttleFee => widget.isHistoryMode ? (widget.totalGames * widget.shuttlecockFee) : (widget.totalGames * widget.shuttlecockFee > 0 ? widget.totalGames * widget.shuttlecockFee : _apiShuttleFee);
+
   double get _totalShuttlecockFee {
     // FIX: ใช้ค่าคำนวณเองเป็นหลัก (Games * Fee) เพราะ API bill-preview อาจส่งค่า Default มา
-    double total = widget.totalGames * widget.shuttlecockFee;
-    if (total == 0) {
-       total = _apiShuttleFee;
-    }
+    double total = _displayShuttleFee;
 
     for (var adj in _adjustments) {
       if (adj.type == AdjustmentType.addition) {
@@ -216,9 +222,21 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_apiCourtFee > 0) _buildInfoRow('ค่าสนาม', '${_apiCourtFee.toStringAsFixed(0)} บาท'),
-            if (_apiServiceFee > 0) _buildInfoRow('ค่าธรรมเนียม', '${_apiServiceFee.toStringAsFixed(0)} บาท'),
-            if ((_apiCourtFee + _apiServiceFee) > 0) _buildInfoRow('ราคารวม', '${(_apiCourtFee + _apiServiceFee).toStringAsFixed(0)} บาท', isBold: true),
+              _buildInfoRow(
+                'ค่าสนาม${(!widget.isHistoryMode && _apiCourtFee <= 0) ? ' (ชำระแล้ว)' : ''}', 
+                '${_displayCourtFee.toStringAsFixed(0)} บาท',
+                color: (!widget.isHistoryMode && _apiCourtFee <= 0) ? Colors.grey : null,
+              ),
+              _buildInfoRow(
+                'ค่าธรรมเนียม${(!widget.isHistoryMode && _apiServiceFee <= 0) ? ' (ชำระแล้ว)' : ''}', 
+                '${_displayServiceFee.toStringAsFixed(0)} บาท',
+                color: (!widget.isHistoryMode && _apiServiceFee <= 0) ? Colors.grey : null,
+              ),
+              _buildInfoRow(
+                'ราคารวม', 
+                '${(_displayCourtFee + _displayServiceFee).toStringAsFixed(0)} บาท', 
+                isBold: true,
+              ),
             const SizedBox(height: 16),
             const Text(
               'ชำระผ่าน',
@@ -263,7 +281,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
 
   // Widget สำหรับสรุปค่าลูกแบดและฟอร์ม
   Widget _buildShuttlecockFeeSection() {
-    double grandTotal = _apiCourtFee + _apiServiceFee + _totalShuttlecockFee;
+    double grandTotal = _displayCourtFee + _displayServiceFee + _totalShuttlecockFee;
     double due = grandTotal - widget.paidAmount;
     bool isFullyPaid = due <= 0; // ตรวจสอบว่าจ่ายครบแล้วหรือยัง
 
@@ -284,7 +302,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
             // FIX: แสดงยอดจาก API
             _buildInfoRow(
               'ค่าลูก (${widget.totalGames} เกม)', 
-              '${(widget.totalGames * widget.shuttlecockFee > 0 ? widget.totalGames * widget.shuttlecockFee : _apiShuttleFee).toStringAsFixed(0)} บาท'
+              '${_displayShuttleFee.toStringAsFixed(0)} บาท'
             ),
               ..._adjustments.asMap().entries.map((entry) {
                 ExpenseAdjustment adj = entry.value;
@@ -292,7 +310,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                 return _buildInfoRowExpenses(
                   adj.name,
                   '${isAddition ? '+' : '-'}${adj.amount.toStringAsFixed(0)} บาท',
-                  color: isAddition ? Colors.black : Colors.green,
+                  color: isAddition ? Colors.green : Colors.red,
                   idx: entry.key,
                   isReadOnly: isFullyPaid, // NEW: ส่งสถานะไปเพื่อซ่อนปุ่มลบ
                 );
@@ -359,7 +377,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                   ),
                 ],
               ),
-              if (widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)) ...[
+              if (widget.onConfirmPayment != null) ...[
                 const SizedBox(height: 24),
                 const Text(
                   'วิธีการชำระเงิน',
@@ -384,25 +402,35 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
               SizedBox(
                 width: double.infinity,
                 child: CustomElevatedButton(
-                  text: widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)
-                      ? (_selectedPaymentMethod == 'QR Code' ? 'แสดง QR Code' : 'จ่ายเงินสด')
-                      : 'ชำระเงินและจบเกม',
-                  onPressed: () {
-                    if (widget.onConfirmPayment is Function(String, List<ExpenseAdjustment>)) {
+                  text: _selectedPaymentMethod == 'QR Code' ? 'แสดง QR Code' : (_selectedPaymentMethod == 'ยังไม่จ่าย' ? 'บันทึกค้างชำระ' : 'ชำระเงินและจบเกม'),
+                  onPressed: () async {
+                    if (widget.onConfirmPayment != null) {
                       if (_selectedPaymentMethod == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('กรุณาเลือกวิธีการชำระเงิน')),
                         );
                         return;
                       }
-                      widget.onConfirmPayment(_selectedPaymentMethod!, _adjustments);
-                    } else if (widget.onConfirmPayment != null) {
-                      widget.onConfirmPayment(_adjustments);
+
+                      // คำนวณยอดที่ต้องชำระ (เพื่อส่งไปแสดงบน QR)
+                      double grandTotal = _displayCourtFee + _displayServiceFee + _totalShuttlecockFee;
+                      double due = grandTotal - widget.paidAmount;
+                      
+                      if (_selectedPaymentMethod == 'QR Code' && due > 0) {
+                        final confirmed = await showQrPaymentDialog(context, due);
+                        if (confirmed != true) return; // หากผู้ใช้กดยกเลิกในหน้า QR Code ให้หยุดการทำงาน
+                      }
+                      try {
+                        widget.onConfirmPayment(_selectedPaymentMethod, _adjustments);
+                      } catch (e) {
+                        // ถ้าฟังก์ชันปลายทางรับแค่ 1 parameter (List) ระบบจะ Fallback มาเรียกแบบนี้
+                        widget.onConfirmPayment(_adjustments);
+                      }
                     }
                   },
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
-                  padding: EdgeInsetsGeometry.all(12),
+                  padding: const EdgeInsets.all(12),
                 ),
               ),
               ], // End if (!isFullyPaid)
@@ -414,7 +442,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   }
 
   Widget _buildGrandTotalSection() {
-      double grandTotal = _apiCourtFee + _apiServiceFee + _totalShuttlecockFee;
+      double grandTotal = _displayCourtFee + _displayServiceFee + _totalShuttlecockFee;
       double paid = widget.paidAmount;
       double due = grandTotal - paid;
       

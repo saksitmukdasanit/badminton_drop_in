@@ -31,7 +31,9 @@ class AddGuestDialogState extends State<AddGuestDialog> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _hasAddedAny = false;
   List<dynamic> _skillLevels = [];
+  TextEditingController? _autocompleteController;
 
   final List<Map<String, String>> _genders = [
     {'code': '1', 'value': 'ชาย'},
@@ -102,7 +104,7 @@ class AddGuestDialogState extends State<AddGuestDialog> {
     return [];
   }
 
-  Future<void> _addGuest() async {
+  Future<void> _addGuest({bool addAnother = false}) async {
     final bool isFormValid = _formKey.currentState?.validate() ?? false;
 
     setState(() {});
@@ -136,6 +138,7 @@ class AddGuestDialogState extends State<AddGuestDialog> {
       );
 
       if (mounted) {
+        _hasAddedAny = true;
         // --- CHANGED: เปลี่ยนจาก SnackBar เป็น showDialogMsg ---
         showDialogMsg(
           context,
@@ -143,7 +146,17 @@ class AddGuestDialogState extends State<AddGuestDialog> {
           subtitle: 'เพิ่ม ${_guestNameController.text} เข้าสู่ก๊วนเรียบร้อย',
           btnLeft: 'ตกลง',
           onConfirm: () {
-            Navigator.of(context).pop(true);
+            if (addAnother) {
+              setState(() {
+                _guestNameController.clear();
+                _autocompleteController?.clear();
+                _phoneNumberController.clear();
+                _selectedGender = null;
+                _selectedSkillLevelId = null;
+              });
+            } else {
+              Navigator.of(context).pop(true);
+            }
           },
         );
       }
@@ -229,6 +242,7 @@ class AddGuestDialogState extends State<AddGuestDialog> {
                                 if (_guestNameController.text.isNotEmpty && controller.text.isEmpty) {
                                    controller.text = _guestNameController.text;
                                 }
+                                _autocompleteController = controller;
                                 return CustomTextFormField(
                                   controller: controller,
                                   focusNode: focusNode,
@@ -380,14 +394,23 @@ class AddGuestDialogState extends State<AddGuestDialog> {
       actions: [
         CustomElevatedButton(
           text: 'ยกเลิก',
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).pop(_hasAddedAny),
           backgroundColor: Color(0xFFFFFFFF),
           foregroundColor: Color(0xFF0E9D7A),
           fontSize: 16,
         ),
         CustomElevatedButton(
+          text: 'บันทึก & เพิ่มต่อ',
+          onPressed: () => _addGuest(addAnother: true),
+          isLoading: _isSaving,
+          backgroundColor: Color(0xFFFFFFFF),
+          foregroundColor: Color(0xFF0E9D7A),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          fontSize: 16,
+        ),
+        CustomElevatedButton(
           text: 'ยืนยัน',
-          onPressed: _addGuest,
+          onPressed: () => _addGuest(addAnother: false),
           isLoading: _isSaving,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           fontSize: 16,

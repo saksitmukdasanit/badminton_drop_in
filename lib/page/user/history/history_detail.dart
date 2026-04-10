@@ -5,6 +5,8 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/payment_action_card.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
+import 'package:badminton/component/player_match_card.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 
 class HistoryDetailPage extends StatefulWidget {
@@ -16,7 +18,31 @@ class HistoryDetailPage extends StatefulWidget {
 }
 
 class _HistoryDetailPageState extends State<HistoryDetailPage> {
-  String? _selectedGameResult;
+  bool _isLoading = true;
+  Map<String, dynamic>? _sessionDetail;
+  List<dynamic> _matches = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistoryDetail();
+  }
+
+  Future<void> _fetchHistoryDetail() async {
+    try {
+      // เรียก Endpoint ตามที่ Controller ใน C# กำหนดไว้
+      final response = await ApiProvider().get('/player/gamesessions/${widget.code}/history-detail');
+      if (mounted) {
+        setState(() {
+          _sessionDetail = response['data'] ?? {};
+          _matches = _sessionDetail?['matches'] ?? [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,76 +50,100 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
       extendBody: true,
       backgroundColor: Colors.white,
       appBar: AppBarSubMain(title: 'ประวัติ'),
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverToBoxAdapter(
-              child: Column(
-                children: [
-                  _buildSummaryCard(),
-                  _buildPaymentCard(),
-                  Container(
-                    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: PaymentActionCard(onPayNowPressed: () {}),
-                  ),
-                  // _buildPaymentActionCard(),
-                ],
-              ),
-            ),
-          ];
-        },
-        body: Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(16),
-              topRight: Radius.circular(16),
-            ),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16.0,
-                  vertical: 12.0,
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'เกมทั้งหมด',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+              ),
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        children: [
+                          _buildSummaryCard(),
+                          _buildPaymentCard(),
+                        ],
                       ),
                     ),
-                    Text(
-                      'ดูเพิ่มเติม',
-                      style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                  ];
+                },
+                body: Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0,
+                          vertical: 12.0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'เกมทั้งหมด',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'ดูเพิ่มเติม',
+                              style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          itemCount: _matches.isEmpty ? 1 : _matches.length,
+                          itemBuilder: (context, index) {
+                            if (_matches.isEmpty) {
+                              return const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Center(
+                                  child: Text('ไม่พบประวัติเกมการแข่งขัน', style: TextStyle(color: Colors.white)),
+                                ),
+                              );
+                            }
+                        final matchData = _matches[index];
+                        if (matchData['myTeam'] != null && matchData['myTeam'].isNotEmpty) {
+                          matchData['me'] = matchData['myTeam'][0];
+                        }
+                        return PlayerMatchCard(match: matchData, index: index + 1);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  itemCount: 3,
-                  itemBuilder: (context, index) {
-                    return _buildGameResultCard(index + 1);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 
   // --- Helper Widgets ---
 
   Widget _buildSummaryCard() {
+    final summary = _sessionDetail?['summary'] ?? {};
+    final totalGames = summary['totalGames']?.toString() ?? '0';
+    final totalShuttlecocks = summary['totalShuttlecocks']?.toString() ?? '0';
+    final totalPlayTime = summary['totalPlayTime']?.toString() ?? '0';
+    final totalWaitTime = summary['totalWaitTime']?.toString() ?? '0';
+
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -110,10 +160,9 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildSummaryInfo('วันที่ไปทั้งหมด', '2', 'เกม'),
-                _buildSummaryInfo('ใช้ลูก', '2', 'ลูก'),
-                _buildSummaryInfo('เวลาทั้งหมด', '2', 'ชม.'),
-                _buildSummaryInfo('เล่นรอ', '1.30', 'ชม.'),
+                _buildSummaryInfo('เกมที่เล่น', totalGames, 'เกม'),
+                _buildSummaryInfo('เวลาเล่น', totalPlayTime, 'นาที'),
+                _buildSummaryInfo('เวลารอ', totalWaitTime, 'นาที'),
               ],
             ),
           ],
@@ -123,6 +172,13 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
   }
 
   Widget _buildPaymentCard() {
+    final payment = _sessionDetail?['payment'] ?? {};
+    final status = payment['status'] ?? 'Pending';
+    final totalAmount = payment['totalAmount']?.toString() ?? '0';
+    final paymentDate = payment['paymentDate'] ?? '-';
+    final paymentMethod = payment['paymentMethod'] ?? '-';
+    final lineItems = payment['lineItems'] as List? ?? [];
+
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -131,255 +187,67 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'จองเป็นผู้เล่นตัวจริง',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'ระบบจะโอนเงินคืนภายใน 7 วันทำการ',
-
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-                Text(
-                  'T&C',
-                  style: TextStyle(
-                    color: Colors.teal,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 12),
-            _buildPriceRow('ค่าสนาม', '120 บาท'),
-            _buildPriceRow('ค่าธรรมเนียม', '10 บาท'),
-            _buildPriceRow('ราคารวม', '130 บาท', isBold: true),
+            ...lineItems.map((item) {
+              final amount = item['amount'];
+              final formattedAmount = (amount is num && amount == amount.toInt()) ? amount.toInt().toString() : amount.toString();
+              return _buildPriceRow(item['description'] ?? '', '$formattedAmount บาท');
+            }),
+            _buildPriceRow('ราคารวม', '${(num.tryParse(totalAmount) ?? 0).toInt()} บาท', isBold: true),
             Divider(height: 24),
-            Row(
-              children: [
-                Text(
-                  'ชำระเรียบร้อย',
-                  style: TextStyle(
-                    color: Colors.green,
-                    fontWeight: FontWeight.bold,
+            if (status == 'Completed') ...[
+              Row(
+                children: [
+                  Text(
+                    'ชำระเรียบร้อย',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
+                  Spacer(),
+                  Text(
+                    paymentDate,
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
+              SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    'ชำระผ่าน $paymentMethod',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  Text(
+                    'ค้างชำระ',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: CustomElevatedButton(
+                  text: 'ชำระเงิน',
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  onPressed: () {
+                    context.push('/payment-now/${widget.code}');
+                  },
                 ),
-                Spacer(),
-                Text(
-                  'dd/mm/yy hh:mm น.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-            ),
-            SizedBox(height: 4),
-            Row(
-              children: [
-                Text(
-                  'บัตรเครดิต **** **** **** 9000',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-            ),
+              ),
+            ]
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildGameResultCard(int gameNumber) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Row(
-          children: [
-            // --- ส่วนผู้เล่นด้านซ้าย ---
-            Expanded(
-              child: Column(
-                children: [
-                  _buildPlayerTeam(
-                    const Color(0xFF1ABC9C),
-                    Radius.circular(12),
-                    Radius.circular(0),
-                    false,
-                  ), // สีเขียว
-
-                  _buildPlayerTeam(
-                    const Color(0xFF2C3E50),
-                    Radius.circular(0),
-                    Radius.circular(12),
-                    true,
-                  ), // สีน้ำเงินเข้ม
-                ],
-              ),
-            ),
-            // --- ส่วนรายละเอียดด้านขวา ---
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'เกมที่ $gameNumber',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Row(
-                          children: [
-                            Image.asset(
-                              'assets/icon/shuttlecock.png',
-                              width: 16,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              '2',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Dropdown สำหรับผลการแข่งขัน
-                    CustomDropdown(
-                      labelText: '',
-                      initialValue: _selectedGameResult,
-                      items: [
-                        {"code": 1, "value": 'ชนะ'},
-                        {"code": 2, "value": 'แพ้'},
-                        {"code": 3, "value": 'เสมอ'},
-                      ],
-                      onChanged: (value) {
-                        setState(() => _selectedGameResult = value);                        
-                        // TODO: เมื่อผู้ใช้เลือกผลและกรอก note แล้ว
-                        // ควรมีปุ่ม "บันทึกผล" เพื่อเรียกใช้ API ต่อไปนี้:
-                        //
-                        // Method: POST
-                        // Endpoint: /player/matches/{matchId}/submit-result
-                        //
-                        // Body (JSON):
-                        // {
-                        //   "result": 1, // 1=Win, 2=Loss, 3=Draw (ส่งค่า code ที่ได้จาก dropdown)
-                        //   "notes": "ข้อความจากช่อง note"
-                        // }
-                        //
-                        // โดย {matchId} คือ ID ของเกมที่กำลังแสดงผลในการ์ดนี้
-                        // คุณจะต้องส่ง request นี้ผ่าน ApiProvider().post(...)
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    // ช่องใส่ Note
-                    TextField(
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText: 'note...',
-                        filled: true,
-                        fillColor: Colors.grey[200],
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Widget ย่อยสำหรับสร้างทีมผู้เล่น 2 คน
-  Widget _buildPlayerTeam(
-    Color bgColor,
-    Radius top,
-    Radius bottom,
-    bool isBottom,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.only(
-          topLeft: top,
-          topRight: top,
-          bottomLeft: bottom,
-          bottomRight: bottom,
-        ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              Column(
-                children: [
-                  CircleAvatar(
-                    radius: 15,
-                    backgroundImage: NetworkImage(
-                      'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-                    ),
-                  ),
-                  SizedBox(height: 5),
-                  Text(
-                    'น้ำ',
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-              Column(
-                children: [
-                  CircleAvatar(
-                    radius: 15,
-                    backgroundImage: NetworkImage(
-                      'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
-                    ),
-                  ),
-                  SizedBox(height: 5),
-                  Text(
-                    'ชาย',
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          if (isBottom)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '08:56 นาที',
-                  style: TextStyle(
-                    fontSize: getResponsiveFontSize(context, fontSize: 14),
-                    color: Colors.white,
-                  ),
-                ),
-                Text(
-                  'สนาม 1',
-                  style: TextStyle(
-                    fontSize: getResponsiveFontSize(context, fontSize: 14),
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-        ],
       ),
     );
   }
@@ -408,201 +276,6 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
           ],
         ),
       ],
-    );
-  }
-}
-
-// --- NEW: แยก Widget การ์ดแสดงผลแมตช์ออกเป็น StatefulWidget ---
-// เพื่อให้เก็บค่าของ Dropdown และ TextInput ของแต่ละการ์ดแยกกันได้อิสระ
-class GameResultCard extends StatefulWidget {
-  final dynamic match;
-  final int index;
-
-  const GameResultCard({super.key, required this.match, required this.index});
-
-  @override
-  State<GameResultCard> createState() => _GameResultCardState();
-}
-
-class _GameResultCardState extends State<GameResultCard> {
-  String? _selectedGameResult;
-  late TextEditingController _notesController;
-  bool _isSubmitting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedGameResult = widget.match['result']?.toString();
-    _notesController = TextEditingController(text: widget.match['notes'] ?? '');
-  }
-
-  @override
-  void dispose() {
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submitResult() async {
-    if (_selectedGameResult == null) {
-      showDialogMsg(context, title: 'แจ้งเตือน', subtitle: 'กรุณาเลือกผลการแข่งขัน', btnLeft: 'ตกลง', onConfirm: () {});
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-    try {
-      await ApiProvider().post(
-        '/player/matches/${widget.match['matchId']}/submit-result',
-        data: {
-          "result": int.parse(_selectedGameResult!),
-          "notes": _notesController.text,
-        }
-      );
-      if (mounted) {
-        showDialogMsg(context, title: 'สำเร็จ', subtitle: 'บันทึกผลการแข่งขันเรียบร้อย', btnLeft: 'ตกลง', onConfirm: () {});
-      }
-    } catch (e) {
-      if (mounted) {
-        showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: e.toString().replaceFirst('Exception: ', ''), btnLeft: 'ตกลง', onConfirm: () {});
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Row(
-          children: [
-            // --- ส่วนผู้เล่นด้านซ้าย ---
-            Expanded(
-              child: Column(
-                children: [
-                  _buildPlayerTeam(
-                    const Color(0xFF1ABC9C),
-                    const Radius.circular(12),
-                    const Radius.circular(0),
-                    false,
-                    widget.match['myTeam'] ?? [], // ทีมตัวเอง
-                  ),
-                  _buildPlayerTeam(
-                    const Color(0xFF2C3E50),
-                    const Radius.circular(0),
-                    const Radius.circular(12),
-                    true,
-                    widget.match['opponents'] ?? [], // คู่แข่ง
-                    duration: widget.match['durationMinutes']?.toString() ?? '0',
-                    courtName: widget.match['courtNumber']?.toString() ?? '-',
-                  ),
-                ],
-              ),
-            ),
-            // --- ส่วนรายละเอียดด้านขวา ---
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('เกมที่ ${widget.index}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Row(
-                          children: [
-                            Image.asset('assets/icon/shuttlecock.png', width: 16),
-                            const SizedBox(width: 4),
-                            Text('${widget.match['shuttlecocksUsed'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Dropdown สำหรับผลการแข่งขัน
-                    CustomDropdown(
-                      labelText: '',
-                      initialValue: _selectedGameResult,
-                      items: [
-                        {"code": '1', "value": 'ชนะ'},
-                        {"code": '2', "value": 'แพ้'},
-                        {"code": '3', "value": 'เสมอ'},
-                      ],
-                      onChanged: (value) => setState(() => _selectedGameResult = value),
-                    ),
-                    const SizedBox(height: 8),
-                    // ช่องใส่ Note
-                    TextField(
-                      controller: _notesController,
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText: 'note...',
-                        filled: true,
-                        fillColor: Colors.grey[200],
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.all(8)
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    CustomElevatedButton(
-                      text: 'บันทึกผล',
-                      isLoading: _isSubmitting,
-                      onPressed: _submitResult,
-                      backgroundColor: const Color(0xFF0E9D7A),
-                      foregroundColor: Colors.white,
-                      fontSize: 14,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    )
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlayerTeam(Color bgColor, Radius top, Radius bottom, bool isBottom, List<dynamic> players, {String duration = '', String courtName = ''}) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.only(topLeft: top, topRight: top, bottomLeft: bottom, bottomRight: bottom),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: players.map((p) {
-              return Column(
-                children: [
-                  if (p['profilePhotoUrl'] != null && p['profilePhotoUrl'].isNotEmpty)
-                    CircleAvatar(radius: 15, backgroundImage: NetworkImage(p['profilePhotoUrl']))
-                  else
-                    const CircleAvatar(radius: 15, child: Icon(Icons.person, size: 16)),
-                  const SizedBox(height: 5),
-                  Text(
-                    p['nickname'] ?? 'N/A',
-                    style: TextStyle(fontSize: getResponsiveFontSize(context, fontSize: 12), color: Colors.white),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
-          if (isBottom)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('$duration นาที', style: TextStyle(fontSize: getResponsiveFontSize(context, fontSize: 12), color: Colors.white)),
-                Text('สนาม $courtName', style: TextStyle(fontSize: getResponsiveFontSize(context, fontSize: 12), color: Colors.white)),
-              ],
-            ),
-        ],
-      ),
     );
   }
 }
