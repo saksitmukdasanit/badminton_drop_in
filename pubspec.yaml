@@ -53,6 +53,9 @@ dependencies:
   dio: ^5.9.0
   google_places_flutter: ^2.1.1
   signalr_netcore: ^1.4.4
+  firebase_messaging: ^16.1.3
+  flutter_local_notifications: ^20.1.0
+  timeago: ^3.7.1
 
 dev_dependencies:
   flutter_test:

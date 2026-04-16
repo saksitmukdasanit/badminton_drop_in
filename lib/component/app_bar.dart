@@ -1,5 +1,8 @@
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:badminton/shared/user_role.dart';
 
 class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
   final int amountItemInCart;
@@ -50,7 +53,12 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
                     size: 25,
                   ),
                   onPressed: () {
-                    Navigator.pop(context);
+                    final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
+                    if (role == Role.organizer) {
+                      context.push('/organizer/noti');
+                    } else {
+                      context.push('/user/noti');
+                    }
                   },
                 ),
                 if (amountItemInCart > 0)
@@ -151,7 +159,12 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
                     size: 25,
                   ),
                   onPressed: () {
-                    Navigator.pop(context);
+                    final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
+                    if (role == Role.organizer) {
+                      context.push('/organizer/noti');
+                    } else {
+                      context.push('/user/noti');
+                    }
                   },
                 ),
                 if (amountItemInCart > 0)

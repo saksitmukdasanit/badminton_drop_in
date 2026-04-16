@@ -220,6 +220,7 @@ class _PaymentPageState extends State<PaymentPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBody: true,
       backgroundColor: Colors.white,
       appBar: AppBarSubMain(title: 'จ่ายเงิน'),
       // --- ใช้ bottomNavigationBar เพื่อให้ปุ่มอยู่ด้านล่างเสมอ ---
@@ -239,28 +240,6 @@ class _PaymentPageState extends State<PaymentPage> {
           side: _selectedPaymentMethod == 'QR Code'
               ? const BorderSide(color: Colors.black)
               : null,
-
-          // onPressed: () {
-          //   showDialogMsg(
-          //     context,
-          //     title: 'ชำระเงินเรียบร้อย',
-          //     subtitle:
-          //         'คุณได้ชำระเงินจำนวน 130 บาท \n ยืนยันการจอง ก๊วนแมวเหมียว',
-          //     btnLeft: 'ไปหน้าการจอง',
-          //     onConfirm: () {
-          //       // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-          //     },
-          //   );
-          // },
-          // backgroundColor: _selectedPaymentMethod == 'QR Code'
-          //     ? Colors.white
-          //     : Colors.black,
-          // foregroundColor: _selectedPaymentMethod == 'QR Code'
-          //     ? Theme.of(context).colorScheme.primary
-          //     : Colors.white,
-          // side: _selectedPaymentMethod == 'QR Code'
-          //     ? const BorderSide(color: Colors.black)
-          //     : null,
         ),
       ),
       body: Container(

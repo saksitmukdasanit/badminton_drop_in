@@ -74,16 +74,25 @@ double getResponsiveFontSize(BuildContext context, {double fontSize = 18}) {
 Future<void> showUserProfileDialog(BuildContext context, {
   required String imageUrl,
   required String name,
+  int? hostedCount,
+  int? cancelledCount,
+  int? organizerId,
+  bool? isFollowed,
 }) {
   return showDialog(
     context: context,
     builder: (BuildContext context) {
       // เรียกใช้ Component ที่เราสร้าง
       return UserProfileDialog(
-        imageUrl: imageUrl.isNotEmpty ? imageUrl : 'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
+        imageUrl: imageUrl.isNotEmpty
+            ? imageUrl
+            : 'https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png',
         name: name,
-        gamesOrganized: '0', // TODO: รอเชื่อม API สถิติผู้จัด
-        gamesCancelled: '0', // TODO: รอเชื่อม API สถิติผู้จัด
+        // ใช้ข้อมูลจริงที่ส่งเข้ามา และแปลงเป็น String
+        gamesOrganized: (hostedCount ?? 0).toString(),
+        gamesCancelled: (cancelledCount ?? 0).toString(),
+        organizerId: organizerId,
+        isInitiallyFollowed: isFollowed,
         onPhoneTap: () => UrlLauncherService.makePhoneCall("0876002118"),
         onFacebookTap: () => UrlLauncherService.launchFacebook(
           'https://www.facebook.com/uou.sleep',

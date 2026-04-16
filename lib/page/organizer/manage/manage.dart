@@ -301,9 +301,8 @@ class ManagePageState extends State<ManagePage> {
       },
     );
 
-    if (result == true) {
-      _refreshData();
-    }
+    // รีเฟรชข้อมูลเสมอเมื่อปิด Dialog ป้องกันปัญหากดปิด/กดพื้นที่ว่างแล้วข้อมูลไม่อัปเดต
+    _refreshData();
   }
 
    void _showQrScannerDialog() {

@@ -165,7 +165,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
     try {
       await _hubConnection!.start();
-      await _hubConnection!.invoke("JoinSessionGroup", args: [widget.details.code.toString()]);
+      await _hubConnection!.invoke(
+        "JoinSessionGroup",
+        args: [widget.details.code.toString()],
+      );
     } catch (e) {
       debugPrint("SignalR error: $e");
     }
@@ -173,7 +176,8 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
   Widget _buildbottomBar() {
     // 1. ถ้าก๊วนถูกยกเลิก หรือรอคืนเงิน
-    if (widget.details.status == 3 || widget.details.currentUserStatus == 'Refund') {
+    if (widget.details.status == 3 ||
+        widget.details.currentUserStatus == 'Refund') {
       return _buildBottomBarWRC();
     }
 
@@ -204,7 +208,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.white,
-      appBar: AppBarSubMain(title: 'รายละเอียดก๊วน'), // แก้ไข: ให้ชื่อสื่อความหมายตรงกลางไม่สับสน
+      appBar: AppBarSubMain(
+        title: 'รายละเอียดก๊วน',
+      ), // แก้ไข: ให้ชื่อสื่อความหมายตรงกลางไม่สับสน
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12.0),
         child: Container(color: Colors.white, child: _buildbottomBar()),
@@ -298,11 +304,55 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
           const SizedBox(height: 5),
           // --- ข้อมูลผู้จัด (ปรับให้เป็น Card สวยงาม) ---
           GestureDetector(
-            onTap: () => showUserProfileDialog(
-              context,
-              imageUrl: widget.details.organizerImageUrl,
-              name: widget.details.organizerName,
-            ),
+            onTap: () async {
+              // โชว์ Loading ก่อนเปิด Dialog
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) =>
+                    const Center(child: CircularProgressIndicator()),
+              );
+
+              try {
+                final res = await ApiProvider().get(
+                  '/player/gamesessions/${widget.details.code}/organizer-summary',
+                );
+                if (!context.mounted) return;
+                Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading
+
+                if (res['status'] == 200 && res['data'] != null) {
+                  final data = res['data'];
+                  showUserProfileDialog(
+                    context,
+                    imageUrl:
+                        data['profilePhotoUrl'] ??
+                        widget.details.organizerImageUrl,
+                    name: data['nickname'] ?? widget.details.organizerName,
+                    hostedCount: data['totalHosted'] ?? 0,
+                    cancelledCount: data['totalCancelled'] ?? 0,
+                    organizerId: data['organizerId'],
+                    isFollowed: data['isFollowed'],
+                  );
+                } else {
+                  showUserProfileDialog( // Call without follow info if API fails partially
+                    context,
+                    imageUrl: widget.details.organizerImageUrl,
+                    name: widget.details.organizerName,
+                  );
+                }
+              } catch (e) {
+                if (context.mounted)
+                  Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pop(); // ปิด Loading กรณี Error
+                showUserProfileDialog(
+                  context, // Call without follow info on error
+                  imageUrl: widget.details.organizerImageUrl,
+                  name: widget.details.organizerName,
+                );
+              }
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
               decoration: BoxDecoration(
@@ -315,7 +365,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                 children: [
                   CircleAvatar(
                     radius: 14,
-                    backgroundImage: NetworkImage(widget.details.organizerImageUrl),
+                    backgroundImage: NetworkImage(
+                      widget.details.organizerImageUrl,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -349,7 +401,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
             ],
           ),
           const SizedBox(height: 12),
-          
+
           // --- รายละเอียดก๊วน (ปรับเป็น Grid ให้อ่านง่าย) ---
           Container(
             padding: const EdgeInsets.all(16),
@@ -369,29 +421,68 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _buildInfoItem(context, Icons.score, 'รูปแบบ', widget.details.gameInfo)),
-                    Expanded(child: _buildInfoItem(context, Icons.sports_tennis, 'ลูกแบด', '${widget.details.shuttlecockBrand} ${widget.details.shuttlecockInfo}')),
+                    Expanded(
+                      child: _buildInfoItem(
+                        context,
+                        Icons.score,
+                        'รูปแบบ',
+                        widget.details.gameInfo,
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildInfoItem(
+                        context,
+                        Icons.sports_tennis,
+                        'ลูกแบด',
+                        '${widget.details.shuttlecockBrand} ${widget.details.shuttlecockInfo}',
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(child: _buildInfoItem(context, Icons.grid_on, 'สนาม', widget.details.courtNumbers.isNotEmpty ? widget.details.courtNumbers : '-')),
-                    Expanded(child: _buildInfoItem(context, Icons.group_outlined, 'ผู้เล่น', '${widget.details.currentPlayers}/${widget.details.maxPlayers} คน')),
+                    Expanded(
+                      child: _buildInfoItem(
+                        context,
+                        Icons.grid_on,
+                        'สนาม',
+                        widget.details.courtNumbers.isNotEmpty
+                            ? widget.details.courtNumbers
+                            : '-',
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildInfoItem(
+                        context,
+                        Icons.group_outlined,
+                        'ผู้เล่น',
+                        '${widget.details.currentPlayers}/${widget.details.maxPlayers} คน',
+                      ),
+                    ),
                   ],
                 ),
                 const Divider(height: 24),
                 // ปุ่มดูผู้เล่น
                 GestureDetector(
-                  onTap: () => context.push('/player-list/${widget.details.code}'), // เปลี่ยนเป็น code (sessionId)
+                  onTap: () => context.push(
+                    '/player-list/${widget.details.code}',
+                  ), // เปลี่ยนเป็น code (sessionId)
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.visibility_outlined, size: 18, color: Theme.of(context).colorScheme.primary),
+                      Icon(
+                        Icons.visibility_outlined,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'ดูรายชื่อผู้เล่นทั้งหมด',
-                        style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -407,18 +498,28 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
             decoration: BoxDecoration(
               color: const Color(0xFFCBF5EA).withOpacity(0.4),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF0E9D7A).withOpacity(0.3)),
+              border: Border.all(
+                color: const Color(0xFF0E9D7A).withOpacity(0.3),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.info_outline, size: 20, color: Color(0xFF0E9D7A)),
+                    const Icon(
+                      Icons.info_outline,
+                      size: 20,
+                      color: Color(0xFF0E9D7A),
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'รายละเอียดค่าใช้จ่าย',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0E9D7A)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF0E9D7A),
+                      ),
                     ),
                   ],
                 ),
@@ -427,7 +528,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('ค่าสนาม (จ่ายล่วงหน้า)'),
-                    Text('${widget.details.courtFee ?? widget.details.price} บาท', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      '${widget.details.courtFee ?? widget.details.price} บาท',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -436,10 +540,13 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   children: [
                     const Text('ค่าลูกแบด'),
                     Text(
-                      widget.details.isBuffet 
+                      widget.details.isBuffet
                           ? '${widget.details.shuttleFee ?? 0} บาท (เหมาจ่าย)'
                           : '${widget.details.shuttleFee ?? 0} บาท / เกม',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
                     ),
                   ],
                 ),
@@ -462,11 +569,18 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
           // --- Notes ---
           if (widget.details.notes.isNotEmpty) ...[
-            const Text('รายละเอียดเพิ่มเติม:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              'รายละเอียดเพิ่มเติม:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 4),
             Text(
               widget.details.notes,
-              style: TextStyle(color: Colors.grey[700], fontSize: 14, height: 1.5),
+              style: TextStyle(
+                color: Colors.grey[700],
+                fontSize: 14,
+                height: 1.5,
+              ),
             ),
           ],
           const SizedBox(height: 130),
@@ -485,7 +599,12 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   }
 
   // Helper สำหรับสร้างไอคอนคู่กับ Text ใน Grid
-  Widget _buildInfoItem(BuildContext context, IconData icon, String title, String value) {
+  Widget _buildInfoItem(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String value,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -525,16 +644,21 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     try {
       // ดึงข้อมูล User ของตัวเองเพื่อเอาไปสร้าง QR Code (ส่ง Public ID หรือ User ID ให้ผู้จัดสแกน)
       final res = await ApiProvider().get('/Profiles/me');
-      final qrData = res['data']['userPublicId'] ?? res['data']['userId'] ?? res['data']['id'];
+      final qrData =
+          res['data']['userPublicId'] ??
+          res['data']['userId'] ??
+          res['data']['id'];
 
       if (mounted) {
         Navigator.pop(context); // ปิดหน้า Loading
-            _isQrDialogOpen = true; // มาร์คไว้ว่า Dialog กำลังเปิด
+        _isQrDialogOpen = true; // มาร์คไว้ว่า Dialog กำลังเปิด
         showDialog(
           context: context,
           builder: (context) {
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
@@ -542,7 +666,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   children: [
                     const Text(
                       'QR Code สำหรับเช็คอิน',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text(
@@ -591,7 +718,8 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     showDialogMsg(
       context,
       title: 'ยืนยันการยกเลิก',
-      subtitle: 'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?\n\n*หมายเหตุ: ตามนโยบายคืนเงิน ค่าธรรมเนียมแพลตฟอร์มจะไม่สามารถขอคืนได้ในกรณีที่คุณเป็นผู้กดยกเลิกเอง',
+      subtitle:
+          'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?\n\n*หมายเหตุ: ตามนโยบายคืนเงิน ค่าธรรมเนียมแพลตฟอร์มจะไม่สามารถขอคืนได้ในกรณีที่คุณเป็นผู้กดยกเลิกเอง',
       isWarning: true,
       btnLeft: 'ยกเลิกก๊วน',
       btnLeftBackColor: Colors.red,
@@ -599,7 +727,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       btnRight: 'ปิด',
       onConfirm: () async {
         try {
-          await ApiProvider().delete('/player/gamesessions/${widget.details.code}/cancel');
+          await ApiProvider().delete(
+            '/player/gamesessions/${widget.details.code}/cancel',
+          );
           if (mounted) {
             showDialogMsg(
               context,
@@ -650,7 +780,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     final Duration timeUntilStart = startTime.difference(DateTime.now());
 
     // 1. ถ้ายังเหลือเวลาเกิน 3 ชม. และ ยังไม่ได้เช็คอิน
-    if (timeUntilStart.inMinutes > 180 && widget.details.currentUserStatus != 'CheckedIn' && !_isCheckedInLocal) {
+    if (timeUntilStart.inMinutes > 180 &&
+        widget.details.currentUserStatus != 'CheckedIn' &&
+        !_isCheckedInLocal) {
       return Container(
         padding: const EdgeInsets.all(15),
         child: CustomElevatedButton(
@@ -659,10 +791,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
           onPressed: _cancelBooking,
         ),
       );
-    } 
+    }
     // 2. ถ้าน้อยกว่า 3 ชม. หรือ เช็คอินเรียบร้อยแล้ว
     else {
-      bool isCheckedIn = _isCheckedInLocal || widget.details.currentUserStatus == 'CheckedIn';
+      bool isCheckedIn =
+          _isCheckedInLocal || widget.details.currentUserStatus == 'CheckedIn';
       return Container(
         padding: const EdgeInsets.all(15),
         child: Row(
@@ -726,12 +859,23 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
             ),
             child: Column(
               children: [
-                const Text('คิวเต็มแล้ว! ระบบจะให้คุณจองเป็น "ตัวสำรอง"', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 14)),
+                const Text(
+                  'คิวเต็มแล้ว! ระบบจะให้คุณจองเป็น "ตัวสำรอง"',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                const Text('หากไม่ได้รับเลื่อนเป็นตัวจริง จะคืนเงินอัตโนมัติภายใน 7 วัน', style: TextStyle(color: Colors.black54, fontSize: 12), textAlign: TextAlign.center),
+                const Text(
+                  'หากไม่ได้รับเลื่อนเป็นตัวจริง จะคืนเงินอัตโนมัติภายใน 7 วัน',
+                  style: TextStyle(color: Colors.black54, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
-          )
+          ),
         ],
         Container(
           padding: const EdgeInsets.all(15),
@@ -846,7 +990,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   Widget _buildBottomBarWRC() {
     // เช็คว่าสถานะคือรอคืนเงิน หรือ คืนเงินเสร็จสิ้นแล้ว (ยกเลิกสมบูรณ์)
     bool isPendingRefund = widget.details.currentUserStatus == 'Refund';
-    String titleText = isPendingRefund ? 'รอคืนเงิน' : 'ยกเลิก / คืนเงินเรียบร้อย';
+    String titleText = isPendingRefund
+        ? 'รอคืนเงิน'
+        : 'ยกเลิก / คืนเงินเรียบร้อย';
     Color titleColor = isPendingRefund ? Colors.orange : Colors.grey;
 
     return Column(
@@ -885,7 +1031,9 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   backgroundColor: Colors.white,
                   foregroundColor: Theme.of(context).colorScheme.primary,
                   onPressed: () {
-                    context.push('/payment-history/${widget.details.code}'); // ส่ง ID ก๊วนไปหน้าประวัติการจ่ายเงิน
+                    context.push(
+                      '/payment-history/${widget.details.code}',
+                    ); // ส่ง ID ก๊วนไปหน้าประวัติการจ่ายเงิน
                   },
                 ),
               ),

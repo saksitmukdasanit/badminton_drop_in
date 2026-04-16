@@ -8,6 +8,8 @@ import 'package:badminton/page/auth/register_screen.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/page/organizer/history/history_organizer_payment.dart';
 import 'package:badminton/page/organizer/manage/manage.dart';
+import 'package:badminton/page/organizer/noti/organizer_noti_page.dart';
+import 'package:badminton/page/user/noti/user_noti_page.dart';
 import 'package:badminton/page/organizer/manage/manage_game.dart';
 import 'package:badminton/page/organizer/new_game/add_game.dart';
 import 'package:badminton/page/organizer/new_game/new_game.dart';
@@ -319,6 +321,14 @@ class _MyAppState extends State<MyApp> {
           path: '/finance',
           builder: (context, state) => const FinancePage(),
         ),
+        GoRoute(
+          path: '/organizer/noti',
+          builder: (context, state) => const OrganizerNotificationPage(),
+        ),
+        GoRoute(
+          path: '/user/noti',
+          builder: (context, state) => const UserNotificationPage(),
+        ),
 
         // ========================================================
         // --- เมนูหลักของแอป (มีแถบ MenuBar ด้านล่างเสมอ) -----------
@@ -345,7 +355,10 @@ class _MyAppState extends State<MyApp> {
             ),
             GoRoute(
               path: '/search-user',
-              builder: (context, state) => const SearchUserPage(),
+              builder: (context, state) {
+                final organizerId = state.uri.queryParameters['organizerId'];
+                return SearchUserPage(organizerId: organizerId);
+              },
             ),
             GoRoute(
               path: '/my-game-user',

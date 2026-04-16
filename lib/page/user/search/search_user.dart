@@ -11,7 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class SearchUserPage extends StatefulWidget {
-  const SearchUserPage({super.key});
+  final String? organizerId;
+  const SearchUserPage({super.key, this.organizerId});
 
   @override
   SearchUserPageState createState() => SearchUserPageState();
@@ -21,6 +22,7 @@ class SearchUserPageState extends State<SearchUserPage> {
   late TextEditingController searchController;
   Map<String, List<String>>? _appliedFilters;
   String? _selectedItem;
+  String? _organizerIdFilter;
   Timer? _debounce; // สร้างตัวแปรหน่วงเวลา
 
   int _page = 1;
@@ -46,6 +48,7 @@ class SearchUserPageState extends State<SearchUserPage> {
     // ผูก Listener กับฟังก์ชันที่มี Debounce ป้องกันการยิง API รัวๆ
     searchController.addListener(_onSearchChanged);
     _scrollController.addListener(_onScroll);
+    _organizerIdFilter = widget.organizerId;
     _fetchUpcomingGames(refresh: true);
     super.initState();
   }
@@ -94,6 +97,8 @@ class SearchUserPageState extends State<SearchUserPage> {
       if (searchController.text.isNotEmpty)
         queryParams['keyword'] = searchController.text;
       if (_selectedItem != null) queryParams['sortBy'] = _selectedItem;
+      if (_organizerIdFilter != null)
+        queryParams['organizerId'] = _organizerIdFilter;
       queryParams['page'] = _page;
       queryParams['limit'] = _limit;
 
@@ -156,17 +161,28 @@ class SearchUserPageState extends State<SearchUserPage> {
   }
 
   // เพิ่มฟังก์ชันสำหรับจัดการ Bookmark
-  Future<void> _toggleBookmark(int sessionId, bool isBookmarked) async {
+  Future<void> _toggleBookmark(int index, bool isBookmarked) async {
+    final game = _games[index];
+    final sessionId = game['sessionId'];
+
+    // Optimistic UI update
+    setState(() {
+      _games[index]['isBookmarked'] = isBookmarked;
+    });
+
     try {
       if (isBookmarked) {
         await ApiProvider().post('/player/gamesessions/$sessionId/bookmark');
-        print('Bookmark Session: $sessionId');
       } else {
         await ApiProvider().delete('/player/gamesessions/$sessionId/bookmark');
-        print('Unbookmark Session: $sessionId');
       }
     } catch (e) {
-      print('Bookmark error: $e');
+      // Revert UI on error
+      if (mounted) {
+        setState(() {
+          _games[index]['isBookmarked'] = !isBookmarked;
+        });
+      }
     }
   }
 
@@ -180,7 +196,7 @@ class SearchUserPageState extends State<SearchUserPage> {
         padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+            colors: [const Color(0xFFFFFFFF), const Color(0xFFCBF5EA)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -193,11 +209,7 @@ class SearchUserPageState extends State<SearchUserPage> {
               hintText: '',
               controller: searchController,
               suffixIconData: Icons.filter_list,
-              onSuffixIconPressed: () {
-                setState(() {
-                  _showFilter(context);
-                });
-              },
+              onSuffixIconPressed: () => _showFilter(context),
             ),
 
             const SizedBox(height: 15),
@@ -264,8 +276,7 @@ class SearchUserPageState extends State<SearchUserPage> {
                             isInitiallyBookmarked:
                                 game['isBookmarked'] ?? false,
                             // เพิ่ม: รับค่าเมื่อกดหัวใจ
-                            onBookmarkTap: (val) =>
-                                _toggleBookmark(game['sessionId'], val),
+                            onBookmarkTap: (val) => _toggleBookmark(index, val),
                             // หมายเหตุ: หาก GameCard2 มี callback onBookmarkTap ให้ใส่ Logic ตรงนี้
                             onCardTap: () {
                               final imageUrlsFromApi =
@@ -323,11 +334,40 @@ class SearchUserPageState extends State<SearchUserPage> {
                                 extra: bookingDetails,
                               );
                             },
-                            onTapOrganizer: () => showUserProfileDialog(
-                              context,
-                              imageUrl: game['organizerImageUrl'] ?? '',
-                              name: game['organizerName'] ?? 'N/A',
-                            ),
+                                onTapOrganizer: () async {
+                                  // โชว์ Loading ก่อนเปิด Dialog
+                                  showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+                                  
+                                  try {
+                                    final res = await ApiProvider().get('/player/gamesessions/${game['sessionId']}/organizer-summary');
+                                    if (!context.mounted) return;
+                                    Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading
+                                    
+                                    if (res['status'] == 200 && res['data'] != null) {
+                                      final data = res['data'];
+                                      showUserProfileDialog(
+                                        context,
+                                        imageUrl: data['profilePhotoUrl'] ?? game['organizerImageUrl'] ?? '',
+                                        name: data['nickname'] ?? game['organizerName'] ?? 'N/A',
+                                        hostedCount: data['totalHosted'] ?? 0,
+                                        cancelledCount: data['totalCancelled'] ?? 0,
+                                        organizerId: data['organizerId'],
+                                        isFollowed: data['isFollowed'],
+                                      );
+                                    } else {
+                                      showUserProfileDialog(
+                                        context, 
+                                        imageUrl: game['organizerImageUrl'] ?? '', 
+                                        name: game['organizerName'] ?? 'N/A',
+                                        // organizerId and isFollowed are null, so no follow button will be shown
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (!context.mounted) return;
+                                    Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading กรณี Error
+                                    showUserProfileDialog(context, imageUrl: game['organizerImageUrl'] ?? '', name: game['organizerName'] ?? 'N/A');
+                                  }
+                                },
                             onTapPlayers: () => context.push(
                               '/player-list/${game['sessionId']}',
                             ), // ใช้ sessionId

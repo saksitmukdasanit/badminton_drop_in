@@ -99,9 +99,12 @@ class ProFileUserPageState extends State<ProFileUserPage> {
                       context.push('/favourite');
                     }),
                     menu('QR code เข้าร่วมเกม', () {
+                      final qrData = userData['data']['userPublicId'] ??
+                                     userData['data']['userId'] ??
+                                     userData['data']['id'];
                       _showQrDialog(
                         context,
-                        userData['data']['userId'].toString(),
+                        qrData.toString(),
                       );
                     }),
                   ],

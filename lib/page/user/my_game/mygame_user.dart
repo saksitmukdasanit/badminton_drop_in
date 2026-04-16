@@ -41,6 +41,34 @@ class MyGameUserPageState extends State<MyGameUserPage> {
     }
   }
 
+  // --- NEW: ฟังก์ชันสำหรับจัดการ Bookmark ---
+  Future<void> _toggleBookmark(dynamic game, bool isBookmarked) async {
+    final sessionId = game['sessionId'];
+    if (sessionId == null) return;
+
+    // อัปเดต UI ทันที (Optimistic Update)
+    if (mounted) {
+      setState(() {
+        game['isBookmarked'] = isBookmarked;
+      });
+    }
+
+    try {
+      if (isBookmarked) {
+        await ApiProvider().post('/player/gamesessions/$sessionId/bookmark');
+      } else {
+        await ApiProvider().delete('/player/gamesessions/$sessionId/bookmark');
+      }
+    } catch (e) {
+      // หาก API Error ให้ Rollback การเปลี่ยนแปลงบน UI
+      if (mounted) {
+        setState(() {
+          game['isBookmarked'] = !isBookmarked;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     super.dispose();
@@ -174,6 +202,8 @@ class MyGameUserPageState extends State<MyGameUserPage> {
             game['organizerImageUrl'] ??
             'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
         isInitiallyBookmarked: game['isBookmarked'] ?? false,
+        // --- FIX: เพิ่ม Callback เพื่อส่งค่าการกด Bookmark กลับมา ---
+        onBookmarkTap: (isBookmarked) => _toggleBookmark(game, isBookmarked),
         onCardTap: () {
           final imageUrlsFromApi =
               game['courtImageUrls'] as List<dynamic>? ?? [];
@@ -216,15 +246,61 @@ class MyGameUserPageState extends State<MyGameUserPage> {
                   '',
             ),
             isBuffet: game['costingMethod'] == 2,
-            sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
+            sessionStart:
+                game['sessionStart'] ?? DateTime.now().toIso8601String(),
           );
           context.push('/booking-confirm-game', extra: bookingDetails);
         },
-        onTapOrganizer: () => showUserProfileDialog(
-          context,
-          imageUrl: game['organizerImageUrl'] ?? '',
-          name: game['organizerName'] ?? 'N/A',
-        ),
+        onTapOrganizer: () async {
+          // โชว์ Loading ก่อนเปิด Dialog
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const Center(child: CircularProgressIndicator()),
+          );
+
+          try {
+            final res = await ApiProvider().get(
+              '/player/gamesessions/${game['sessionId']}/organizer-summary',
+            );
+            if (!context.mounted) return;
+            Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading
+
+            if (res['status'] == 200 && res['data'] != null) {
+              final data = res['data'];
+              showUserProfileDialog(
+                context,
+                imageUrl:
+                    data['profilePhotoUrl'] ?? game['organizerImageUrl'] ?? '',
+                name: data['nickname'] ?? game['organizerName'] ?? 'N/A',
+                // *หมายเหตุ: หากฟังก์ชัน showUserProfileDialog (ใน function.dart) รับพารามิเตอร์ hostedCount / cancelledCount
+                // ให้เอาคอมเมนต์ 2 บรรทัดข้างล่างออก และเปลี่ยนชื่อให้ตรงกับที่คุณสร้างไว้ครับ
+                hostedCount: data['totalHosted'] ?? 0,
+                cancelledCount: data['totalCancelled'] ?? 0,
+                organizerId: data['organizerId'],
+                isFollowed: data['isFollowed'],
+              );
+            } else {
+              showUserProfileDialog(
+                context,
+                imageUrl: game['organizerImageUrl'] ?? '',
+                name: game['organizerName'] ?? 'N/A',
+                // organizerId and isFollowed are null, so no follow button will be shown
+              );
+            }
+          } catch (e) {
+            if (!context.mounted) return;
+            Navigator.of(
+              context,
+              rootNavigator: true,
+            ).pop(); // ปิด Loading กรณี Error
+            showUserProfileDialog(
+              context,
+              imageUrl: game['organizerImageUrl'] ?? '',
+              name: game['organizerName'] ?? 'N/A',
+            );
+          }
+        },
         onTapPlayers: () => context.push(
           '/player-list/${game['sessionId']}',
         ), // เปลี่ยนเป็นส่ง sessionId เหมือนหน้า Search
