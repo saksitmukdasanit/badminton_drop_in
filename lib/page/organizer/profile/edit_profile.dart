@@ -7,6 +7,7 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -24,10 +25,15 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
   bool loadingImage = false;
   String image = '';
   double gapHeight = 20;
+  bool _isLoading = true;
+  bool _isSubmitting = false;
+  int _phoneVisibility = 0;
+  int _facebookVisibility = 0;
+  int _lineVisibility = 0;
   final List<dynamic> _items = [
-    {"code": 1, "value": 'ชาย'},
-    {"code": 2, "value": 'หญิง'},
-    {"code": 3, "value": 'ไม่ระบุ'},
+    {"code": "1", "value": 'ชาย'},
+    {"code": "2", "value": 'หญิง'},
+    {"code": "3", "value": 'ไม่ระบุ'},
   ];
   String? _selectedValue;
   bool isChangePhone = false;
@@ -57,6 +63,7 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
     publicPhoneController = TextEditingController();
     facebookController = TextEditingController();
     lineIdController = TextEditingController();
+    _fetchData();
     super.initState();
   }
 
@@ -75,41 +82,93 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
     super.dispose();
   }
 
-  _uploadImage(List<File> file) async {}
-
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
-      // เพิ่ม DialogMsg ที่นี้ถ้าข้อมูลถูกต้อง
-      showDialogMsg(
-        context,
-        title: 'แก้ไขเรียบร้อย',
-        subtitle: 'บันทึกการแก้ไข',
-        btnLeft: 'ไปหน้าโปรโฟล์',
-        onConfirm: () {},
-      );
+  Future<void> _fetchData() async {
+    try {
+      final response = await ApiProvider().get('/Organizer/profile');
+      final userData = response['data'];
+      if (mounted) {
+        setState(() {
+          nicknameController.text = userData['nickname'] ?? '';
+          firstNameController.text = userData['firstName'] ?? '';
+          lastNameController.text = userData['lastName'] ?? '';
+          emailController.text = userData['email'] ?? '';
+          phoneController.text = userData['phoneNumber'] ?? '';
+          emergencyNameController.text = userData['emergencyContactName'] ?? '';
+          emergencyPhoneController.text = userData['emergencyContactPhone'] ?? '';
+          publicPhoneController.text = userData['publicPhoneNumber'] ?? '';
+          facebookController.text = userData['facebookLink'] ?? '';
+          lineIdController.text = userData['lineId'] ?? '';
+          _selectedValue = (userData['gender'] ?? "1").toString();
+          image = userData['profilePhotoUrl'] ?? '';
+          _phoneVisibility = userData['phoneVisibility'] ?? 0;
+          _facebookVisibility = userData['facebookVisibility'] ?? 0;
+          _lineVisibility = userData['lineVisibility'] ?? 0;
+        });
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    if (isChangePhone) {
-      context.push('/otp').then((p) {
+  }
+
+  _uploadImage(List<File> file) async {
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: file,
+        folderName: 'ProfileOrganizer',
+      );
+      if (response.length > 0 && mounted) {
+        setState(() {
+          image = response[0]['imageUrl'];
+        });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      final Map<String, dynamic> data = {
+        // ข้อมูลส่วนตัว (User Profile)
+        'nickname': nicknameController.text,
+        'firstName': firstNameController.text,
+        'lastName': lastNameController.text,
+        'primaryContactEmail': emailController.text,
+        "gender": int.tryParse(_selectedValue ?? '1') ?? 1,
+        "profilePhotoUrl": image,
+        'emergencyContactName': emergencyNameController.text,
+        'emergencyContactPhone': emergencyPhoneController.text,
+        // ข้อมูลผู้จัด (Organizer Profile)
+        'publicPhoneNumber': publicPhoneController.text,
+        'facebookLink': facebookController.text,
+        'lineId': lineIdController.text,
+        "phoneVisibility": _phoneVisibility,
+        "facebookVisibility": _facebookVisibility,
+        "lineVisibility": _lineVisibility,
+      };
+      await ApiProvider().put('/Organizer/profileUserAndOrganizer', data: data);
+      
+      if (mounted) {
         showDialogMsg(
           context,
           title: 'แก้ไขเรียบร้อย',
-          subtitle: 'บันทึกการแก้ไข',
-
+          subtitle: 'บันทึกการแก้ไขข้อมูลสำเร็จ',
+          btnLeft: 'ไปหน้าโปรไฟล์',
           onConfirm: () {
-            // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
+            context.pop();
+            context.pop();
           },
         );
-      });
-    } else {
-      showDialogMsg(
-        context,
-        title: 'แก้ไขเรียบร้อย',
-        subtitle: 'บันทึกการแก้ไข',
-
-        onConfirm: () {
-          // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-        },
-      );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -125,9 +184,12 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
         child: CustomElevatedButton(
           text: 'บันทึกการแก้ไข',
           onPressed: _submitForm,
+          isLoading: _isSubmitting,
         ),
       ),
-      body: Container(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Container(
         padding: EdgeInsets.all(15),
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -273,8 +335,11 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _phoneVisibility == 2, // 2 = สาธารณะ (ก่อนจอง)
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _phoneVisibility = 2);
+                        else setState(() => _phoneVisibility = 0); // 0 = ไม่แสดง
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -288,48 +353,11 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: gapHeight),
-              CustomTextFormField(
-                controller: publicPhoneController,
-                labelText: 'เบอร์โทรศัพท์สำรอง',
-                isRequired: true,
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: CheckboxListTile(
-                      title: Text(
-                        'แสดงข้อมูลก่อนจอง',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w400,
-                          fontSize: 16,
-                        ),
-                      ),
-                      value: false,
-                      onChanged: (bool? value) => {},
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                  Expanded(
-                    child: CheckboxListTile(
-                      title: Text(
-                        'แสดงข้อมูลก่อนจอง',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w400,
-                          fontSize: 16,
-                        ),
-                      ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _phoneVisibility == 1, // 1 = แสดงหลังจอง
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _phoneVisibility = 1);
+                        else setState(() => _phoneVisibility = 0);
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -352,8 +380,11 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _facebookVisibility == 2,
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _facebookVisibility = 2);
+                        else setState(() => _facebookVisibility = 0);
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -361,14 +392,17 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                   Expanded(
                     child: CheckboxListTile(
                       title: Text(
-                        'แสดงข้อมูลก่อนจอง',
+                        'แสดงข้อมูลหลังจอง',
                         style: TextStyle(
                           fontWeight: FontWeight.w400,
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _facebookVisibility == 1,
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _facebookVisibility = 1);
+                        else setState(() => _facebookVisibility = 0);
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -391,8 +425,11 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _lineVisibility == 2,
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _lineVisibility = 2);
+                        else setState(() => _lineVisibility = 0);
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -400,14 +437,17 @@ class EditProFileOrganizerPageState extends State<EditProFileOrganizerPage> {
                   Expanded(
                     child: CheckboxListTile(
                       title: Text(
-                        'แสดงข้อมูลก่อนจอง',
+                        'แสดงข้อมูลหลังจอง',
                         style: TextStyle(
                           fontWeight: FontWeight.w400,
                           fontSize: 16,
                         ),
                       ),
-                      value: false,
-                      onChanged: (bool? value) => {},
+                      value: _lineVisibility == 1,
+                      onChanged: (bool? value) {
+                        if (value == true) setState(() => _lineVisibility = 1);
+                        else setState(() => _lineVisibility = 0);
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),

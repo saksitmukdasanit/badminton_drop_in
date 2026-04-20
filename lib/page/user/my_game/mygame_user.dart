@@ -1,4 +1,5 @@
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/shared/api_provider.dart';
@@ -180,7 +181,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
 
     return Padding(
       padding: const EdgeInsets.only(top: 10, bottom: 10),
-      child: GameCard2(
+      child: GameCard(
         teamName: game['groupName'] ?? 'N/A',
         imageUrl:
             game['imageUrl'] ??

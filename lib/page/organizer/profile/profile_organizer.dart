@@ -743,6 +743,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
           ..._bottomMenuItems.map((item) {
             return menu(item.title, item.onTap, path: item.iconPath);
           }),
+          const SizedBox(height: 100), // เพิ่มระยะห่างด้านล่างไม่ให้เมนูบาร์บังปุ่ม Logout
         ],
       ),
     );

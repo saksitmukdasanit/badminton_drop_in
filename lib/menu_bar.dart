@@ -144,33 +144,59 @@ class MenuBarPage extends StatelessWidget {
 
     final selectedIndex = getCurrentIndex();
 
+    // 1. กำหนดสี Gradient พื้นหลังให้เปลี่ยนตาม Role อัตโนมัติ
+    final List<Color> gradientColors = currentRole == Role.player
+        ? const [Color(0xFFFFFFFF), Color(0xFFCBF5EA)] // สีธีมสำหรับผู้เล่น
+        : const [Color(0xFFFFFFFF), Color(0xFFE2E8F0)];
+
     return Scaffold(
       extendBody: true,
-      body: SafeArea(top: false, child: child),
-      bottomNavigationBar: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 0.5, sigmaY: 0.5),
-          child: Container(
-            color: Theme.of(context).colorScheme.primary,
-            height: 60 + MediaQuery.of(context).padding.bottom,
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).padding.bottom,
-            ),
-            width: double.infinity,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: activeMenuItems.asMap().entries.map((entry) {
-                int index = entry.key;
-                BottomNavItem item = entry.value;
-                return _buttonBottomBar(
-                  context,
-                  item.iconPath,
-                  item.label,
-                  index,
-                  selectedIndex,
-                  item.initialPath,
-                );
-              }).toList(),
+      // 2. ใส่พื้นหลังไว้ที่ MenuBar เป็นแกนหลักของแอป
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradientColors,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        // 3. ปิด bottom safe area เพื่อให้สีลากยาวไปสุดขอบจอด้านล่าง (ทะลุใต้เมนูลอย)
+        child: SafeArea(top: false, bottom: false, child: child),
+      ),
+      bottomNavigationBar: Padding(
+        padding: EdgeInsets.only(
+          left: 15,
+          right: 15,
+          bottom: 15 + MediaQuery.of(context).padding.bottom, // ระยะลอยจากขอบล่าง
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(30),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), // เพิ่มระดับความเบลอ
+            child: Container(
+              height: 75, // เพิ่มความสูงเล็กน้อยเพื่อแก้ปัญหา RenderFlex overflow
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.85), // สีหลักแบบโปร่งแสง
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.2), // เส้นขอบสีขาวบางๆ
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: activeMenuItems.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  BottomNavItem item = entry.value;
+                  return _buttonBottomBar(
+                    context,
+                    item.iconPath,
+                    item.label,
+                    index,
+                    selectedIndex,
+                    item.initialPath,
+                  );
+                }).toList(),
+              ),
             ),
           ),
         ),
@@ -190,6 +216,7 @@ class MenuBarPage extends StatelessWidget {
     final bool isSelected = index == selectedIndex;
 
     return Expanded(
+      flex: isSelected ? 2 : 1, // ขยายพื้นที่เพิ่มเมื่อถูกเลือก
       child: InkWell(
         onTap: () {
           context.go(path);
@@ -233,6 +260,8 @@ class MenuBarPage extends StatelessWidget {
                 color: Color(0xFFFFFFFF),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
+              maxLines: 1, // ป้องกันการขึ้นบรรทัดใหม่ที่ทำให้ Layout พัง
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

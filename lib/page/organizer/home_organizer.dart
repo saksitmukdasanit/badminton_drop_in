@@ -1,22 +1,21 @@
-import 'dart:async';
 import 'dart:ui';
-import 'package:badminton/component/app_bar.dart';
-import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/loading_image_network.dart';
+import 'package:badminton/component/game_card.dart';
+import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-class HomeUserPage extends StatefulWidget {
-  const HomeUserPage({super.key});
+class HomeOrganizerPage extends StatefulWidget {
+  const HomeOrganizerPage({super.key});
 
   @override
-  HomeUserPageState createState() => HomeUserPageState();
+  State<HomeOrganizerPage> createState() => _HomeOrganizerPageState();
 }
 
-class HomeUserPageState extends State<HomeUserPage> {
+class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
   bool _isLoading = true;
   Map<String, dynamic>? _dashboardData;
 
@@ -28,7 +27,7 @@ class HomeUserPageState extends State<HomeUserPage> {
 
   Future<void> _fetchDashboardData() async {
     try {
-      final response = await ApiProvider().get('/player/dashboard');
+      final response = await ApiProvider().get('/organizer/dashboard');
       if (mounted) {
         setState(() {
           _dashboardData = response['data'];
@@ -48,26 +47,13 @@ class HomeUserPageState extends State<HomeUserPage> {
   }
 
   @override
-  void dispose() {
-    super.dispose();
-  }
-
-  String _formatPlayTime(int totalMinutes) {
-    if (totalMinutes < 60) return '$totalMinutes นาที';
-    int hours = totalMinutes ~/ 60;
-    int mins = totalMinutes % 60;
-    return mins > 0 ? '$hours ชม. $mins น.' : '$hours ชม.';
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true, // เพื่อให้ฉากหลังทะลุใต้ MenuBar ไปได้
-      appBar: AppBarHome(),
+      extendBody: true, // ทะลุใต้ MenuBar
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFFFFFFF), Color(0xFFD5DCF4)], // ธีมฝั่งผู้เล่น
+            colors: [Color(0xFFFFFFFF), Color(0xFFE2E8F0)], // ธีมฝั่งผู้จัด (ดูทางการและสะอาด)
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -81,16 +67,16 @@ class HomeUserPageState extends State<HomeUserPage> {
                     top: MediaQuery.of(context).padding.top + 20,
                     left: 20,
                     right: 20,
-                    bottom: 120, // เผื่อระยะให้ MenuBar ด้านล่าง
+                    bottom: 120, // เผื่อระยะ MenuBar
                   ),
                   children: [
                     _buildHeader(),
                     const SizedBox(height: 30),
-                    _buildSectionTitle('สถิติการเล่นของคุณ'),
+                    _buildSectionTitle('ภาพรวมการจัดก๊วน'),
                     const SizedBox(height: 15),
                     _buildStatsGrid(),
                     const SizedBox(height: 30),
-                    _buildSectionTitle('แมตช์ต่อไปของคุณ'),
+                    _buildSectionTitle('ก๊วนที่กำลังจะถึง'),
                     const SizedBox(height: 15),
                     _buildNextGameCard(),
                   ],
@@ -102,9 +88,22 @@ class HomeUserPageState extends State<HomeUserPage> {
 
   Widget _buildHeader() {
     final profile = _dashboardData?['profile'] ?? {};
-    final nickname = profile['nickname'] ?? 'ผู้เล่น';
+    final nickname = profile['nickname'] ?? 'ผู้จัด';
     final photoUrl = profile['profilePhotoUrl'];
-    final skillLevel = profile['latestSkillLevelName'] ?? 'ยังไม่มีข้อมูลระดับมือ';
+    final status = profile['status'] ?? 0;
+
+    String statusText = 'รอดำเนินการ';
+    Color statusColor = Colors.orange;
+    if (status == 1) {
+      statusText = 'อนุมัติแล้ว (Verified)';
+      statusColor = Colors.green;
+    } else if (status == 2) {
+      statusText = 'ไม่อนุมัติ';
+      statusColor = Colors.red;
+    } else if (status == 3) {
+      statusText = 'ระงับการใช้งาน';
+      statusColor = Colors.grey;
+    }
 
     return Row(
       children: [
@@ -132,16 +131,16 @@ class HomeUserPageState extends State<HomeUserPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
                 ),
                 child: Text(
-                  skillLevel,
+                  statusText,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: statusColor,
                   ),
                 ),
               ),
@@ -166,38 +165,50 @@ class HomeUserPageState extends State<HomeUserPage> {
   Widget _buildStatsGrid() {
     final stats = _dashboardData?['stats'] ?? {};
     final NumberFormat currencyFormat = NumberFormat('#,##0');
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    // ปรับเปลี่ยนจำนวนคอลัมน์และสัดส่วนให้รองรับ iPad
+    int crossAxisCount = 2;
+    double childAspectRatio = 1.25;
+    if (screenWidth > 800) {
+      crossAxisCount = 4;
+      childAspectRatio = 1.4;
+    } else if (screenWidth > 600) {
+      crossAxisCount = 4;
+      childAspectRatio = 1.1;
+    }
 
     return GridView.count(
-      crossAxisCount: 2,
+      crossAxisCount: crossAxisCount,
       crossAxisSpacing: 15,
       mainAxisSpacing: 15,
-      shrinkWrap: true, // สำคัญมากเมื่อใช้ใน ListView
+      shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 1.25,
+      childAspectRatio: childAspectRatio,
       children: [
         _buildStatCard(
-          title: 'แมตช์ที่เล่น',
-          value: '${stats['totalMatches'] ?? 0} เกม',
-          icon: Icons.sports_tennis,
+          title: 'จัดก๊วนแล้ว',
+          value: '${stats['totalSessionsHosted'] ?? 0} ครั้ง',
+          icon: Icons.stadium_outlined,
           color: Colors.blue,
         ),
         _buildStatCard(
-          title: 'เวลาบนคอร์ท',
-          value: _formatPlayTime(stats['totalPlayTimeMinutes'] ?? 0),
-          icon: Icons.timer,
+          title: 'ผู้เข้าร่วมทั้งหมด',
+          value: '${stats['totalPlayersJoined'] ?? 0} คน',
+          icon: Icons.groups_outlined,
           color: Colors.orange,
         ),
         _buildStatCard(
-          title: 'ติดตามผู้จัด',
-          value: '${stats['followingCount'] ?? 0} คน',
-          icon: Icons.people_alt_outlined,
-          color: Colors.green,
+          title: 'ผู้ติดตามคุณ',
+          value: '${stats['followersCount'] ?? 0} คน',
+          icon: Icons.star_border,
+          color: Colors.purple,
         ),
         _buildStatCard(
-          title: 'ยอดใช้จ่าย',
-          value: '฿${currencyFormat.format(stats['totalSpent'] ?? 0)}',
-          icon: Icons.account_balance_wallet_outlined,
-          color: Colors.redAccent,
+          title: 'รายได้สุทธิ',
+          value: '฿${currencyFormat.format(stats['totalNetIncome'] ?? 0)}',
+          icon: Icons.payments_outlined,
+          color: Colors.green,
         ),
       ],
     );
@@ -211,9 +222,9 @@ class HomeUserPageState extends State<HomeUserPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.55), // โปร่งแสง
+        color: Colors.white.withOpacity(0.55),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white, width: 1.5), // ขอบขาวให้ดูเป็นกระจก
+        border: Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
             color: color.withOpacity(0.05),
@@ -225,7 +236,7 @@ class HomeUserPageState extends State<HomeUserPage> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), // เอฟเฟกต์เบลอพื้นหลัง
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Padding(
             padding: const EdgeInsets.all(15),
             child: Column(
@@ -267,55 +278,40 @@ class HomeUserPageState extends State<HomeUserPage> {
 
   Widget _buildNextGameCard() {
     final nextGame = _dashboardData?['nextUpcomingSession'];
+    final profileStatus = _dashboardData?['profile']?['status'] ?? 0;
 
-    if (nextGame == null) {
-      // กรณีไม่มีก๊วนที่จองไว้
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white, width: 1.5),
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.event_busy, size: 50, color: Colors.grey.shade400),
-            const SizedBox(height: 10),
-            const Text(
-              'คุณยังไม่มีคิวตีแบดเร็วๆ นี้\nไปหาก๊วนสนุกๆ กันเลย!',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF666666), fontSize: 16),
-            ),
-            const SizedBox(height: 15),
-            ElevatedButton(
-              onPressed: () => context.go('/search-user'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: const Text('ค้นหาก๊วน', style: TextStyle(color: Colors.white)),
-            )
-          ],
-        ),
+    if (profileStatus == 0) {
+      return _buildEmptyStateCard(
+        icon: Icons.hourglass_empty_rounded,
+        message: 'บัญชีผู้จัดของคุณอยู่ระหว่างการตรวจสอบ\nกรุณารอการอนุมัติเพื่อเริ่มสร้างก๊วน',
+        buttonText: null,
       );
     }
 
-    // กรณีมีก๊วนที่กำลังจะถึง
+    if (nextGame == null) {
+      return _buildEmptyStateCard(
+        icon: Icons.event_available,
+        message: 'คุณยังไม่มีก๊วนที่กำลังจะเปิดเร็วๆ นี้\nมาสร้างก๊วนใหม่กันเลย!',
+        buttonText: 'สร้างก๊วนใหม่',
+        onButtonPressed: () => context.go('/new-game'),
+      );
+    }
+
     final formattedDateTime = formatSessionStart(
       nextGame['sessionStart'] ?? DateTime.now().toIso8601String(),
     );
+    final int sessionId = nextGame['sessionId'];
+    final int status = nextGame['status'] ?? 1;
 
     return GameCard(
-      teamName: nextGame['groupName'] ?? 'N/A',
+      teamName: nextGame['groupName'] ?? 'ไม่ระบุชื่อก๊วน',
       imageUrl: nextGame['imageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
       day: formattedDateTime['day'] ?? 'Mon',
       date: '${nextGame['dayOfWeek']} ${nextGame['sessionDate']}'.trim(),
       time: '${nextGame['startTime']}-${nextGame['endTime']}',
-      courtName: nextGame['courtName'] ?? 'N/A',
+      courtName: nextGame['courtName'] ?? 'ไม่ระบุสนาม',
       location: nextGame['location'] ?? '-',
-      price: nextGame['price'] ?? '-',
+      price: 'สนาม ${nextGame['courtFeePerPerson'] ?? nextGame['courtFee'] ?? '-'} บ.\nลูก ${(nextGame['costingMethod'] == 2) ? 'เหมาจ่าย' : '${nextGame['shuttlecockFeePerPerson'] ?? nextGame['shuttlecockFee'] ?? '-'} บ.'}',
       shuttlecockInfo: nextGame['shuttlecockModelName'] ?? '-',
       shuttlecockBrand: nextGame['shuttlecockBrandName'] ?? '-',
       gameInfo: nextGame['gameTypeName'] ?? '-',
@@ -324,8 +320,60 @@ class HomeUserPageState extends State<HomeUserPage> {
       organizerName: nextGame['organizerName'] ?? 'N/A',
       organizerImageUrl: nextGame['organizerImageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
       isInitiallyBookmarked: nextGame['isBookmarked'] ?? false,
-      onCardTap: () => context.push('/game-player/${nextGame['sessionId']}'),
-      onTapPlayers: () => context.push('/player-list/${nextGame['sessionId']}'),
+      onCardTap: () {
+        if (status == 2) {
+          context.push('/manage-game/$sessionId');
+        } else {
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: 'ก๊วนยังไม่เริ่มการแข่งขัน\nกรุณาไปที่เมนู "จัดการ" เพื่อเปิดก๊วนก่อน',
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
+        }
+      },
+      onTapPlayers: () => context.push('/player-list/$sessionId'),
+    );
+  }
+
+  Widget _buildEmptyStateCard({
+    required IconData icon,
+    required String message,
+    required String? buttonText,
+    VoidCallback? onButtonPressed,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 50, color: Colors.grey.shade400),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF666666), fontSize: 16),
+          ),
+          if (buttonText != null) ...[
+            const SizedBox(height: 15),
+            ElevatedButton(
+              onPressed: onButtonPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: Text(buttonText, style: const TextStyle(color: Colors.white)),
+            )
+          ]
+        ],
+      ),
     );
   }
 }

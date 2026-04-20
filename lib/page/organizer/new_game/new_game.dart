@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/page/organizer/new_game/from_history.dart';
 import 'package:badminton/shared/api_provider.dart';
@@ -110,7 +111,7 @@ class NewGamePageState extends State<NewGamePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true,
+      extendBody: false, // ปิดการทะลุ Menu bar เพื่อป้องกันปุ่มโดนบัง
       backgroundColor: Colors.transparent,
       appBar: AppBarSubMain(title: 'New Game', isBack: false),
       body: Container(
@@ -140,9 +141,12 @@ class NewGamePageState extends State<NewGamePage> {
                   ],
                 ),
               ),
-              child: isTablet
-                  ? _buildTabletLayout() // Layout สำหรับจอใหญ่ (iPad)
-                  : _buildMobileLayout(), // Layout สำหรับจอเล็ก (Mobile)
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 120.0), // เผื่อระยะด้านล่างหนี MenuBar ที่ลอยอยู่
+                  child: isTablet
+                      ? _buildTabletLayout() // Layout สำหรับจอใหญ่ (iPad)
+                      : _buildMobileLayout(), // Layout สำหรับจอเล็ก (Mobile)
+                ),
             );
           },
         ),
@@ -156,7 +160,7 @@ class NewGamePageState extends State<NewGamePage> {
       children: [
         // 1. เมนูเลือกวัน (ด้านข้าง)
         Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: _DaySelector(
             isVertical: true,
             latestGames: _latestGames,
@@ -175,7 +179,7 @@ class NewGamePageState extends State<NewGamePage> {
       children: [
         // 1. เมนูเลือกวัน (ด้านบน, เลื่อนได้)
         Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+          padding: const EdgeInsets.symmetric(vertical: 20.0),
           child: _DaySelector(
             isVertical: false,
             latestGames: _latestGames,
@@ -238,22 +242,32 @@ class _DaySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<String> dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    
+    // กำหนดสีประจำวัน
+    final List<Color> dayColors = [
+      Colors.yellow.shade600, // 1=Mon
+      Colors.pink.shade400,   // 2=Tue
+      Colors.green.shade500,  // 3=Wed
+      Colors.orange.shade500, // 4=Thu
+      Colors.blue.shade500,   // 5=Fri
+      Colors.purple.shade500, // 6=Sat
+      Colors.red.shade500,    // 7=Sun
+    ];
 
     // สร้าง list ของ widget ปุ่มวัน
     final dayWidgets = List.generate(7, (index) {
       int weekday = index + 1; // 1=Mon, 7=Sun
       bool hasHistory = latestGames.containsKey(weekday);
-      // ถ้ามีประวัติ -> สีน้ำเงิน (isNew=false)
-      // ถ้าไม่มีประวัติ -> +NEW (isNew=true)
       bool isNew = !hasHistory;
 
       return Padding(
         padding: isVertical
-            ? const EdgeInsets.symmetric(vertical: 8.0)
-            : const EdgeInsets.symmetric(horizontal: 8.0),
+            ? const EdgeInsets.symmetric(vertical: 10.0, horizontal: 8.0)
+            : const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
         child: _DayIcon(
           label: dayLabels[index],
           isNew: isNew,
+          dayColor: dayColors[index],
           onTap: () => onDaySelected(weekday),
         ),
       );
@@ -266,17 +280,23 @@ class _DaySelector extends StatelessWidget {
 
     if (isVertical) {
       // Layout แนวตั้งสำหรับจอใหญ่
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [titleWidget, ...dayWidgets],
+      return SingleChildScrollView(
+        clipBehavior: Clip.none,
+        padding: const EdgeInsets.symmetric(vertical: 32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [titleWidget, const SizedBox(height: 16), ...dayWidgets],
+        ),
       );
     } else {
       // Layout แนวนอนสำหรับจอเล็ก (เลื่อนได้)
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [titleWidget, ...dayWidgets],
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [titleWidget, const SizedBox(width: 16), ...dayWidgets],
         ),
       );
     }
@@ -287,16 +307,16 @@ class _DaySelector extends StatelessWidget {
 class _DayIcon extends StatelessWidget {
   final String label;
   final bool isNew;
+  final Color dayColor;
   final VoidCallback? onTap;
 
-  const _DayIcon({required this.label, this.isNew = false, this.onTap});
+  const _DayIcon({required this.label, this.isNew = false, required this.dayColor, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final Color bgColor = isNew
-        ? Colors.green.shade600
-        : Colors.indigo.shade800;
-    final Color fgColor = Colors.white;
+    // ตรวจสอบถ้าเป็นวันจันทร์ (สีเหลือง) ให้ใช้ตัวหนังสือสีดำเพื่อให้อ่านง่าย
+    final bool isYellow = dayColor == Colors.yellow.shade600;
+    final Color fgColor = (!isNew && isYellow) ? Colors.black87 : Colors.white;
 
     // ใช้ Stack เพื่อวาง Badge "+NEW" ทับบนวงกลม
     return Stack(
@@ -308,13 +328,26 @@ class _DayIcon extends StatelessWidget {
           child: Container(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: isNew ? Colors.white.withOpacity(0.6) : dayColor,
+              shape: BoxShape.circle,
+              border: isNew ? Border.all(color: Colors.grey.shade400, width: 1.5) : null,
+              boxShadow: !isNew
+                  ? [
+                      BoxShadow(
+                        color: dayColor.withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      )
+                    ]
+                  : [],
+            ),
             child: Center(
               child: Text(
                 label,
                 style: TextStyle(
-                  color: fgColor,
-                  fontSize: 24,
+                  color: isNew ? Colors.grey.shade700 : fgColor,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -330,12 +363,19 @@ class _DayIcon extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.redAccent,
                 borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.red.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
               ),
               child: const Text(
                 '+NEW',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -364,44 +404,60 @@ class _MainActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: 180,
-        height: 180,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade300, width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 2,
-              blurRadius: 5,
-              offset: const Offset(0, 3),
+      borderRadius: BorderRadius.circular(20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0), // เอฟเฟกต์ Glassmorphism
+          child: Container(
+            width: 160,
+            height: 160,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  spreadRadius: 0,
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 48, color: Colors.grey.shade700),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: Theme.of(context).colorScheme.primary),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, color: Colors.black54),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ],
+          ),
         ),
       ),
     );

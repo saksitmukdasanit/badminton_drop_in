@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/filter_option.dart';
+import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
@@ -249,10 +250,10 @@ class SearchUserPageState extends State<SearchUserPage> {
                         );
                         return Padding(
                           padding: const EdgeInsets.only(top: 10, bottom: 10),
-                          child: GameCard2(
+                          child: GameCard(
                             // --- ใช้ข้อมูลจาก API ---
                             teamName: game['groupName'] ?? 'N/A',
-                            imageUrl: game['imageUrl'], // Placeholder
+                            imageUrl: game['imageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png', // Placeholder
                             day: formattedDateTime['day']!,
                             date: '${game['dayOfWeek']} ${game['sessionDate']}',
                             time: '${game['startTime']}-${game['endTime']}',
@@ -260,18 +261,18 @@ class SearchUserPageState extends State<SearchUserPage> {
                                 game['courtName'] ??
                                 'N/A', // แสดงชื่อสนาม+ที่อยู่รวมกันไปก่อน
                             location:
-                                game['location'], // ไม่มีข้อมูล location แยก
+                                game['location'] ?? '-', // ไม่มีข้อมูล location แยก
                             price:
                                 'สนาม ${game['courtFeePerPerson'] ?? game['courtFee'] ?? '-'} บ.\nลูก ${(game['costingMethod'] == 2) ? 'เหมาจ่าย' : '${game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'] ?? '-'} บ.'}',
-                            shuttlecockInfo: game['shuttlecockModelName'],
-                            shuttlecockBrand: game['shuttlecockBrandName'],
-                            gameInfo: game['gameTypeName'],
+                            shuttlecockInfo: game['shuttlecockModelName'] ?? '-',
+                            shuttlecockBrand: game['shuttlecockBrandName'] ?? '-',
+                            gameInfo: game['gameTypeName'] ?? '-',
                             currentPlayers: game['currentParticipants'] ?? 0,
                             maxPlayers: game['maxParticipants'] ?? 0,
                             organizerName:
-                                game['organizerName'], // ไม่มีข้อมูลผู้จัด
+                                game['organizerName'] ?? 'N/A', // ไม่มีข้อมูลผู้จัด
                             organizerImageUrl:
-                                game['organizerImageUrl'] ?? "", // Placeholder
+                                game['organizerImageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png', // Placeholder
                             // แก้ไข: ดึงสถานะ Bookmark จริงจาก API
                             isInitiallyBookmarked:
                                 game['isBookmarked'] ?? false,

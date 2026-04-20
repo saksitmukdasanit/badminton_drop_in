@@ -324,68 +324,68 @@ class AddGuestDialogState extends State<AddGuestDialog> {
                       ),
                       const SizedBox(height: 20),
 
-                      // --- ส่วนข้อความแจ้งเตือน (ปรับปรุงใหม่) ---
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 2.0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'จองเป็นผู้เล่นตัวจริง',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'ไม่สามารถยกเลิกได้',
-                              style: TextStyle(fontSize: 16),
-                            ),
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size(50, 30),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                alignment: Alignment.centerRight,
-                              ),
-                              onPressed: () {}, // สามารถเพิ่ม action ได้ที่นี่
-                              child: const Text(
-                                'เพิ่มเติม',
-                                style: TextStyle(
-                                  decoration: TextDecoration.underline,
-                                  color: Color(0xFF0E9D7A),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (widget.courtFee > 0)
-                        _buildPriceRow(
-                          'ค่าสนาม',
-                          '${widget.courtFee.toStringAsFixed(0)} บาท',
-                        ),
-                      // if (widget.shuttleFee > 0)
-                      //   _buildPriceRow(
-                      //     'ค่าลูกแบด',
-                      //     '${widget.shuttleFee.toStringAsFixed(0)} บาท',
+                      // // --- ส่วนข้อความแจ้งเตือน (ปรับปรุงใหม่) ---
+                      // const Padding(
+                      //   padding: EdgeInsets.symmetric(vertical: 2.0),
+                      //   child: Align(
+                      //     alignment: Alignment.centerLeft,
+                      //     child: Text(
+                      //       'จองเป็นผู้เล่นตัวจริง',
+                      //       style: TextStyle(
+                      //         fontWeight: FontWeight.bold,
+                      //         fontSize: 16,
+                      //       ),
+                      //     ),
                       //   ),
-                      _buildPriceRow(
-                        'ค่าธรรมเนียม',
-                        '${platformFee.toStringAsFixed(0)} บาท',
-                      ),
-                      const Divider(),
-                      _buildPriceRow(
-                        'ราคารวม',
-                        '${totalFee.toStringAsFixed(0)} บาท',
-                        isBold: true,
-                      ),
+                      // ),
+                      // Padding(
+                      //   padding: const EdgeInsets.symmetric(vertical: 2.0),
+                      //   child: Row(
+                      //     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      //     children: [
+                      //       const Text(
+                      //         'ไม่สามารถยกเลิกได้',
+                      //         style: TextStyle(fontSize: 16),
+                      //       ),
+                      //       TextButton(
+                      //         style: TextButton.styleFrom(
+                      //           padding: EdgeInsets.zero,
+                      //           minimumSize: Size(50, 30),
+                      //           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      //           alignment: Alignment.centerRight,
+                      //         ),
+                      //         onPressed: () {}, // สามารถเพิ่ม action ได้ที่นี่
+                      //         child: const Text(
+                      //           'เพิ่มเติม',
+                      //           style: TextStyle(
+                      //             decoration: TextDecoration.underline,
+                      //             color: Color(0xFF0E9D7A),
+                      //           ),
+                      //         ),
+                      //       ),
+                      //     ],
+                      //   ),
+                      // ),
+                      // if (widget.courtFee > 0)
+                      //   _buildPriceRow(
+                      //     'ค่าสนาม',
+                      //     '${widget.courtFee.toStringAsFixed(0)} บาท',
+                      //   ),
+                      // // if (widget.shuttleFee > 0)
+                      // //   _buildPriceRow(
+                      // //     'ค่าลูกแบด',
+                      // //     '${widget.shuttleFee.toStringAsFixed(0)} บาท',
+                      // //   ),
+                      // _buildPriceRow(
+                      //   'ค่าธรรมเนียม',
+                      //   '${platformFee.toStringAsFixed(0)} บาท',
+                      // ),
+                      // const Divider(),
+                      // _buildPriceRow(
+                      //   'ราคารวม',
+                      //   '${totalFee.toStringAsFixed(0)} บาท',
+                      //   isBold: true,
+                      // ),
                     ],
                   ),
                 ),

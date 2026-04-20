@@ -8,6 +8,8 @@ import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/image_picker_form.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/api_provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 
 class EditTransferPage extends StatefulWidget {
@@ -24,12 +26,14 @@ class EditTransferPageState extends State<EditTransferPage> {
   String image = '';
   double gapHeight = 20;
   String? _selectedBank;
+  bool _isLoading = true;
+  bool _isSubmitting = false;
   File? _bookbankImage;
   final List<dynamic> _banks = [
-    {"code": 1, "value": 'ธนาคารกสิกรไทย'},
-    {"code": 2, "value": 'ธนาคารไทยพาณิชย์'},
-    {"code": 3, "value": 'ธนาคารกรุงเทพ'},
-    {"code": 4, "value": 'ธนาคารกรุงไทย'},
+    {"code": "1", "value": 'ธนาคารกสิกรไทย'},
+    {"code": "2", "value": 'ธนาคารไทยพาณิชย์'},
+    {"code": "3", "value": 'ธนาคารกรุงเทพ'},
+    {"code": "4", "value": 'ธนาคารกรุงไทย'},
   ];
 
   final _formKey = GlobalKey<FormState>();
@@ -48,6 +52,7 @@ class EditTransferPageState extends State<EditTransferPage> {
     phoneController = TextEditingController();
     facebookController = TextEditingController();
     lineController = TextEditingController();
+    _fetchData();
     super.initState();
   }
 
@@ -62,28 +67,75 @@ class EditTransferPageState extends State<EditTransferPage> {
     super.dispose();
   }
 
-  _uploadImage(List<File> file) async {}
-
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
-      // เพิ่ม DialogMsg ที่นี้ถ้าข้อมูลถูกต้อง
-      showDialogMsg(
-        context,
-        title: 'สมัครเป็นผู้จัดเรียบร้อย',
-        subtitle: 'หมายเหตุ: \nรอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
-        btnLeft: 'ไปหน้าโปรโฟล์',
-        onConfirm: () {},
-      );
+  Future<void> _fetchData() async {
+    try {
+      final response = await ApiProvider().get('/Organizer/profile');
+      final userData = response['data'];
+      if (mounted) {
+        setState(() {
+          idcardController.text = userData['nationalId'] ?? '';
+          bookBankNoController.text = userData['bankAccountNumber'] ?? '';
+          _selectedBank = userData['bankId']?.toString();
+          image = userData['bankAccountPhotoUrl'] ?? '';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    showDialogMsg(
-      context,
-      title: 'สมัครเป็นผู้จัดเรียบร้อย',
-      subtitle: 'หมายเหตุ: \nรอผลพิจารณาเป็นผู้จัดใช้เวลา 3-7 วัน',
-      btnLeft: 'ไปหน้าโปรโฟล์',
-      onConfirm: () {
-        // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-      },
-    );
+  }
+
+  _uploadImage(List<File> file) async {
+    try {
+      final response = await ApiProvider().uploadFiles(
+        files: file,
+        folderName: 'Bookbank',
+      );
+      if (response.length > 0 && mounted) {
+        setState(() {
+          image = response[0]['imageUrl'];
+        });
+      }
+    } catch (e) {
+       // error handling
+    }
+  }
+
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      final Map<String, dynamic> data = {
+        'nationalId': idcardController.text,
+        'bankId': int.tryParse(_selectedBank ?? '0'),
+        'bankAccountNumber': bookBankNoController.text,
+        'bankAccountPhotoUrl': image,
+      };
+      await ApiProvider().put('/Organizer/updateTransferBooking', data: data);
+      
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'แก้ไขเรียบร้อย',
+          subtitle: 'บันทึกข้อมูลการโอนเงินสำเร็จ',
+          btnLeft: 'ไปหน้าโปรไฟล์',
+          onConfirm: () {
+            context.pop();
+            context.pop();
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -92,7 +144,9 @@ class EditTransferPageState extends State<EditTransferPage> {
       extendBody: false,
       backgroundColor: Colors.white,
       appBar: AppBarSubMain(title: 'แก้ไขข้อมูลการโอน'),
-      body: Container(
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator()) 
+          : Container(
         padding: EdgeInsets.all(15),
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -158,6 +212,7 @@ class EditTransferPageState extends State<EditTransferPage> {
               CustomElevatedButton(
                 text: 'แก้ไขข้อมูลผู้โอน',
                 onPressed: _submitForm,
+                isLoading: _isSubmitting,
               ),
               SizedBox(height: gapHeight),
             ],

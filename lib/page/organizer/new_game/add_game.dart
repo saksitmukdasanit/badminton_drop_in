@@ -694,11 +694,12 @@ class AddGamePageState extends State<AddGamePage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text('สร้างก๊วนล้มเหลว: $e'),
-          ),
+        showDialogMsg(
+          context,
+          title: widget.code != 'new' ? 'แก้ไขก๊วนล้มเหลว' : 'สร้างก๊วนล้มเหลว',
+          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
         );
       }
     } finally {
@@ -936,7 +937,7 @@ class AddGamePageState extends State<AddGamePage> {
               Expanded(
                 child: RadioListTile<int>(
                   title: Text(
-                    'เก็บเพิ่มจำนวนลูก',
+                    'เก็บตามเกมส์',
                     style: TextStyle(
                       fontSize: getResponsiveFontSize(context, fontSize: 12),
                       fontWeight: FontWeight.w400,
@@ -948,7 +949,7 @@ class AddGamePageState extends State<AddGamePage> {
               Expanded(
                 child: RadioListTile<int>(
                   title: Text(
-                    'เก็บตามรอบ',
+                    'บุฟเฟต์',
                     style: TextStyle(
                       fontSize: getResponsiveFontSize(context, fontSize: 12),
                       fontWeight: FontWeight.w400,
@@ -965,7 +966,7 @@ class AddGamePageState extends State<AddGamePage> {
           children: [
             Expanded(
               child: CustomTextFormField(
-                labelText: 'ราคาค่าลูก/คน',
+                labelText: _shuttleChargeMethod == 2 ? 'ราคาบุฟเฟต์/คน' : 'ราคาค่าลูก/คน',
                 controller: _shuttlePriceController,
                 keyboardType: TextInputType.number,
               ),
@@ -973,7 +974,7 @@ class AddGamePageState extends State<AddGamePage> {
             const SizedBox(width: 16),
             Expanded(
               child: CustomTextFormField(
-                labelText: 'ต้นทุนลูกแบด/คน',
+                labelText: _shuttleChargeMethod == 2 ? 'ต้นทุนลูกบุฟเฟต์/คน' : 'ต้นทุนลูกแบด/คน',
                 controller: _shuttleCostController,
                 keyboardType: TextInputType.number,
               ),

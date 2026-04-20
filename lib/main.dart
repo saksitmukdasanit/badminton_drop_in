@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:badminton/home_page.dart';
 import 'package:badminton/menu_bar.dart';
 import 'package:badminton/page/auth/login_screen.dart';
 import 'package:badminton/page/auth/otp_verification_screen.dart';
@@ -343,7 +344,7 @@ class _MyAppState extends State<MyApp> {
           routes: [
             GoRoute(
               path: '/',
-              builder: (context, state) => const HomeUserPage(),
+              builder: (context, state) => const HomePage(),
             ),
             GoRoute(
               path: '/new-game',

@@ -72,6 +72,7 @@ class ProFileUserPageState extends State<ProFileUserPage> {
           final bool isOrganizer = userData['data']['isOrganizer'] ?? false;
 
           return Container(
+            padding: const EdgeInsets.only(bottom: 100), // เพิ่มระยะด้านล่างไม่ให้เมนูบาร์บัง
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
