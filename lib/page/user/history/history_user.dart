@@ -302,12 +302,6 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     final formattedDateTime = formatSessionStart(
       game['sessionStart'] ?? DateTime.now().toIso8601String(),
     );
-    final courtFee = game['courtFeePerPerson'] ?? game['courtFee'] ?? '0';
-    final shuttleFee =
-        game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'] ?? '0';
-    final totalCost =
-        (double.tryParse(courtFee.toString()) ?? 0) +
-        (double.tryParse(shuttleFee.toString()) ?? 0);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
@@ -350,7 +344,8 @@ class HistoryUserPageState extends State<HistoryUserPage> {
           Expanded(
             flex: 1,
             child: Text(
-              totalCost.toStringAsFixed(0),
+              // ดึงยอดที่ต้องจ่ายจริงจาก Backend โดยตัดคำว่า " บาท" ออก
+              game['price']?.replaceAll(' บาท', '') ?? '-',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 14),
@@ -362,51 +357,53 @@ class HistoryUserPageState extends State<HistoryUserPage> {
             flex: 1,
             child: GestureDetector(
               onTap: () {
-                final imageUrlsFromApi =
-                    game['courtImageUrls'] as List<dynamic>? ?? [];
-                final List<String> courtImageUrls = List<String>.from(
-                  imageUrlsFromApi,
-                );
-                final data = BookingDetails(
-                  code: game['sessionId'] ?? 0,
-                  teamName: game['groupName'] ?? '',
-                  imageUrl: game['imageUrl'] ?? '',
-                  day: formattedDateTime['day'] ?? 'Mon',
-                  date: '${game['dayOfWeek']} ${game['sessionDate']}'.trim(),
-                  time: '${game['startTime']}-${game['endTime']}',
-                  courtName: game['courtName'] ?? '',
-                  location: game['location'] ?? '',
-                  price: (game['price'] ?? 0).toString(),
-                  shuttlecockInfo: game['shuttlecockModelName'] ?? '',
-                  shuttlecockBrand: game['shuttlecockBrandName'] ?? '',
-                  gameInfo: game['gameTypeName'] ?? '',
-                  courtNumbers: game['courtNumbers'] ?? '',
-                  currentPlayers: game['currentParticipants'] ?? 0,
-                  maxPlayers: game['maxParticipants'] ?? 0,
-                  organizerName: game['organizerName'] ?? '',
-                  organizerImageUrl: game['organizerImageUrl'] ?? '',
-                  notes: game['notes'] ?? '',
-                  courtImageUrls: courtImageUrls.isNotEmpty
-                      ? courtImageUrls
-                      : [
-                          'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-                        ],
-                  status: game['status'] ?? 1,
-                  currentUserStatus: game['userStatus'] ?? 'Joined',
-                  courtFee: double.tryParse(
-                    (game['courtFeePerPerson'] ?? game['courtFee'])
-                            ?.toString() ??
-                        '',
-                  ),
-                  shuttleFee: double.tryParse(
-                    (game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'])
-                            ?.toString() ??
-                        '',
-                  ),
-                  isBuffet: game['costingMethod'] == 2,
-                  sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
-                );
-                context.push('/booking-confirm-history', extra: data);
+                  final imageUrlsFromApi =
+                      game['courtImageUrls'] as List<dynamic>? ?? [];
+                  final List<String> courtImageUrls = List<String>.from(
+                    imageUrlsFromApi,
+                  );
+                  final data = BookingDetails(
+                    code: game['sessionId'] ?? 0,
+                    teamName: game['groupName'] ?? '',
+                    imageUrl: game['imageUrl'] ?? '',
+                    day: formattedDateTime['day'] ?? 'Mon',
+                    date: '${game['dayOfWeek']} ${game['sessionDate']}'.trim(),
+                    time: '${game['startTime']}-${game['endTime']}',
+                    courtName: game['courtName'] ?? '',
+                    location: game['location'] ?? '',
+                    price: (game['price'] ?? 0).toString(),
+                    shuttlecockInfo: game['shuttlecockModelName'] ?? '',
+                    shuttlecockBrand: game['shuttlecockBrandName'] ?? '',
+                    gameInfo: game['gameTypeName'] ?? '',
+                    courtNumbers: game['courtNumbers'] ?? '',
+                    currentPlayers: game['currentParticipants'] ?? 0,
+                    maxPlayers: game['maxParticipants'] ?? 0,
+                    organizerName: game['organizerName'] ?? '',
+                    organizerImageUrl: game['organizerImageUrl'] ?? '',
+                    notes: game['notes'] ?? '',
+                    courtImageUrls: courtImageUrls.isNotEmpty
+                        ? courtImageUrls
+                        : [
+                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+                          ],
+                    status: game['status'] ?? 1,
+                    currentUserStatus: game['userStatus'] ?? 'Joined',
+                    courtFee: double.tryParse(
+                      (game['courtFeePerPerson'] ?? game['courtFee'])
+                              ?.toString() ??
+                          '',
+                    ),
+                    shuttleFee: double.tryParse(
+                      (game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'])
+                              ?.toString() ??
+                          '',
+                    ),
+                    isBuffet: game['costingMethod'] == 2,
+                    sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
+                  );
+                  context.push('/booking-confirm-history', extra: data).then((_) {
+                    _fetchHistoryGames(refresh: true);
+                  });
               },
               child: Text(
             _getStatusDisplay(game),

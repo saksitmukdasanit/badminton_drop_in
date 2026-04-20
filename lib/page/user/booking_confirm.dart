@@ -87,6 +87,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   HubConnection? _hubConnection;
   int? _myUserId;
   bool _isQrDialogOpen = false;
+  String _pendingAmountDisplay = '';
 
   // --- (แก้ไข) ใช้ข้อมูลรูปภาพจาก parameter ---
   late final List<String> _imageUrls;
@@ -99,6 +100,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     // --- NEW: โหลดข้อมูล User และต่อ SignalR เพื่อรอรับสัญญาณ Check-in ---
     _fetchMyUserId();
     _initSignalR();
+
+    // หากสถานะคือค้างชำระ ให้ดึงยอดค้างชำระที่แท้จริงจาก API ประวัติ
+    if (widget.details.currentUserStatus == 'PendingPayment' || widget.details.status == 5) {
+      _fetchPendingAmount();
+    }
 
     // --- ตั้งค่า Timer ให้เลื่อนรูปทุก 3 วินาที ---
     if (_imageUrls.length > 1) {
@@ -125,6 +131,21 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     _pageController.dispose();
     _hubConnection?.stop(); // ปิดการเชื่อมต่อเมื่อออกจากหน้า
     super.dispose();
+  }
+
+  Future<void> _fetchPendingAmount() async {
+    try {
+      final res = await ApiProvider().get('/player/gamesessions/${widget.details.code}/history-detail');
+      if (mounted && res['status'] == 200 && res['data'] != null) {
+        final payment = res['data']['payment'] ?? {};
+        final amount = payment['totalAmount']?.toString() ?? '0';
+        setState(() {
+          _pendingAmountDisplay = '${(num.tryParse(amount) ?? 0).toInt()} บาท';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching pending amount: $e');
+    }
   }
 
   // --- NEW: ดึงข้อมูล User ID ของตัวเอง ---
@@ -186,6 +207,11 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       return _buildBottomBarS();
     }
 
+    // --- NEW: ถ้าผู้เล่นค้างชำระ ให้แสดงแถบชำระเงิน (กันการกด Book Now ซ้ำ) ---
+    if (widget.details.currentUserStatus == 'PendingPayment' || widget.details.status == 5) {
+      return _buildBottomBarO();
+    }
+
     // 3. ถ้าผู้เล่นมีส่วนร่วมกับก๊วนนี้ (ตัวจริง, ตัวสำรอง, เช็คอินแล้ว)
     if (widget.details.currentUserStatus == 'Joined' ||
         widget.details.currentUserStatus == 'CheckedIn' ||
@@ -196,8 +222,6 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
     // 4. ถ้าผู้เล่นเป็นคนนอก (NotJoined)
     if (widget.details.status == 1) {
       return _buildBookNowBar();
-    } else if (widget.details.status == 5) {
-      return _buildBottomBarO();
     }
 
     return _buildBookNowBar(); // Fallback
@@ -942,7 +966,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
               ),
             ),
             Text(
-              '${widget.details.price} บาท', // ดึงยอดค่าใช้จ่ายหรือราคาที่ตั้งไว้มาแสดง
+              _pendingAmountDisplay.isNotEmpty ? _pendingAmountDisplay : '...', // ดึงยอดที่ค้างชำระจริงๆ มาแสดง
               style: TextStyle(
                 fontSize: getResponsiveFontSize(context, fontSize: 20),
                 fontWeight: FontWeight.w600,
@@ -976,7 +1000,8 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                   text: 'ชำระเงิน',
                   fontSize: 16,
                   onPressed: () {
-                    showBookingConfirmDialog(context, widget.details);
+                        // FIX: เปลี่ยนจากการกดจอง เป็นไปหน้าชำระเงินโดยตรง
+                        context.push('/payment-now/${widget.details.code}');
                   },
                 ),
               ),

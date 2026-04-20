@@ -126,7 +126,7 @@ class _NotificationPageState extends State<NotificationPage> {
     }
   }
 
-  void _onNotificationTap(NotificationModel notification) {
+  Future<void> _onNotificationTap(NotificationModel notification) async {
     _markAsRead(notification);
 
     if (notification.referenceId == null) return;
@@ -136,25 +136,54 @@ class _NotificationPageState extends State<NotificationPage> {
       listen: false,
     ).currentRole;
 
-    if (role == Role.organizer) {
-      switch (notification.type) {
-        case 'JOIN_SESSION':
-        case 'CANCEL_BOOKING':
-        case 'PLAYER_CHECKIN':
-        case 'PAYMENT_RECEIVED':
-          context.push('/manage-game/${notification.referenceId}');
-          break;
+    // แสดงหน้าจอโหลดระหว่างเช็คสถานะก๊วน
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      if (role == Role.organizer) {
+        final response = await ApiProvider().get('/GameSessions/${notification.referenceId}');
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).pop(); // ปิดหน้าโหลด
+        
+        if (response['status'] == 200 && response['data'] != null) {
+          final int status = response['data']['status'] ?? 1;
+          if (status == 1) {
+            context.go('/manage'); // ยังไม่เปิดก๊วน -> ใช้ go() เพื่อกลับไปหน้าหลัก
+          } else if (status == 2) {
+            context.push('/manage-game/${notification.referenceId}'); // ก๊วนเปิดแล้ว -> ไปหน้ากระดานควบคุม
+          } else {
+            context.push('/history-organizer-payment', extra: notification.referenceId); // จบหรือยกเลิกแล้ว -> ไปหน้าประวัติ
+          }
+        }
+      } else {
+        // ฝั่งของผู้เล่น
+        final response = await ApiProvider().get('/player/gamesessions/${notification.referenceId}');
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).pop();
+
+        if (response['status'] == 200 && response['data'] != null) {
+          final int status = response['data']['status'] ?? 1;
+          final String userStatus = response['data']['currentUserStatus'] ?? 'NotJoined';
+
+          if (status == 2 && userStatus == 'CheckedIn') {
+            context.push('/game-player/${notification.referenceId}'); // ก๊วนเปิดและเช็คอินแล้ว -> หน้ากระดานคนเล่น
+          } else if (status == 3 || status == 4 || userStatus == 'CheckedOut') {
+            context.push('/history-detail/${notification.referenceId}'); // จบหรือจ่ายเงินแล้ว -> ไปหน้าประวัติ
+          } else {
+            context.go('/my-game-user'); // ยังไม่เปิด หรือยังไม่เช็คอิน -> ใช้ go() เพื่อกลับไปหน้าหลัก
+          }
+        }
       }
-    } else {
-      switch (notification.type) {
-        case 'MATCH_STARTING':
-        case 'SESSION_UPDATED':
-        case 'SESSION_CANCELLED':
-        case 'PROMOTED_TO_ACTIVE':
-        case 'REMOVED_FROM_SESSION':
-        case 'PAYMENT_CONFIRMED_BY_ORGANIZER':
-          context.push('/game-player/${notification.referenceId}');
-          break;
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('เกิดข้อผิดพลาดในการโหลดข้อมูลก๊วน')),
+        );
       }
     }
   }

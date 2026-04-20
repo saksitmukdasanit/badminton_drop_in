@@ -402,7 +402,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
               SizedBox(
                 width: double.infinity,
                 child: CustomElevatedButton(
-                  text: _selectedPaymentMethod == 'QR Code' ? 'แสดง QR Code' : (_selectedPaymentMethod == 'ยังไม่จ่าย' ? 'บันทึกค้างชำระ' : 'ชำระเงินและจบเกม'),
+                  text: _selectedPaymentMethod == 'QR Code' ? 'แสดง QR Code' : (_selectedPaymentMethod == 'ยังไม่จ่าย' ? 'บันทึกค้างชำระ' : (widget.isHistoryMode ? 'ชำระเงิน' : 'ชำระเงินและจบเกม')),
                   onPressed: () async {
                     if (widget.onConfirmPayment != null) {
                       if (_selectedPaymentMethod == null) {

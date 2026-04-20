@@ -192,7 +192,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
               final formattedAmount = (amount is num && amount == amount.toInt()) ? amount.toInt().toString() : amount.toString();
               return _buildPriceRow(item['description'] ?? '', '$formattedAmount บาท');
             }),
-            _buildPriceRow('ราคารวม', '${(num.tryParse(totalAmount) ?? 0).toInt()} บาท', isBold: true),
+            _buildPriceRow(status == 'Pending' ? 'ยอดค้างชำระ' : 'ราคารวม', '${(num.tryParse(totalAmount) ?? 0).toInt()} บาท', isBold: true),
             Divider(height: 24),
             if (status == 'Completed') ...[
               Row(

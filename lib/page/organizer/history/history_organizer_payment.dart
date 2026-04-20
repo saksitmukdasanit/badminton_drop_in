@@ -145,11 +145,7 @@ class _HistoryOrganizerPaymentPageState
       double amount = adj.amount;
       if (adj.type == AdjustmentType.subtraction) amount = -amount;
       customLineItems.add({'description': adj.name, 'amount': amount});
-      adjustmentsTotal += amount;
     }
-
-    final double estimatedTotalAmount = baseTotal + adjustmentsTotal;
-    final double dueAmount = estimatedTotalAmount - paidAmount; // หักลบยอดที่จ่ายแล้วเพื่อหาคงเหลือ
 
     // ลบการแสดง QrPaymentDialog ตรงนี้ออก เพราะใน ExpensePanelWidget มีแสดง Dialog ไปแล้ว ทำให้ไม่ต้องกด 2 รอบ
 
@@ -166,10 +162,12 @@ class _HistoryOrganizerPaymentPageState
       
       final finalBill = checkoutRes['data'];
       final int billId = finalBill['billId'];
+      
+      // --- NEW: ใช้ยอดชำระสุทธิจาก API บิลโดยตรง ป้องกันปัญหายอดติดลบจากการหักลบเอง ---
+      final double actualDueAmount = (num.tryParse('${finalBill['totalAmount'] ?? 0}') ?? 0).toDouble();
 
-      // 4.3 บันทึกการจ่ายเงิน (ส่งยอดเต็ม totalAmount ไปบันทึกตาม Logic ของระบบ)
-      // FIX: ส่งยอด dueAmount ไปจ่าย เพื่อให้ตรงกับความเป็นจริง ไม่ใช่ยอดเต็มที่อาจซ้ำซ้อน
-      if (dueAmount > 0) {
+      // 4.3 บันทึกการจ่ายเงิน
+      if (actualDueAmount > 0) {
          // --- NEW: ถ้าเลือก "ยังไม่จ่าย" ไม่ต้องเรียก API /pay ---
          if (paymentMethod == 'ยังไม่จ่าย' || paymentMethod == 'ค้างชำระ') {
              _hidePaymentPanel();
@@ -178,7 +176,7 @@ class _HistoryOrganizerPaymentPageState
                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('สร้างบิลและบันทึกค้างชำระสำเร็จ')));
              }
          } else {
-             await _confirmPaymentAPI(billId, paymentMethod, dueAmount);
+             await _confirmPaymentAPI(billId, paymentMethod, actualDueAmount);
          }
       } else {
          // ถ้ายอดเป็น 0 (หักลบกลบหนี้หมดแล้ว) ให้ปิดหน้าจอได้เลย ไม่ต้องบันทึกรับเงินซ้ำ
@@ -237,11 +235,15 @@ class _HistoryOrganizerPaymentPageState
         final sessionData = response['data'];
         final participants = sessionData?['participants'] ?? [];
 
-        // --- FIX: ดึง Service Fee จาก API (ถ้ามี) แทนการคำนวณหน้าบ้าน ---
+        // --- FIX: ดึง Service Fee จากผู้เล่นที่เป็น Member เท่านั้น เพื่อป้องกันค่าเป็น 0 จาก Guest ---
         double serviceFee = 10.0; // Default fallback
-        if (participants.isNotEmpty) {
-          serviceFee = (num.tryParse('${participants[0]['serviceFee']}') ?? 10.0).toDouble();
-        }
+        try {
+          final member = participants.firstWhere((p) => (p['participantType'] ?? '').toString().toLowerCase() != 'guest', orElse: () => null);
+          if (member != null && member['serviceFee'] != null) {
+            double memberFee = (num.tryParse('${member['serviceFee']}') ?? 0).toDouble();
+            if (memberFee > 0) serviceFee = memberFee;
+          }
+        } catch (_) {}
 
         setState(() {
           _sessionData = sessionData;
@@ -412,12 +414,25 @@ class _HistoryOrganizerPaymentPageState
                     const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())
                   else
                     Builder(builder: (context) {
-                      // --- NEW: ดึงค่า Service Fee จาก Bill Preview ---
-                      double serviceFee = 10.0; // Fallback
+                      // --- FIX: ซิงค์ยอดฝั่ง API สุทธิ (Net) กับฝั่ง Widget ยอดเต็ม (Gross) ---
+                      bool isServiceFeeUnpaid = false;
+                      double serviceFeeRate = 10.0; // Fallback
                       if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
                         final items = _selectedPlayerBill['lineItems'] as List;
                         final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
-                        if (item != null) serviceFee = (item['amount'] ?? 10.0).toDouble();
+                        if (item != null) {
+                          isServiceFeeUnpaid = true;
+                          serviceFeeRate = (item['amount'] ?? 10.0).toDouble();
+                        }
+                      }
+                      
+                      double netPaid = (num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0);
+                      double grossPaid = netPaid;
+                      
+                      // ถ้ายอดค่าธรรมเนียมไม่โผล่ในบิลค้างชำระ (แปลว่าจ่ายไปแล้ว) และมียอด netPaid > 0 ให้บวกค่าธรรมเนียมกลับเข้าไป
+                      // เพื่อให้ยอดจ่ายรวม (Gross Paid) หักลบกับยอด Total ใน Widget ได้พอดี ไม่เหลือเศษค้างชำระ 10 บาทหลอกๆ
+                      if (!isServiceFeeUnpaid && netPaid > 0) {
+                        grossPaid += serviceFeeRate;
                       }
                       
                       // --- NEW: คำนวณยอดส่วนต่าง (Others) เพื่อให้บิลตรงกับยอดจริง ---
@@ -432,8 +447,8 @@ class _HistoryOrganizerPaymentPageState
                         courtFee: sessionCourtFee,
                         shuttlecockFee: sessionShuttleFeePerGame,
                         totalGames: totalGames,
-                        paidAmount: (num.tryParse('${_selectedPlayer['paidAmount'] ?? 0}')?.toDouble() ?? 0.0), // ส่งยอดที่จ่ายแล้วเพื่อซ่อนปุ่มชำระถ้าจ่ายครบ
-                        serviceFee: serviceFee, // --- NEW: ส่งค่า Service Fee เข้าไป ---
+                        paidAmount: grossPaid, // FIX: ส่งยอด Gross Paid แทน Net Paid 
+                        serviceFee: serviceFeeRate, // ส่งค่า Service Fee เรทเต็มเข้าไป
                         onConfirmPayment: _handlePayment,
                       );
                     }),
@@ -548,10 +563,10 @@ class CostsSummary extends StatelessWidget {
     final Map<String, String> totalSummary = {};
     final List<String> highlightKeysTotal = [];
 
-    // --- FIX: ใช้ยอด Net จาก API โดยตรง ไม่ต้องวนลูปคำนวณเองแล้ว ---
-    double totalNetIncome = (num.tryParse('${data['organizerNetTotalIncome']}') ?? 0).toDouble();
-    double totalNetPaid = (num.tryParse('${data['organizerNetPaidAmount']}') ?? 0).toDouble();
-    double totalNetUnpaid = (num.tryParse('${data['organizerNetUnpaidAmount']}') ?? 0).toDouble();
+    // API แก้ไขแล้ว ดึงค่ายอดสุทธิมาใช้ได้โดยตรง
+    double totalNetIncome = (num.tryParse('${data['totalIncome']}') ?? 0).toDouble();
+    double totalNetPaid = (num.tryParse('${data['paidAmount']}') ?? 0).toDouble();
+    double totalNetUnpaid = (num.tryParse('${data['unpaidAmount']}') ?? 0).toDouble();
     double totalServiceFeeCalc = (num.tryParse('${data['totalServiceFeeDeducted']}') ?? 0).toDouble();
 
     totalSummary['รายรับทั้งหมด (สุทธิ)'] = '${fmt(totalNetIncome)} บาท';
@@ -815,17 +830,21 @@ class PlayerListCard extends StatelessWidget {
             ? '${formatNum(gamesNum)} x ${formatNum(rateNum)} = ${formatNum(shuttleNum)}'
             : '${formatNum(shuttleNum)}';
 
-        // --- FIX: ใช้ยอด Net จาก API โดยตรง ไม่ต้องคำนวณหักค่าบริการเองหน้าบ้าน ---
-        double totalDisplayVal = (num.tryParse('${p['organizerNetTotal']}') ?? 0).toDouble();
-        double paidDisplayVal = (num.tryParse('${p['organizerNetPaid']}') ?? 0).toDouble();
-        double unpaidDisplayVal = (num.tryParse('${p['organizerNetUnpaid']}') ?? 0).toDouble();
+        // --- FIX: คำนวณยอดสุทธิของผู้จัด (Net) โดยหักค่าธรรมเนียมแอปออกด้วยตัวเอง ---
+        // เพื่อป้องกันกรณี API ส่งยอดรวม (Gross) มา แล้วทำให้ตารางแสดงค่าธรรมเนียมรวมไปด้วย
+        double rawTotal = (num.tryParse('${p['totalCost']}') ?? 0).toDouble();
+        double rawPaid = (num.tryParse('${p['paidAmount']}') ?? 0).toDouble();
+        
+        // API ถูกแก้ไขให้ส่งยอดสุทธิมาแล้ว ใช้ค่า raw ตรงๆ ได้เลย
+        double totalDisplayVal = rawTotal;
+        double paidDisplayVal = rawPaid;
+        double unpaidDisplayVal = (num.tryParse('${p['unpaidAmount']}') ?? 0).toDouble();
 
         final total = formatNum(totalDisplayVal);
         final paid = formatNum(paidDisplayVal);
         final unpaid = formatNum(unpaidDisplayVal);
 
-        // คำนวณ "อื่นๆ" จากยอดสุทธิของผู้จัด (ไม่ต้องลบ serviceFee อีก เพราะหักไปแล้วในบรรทัดบน)
-        final othersNum = totalDisplayVal - (courtNum + shuttleNum);
+        double othersNum = totalDisplayVal - (courtNum + shuttleNum);
         final others = formatNum(othersNum);
 
         final unpaidNum = unpaidDisplayVal;
@@ -839,10 +858,9 @@ class PlayerListCard extends StatelessWidget {
               children: [
                 text(2, '${index + 1}', 14, FontWeight.w300, color: rowColor),
                 text(3, name, 14, FontWeight.w300, color: rowColor),
-                // --- NEW: เพิ่มคอลัมน์ค่าสนาม ---
                 text(2, formatNum(courtNum), 14, FontWeight.w300, color: rowColor),
                 text(5, gameDisplay, 12, FontWeight.w300, color: rowColor),
-                text(2, others, 14, FontWeight.w300, color: rowColor), // ย้าย "อื่นๆ" มาก่อน "ยอด"
+                text(2, others, 14, FontWeight.w300, color: rowColor),
                 text(2, total, 14, FontWeight.w300, color: rowColor),
                 text(2, paid, 14, FontWeight.w300, color: rowColor),
                 text(2, unpaid, 14, FontWeight.w300, color: rowColor),
@@ -885,10 +903,9 @@ class PlayerListCard extends StatelessWidget {
                 children: [
                   text(2, 'no', 14, FontWeight.w700),
                   text(3, 'ชื่อเล่น', 14, FontWeight.w700),
-                  // --- NEW: เพิ่มหัวตารางค่าสนาม ---
                   text(2, 'สนาม', 14, FontWeight.w700),
                   text(5, 'เกมส์', 14, FontWeight.w700),
-                  text(2, 'อื่นๆ', 14, FontWeight.w700), // ย้าย "อื่นๆ" มาก่อน "ยอด"
+                  text(2, 'อื่นๆ', 14, FontWeight.w700),
                   text(2, 'ยอด', 14, FontWeight.w700),
                   text(2, 'จ่าย', 14, FontWeight.w700),
                   text(2, 'ค้าง', 14, FontWeight.w700),

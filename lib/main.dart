@@ -100,6 +100,8 @@ class _MyAppState extends State<MyApp> {
   // MyApp({super.key});
   // final navigatorKey = GlobalKey<NavigatorState>(); // --- FIX: ลบบรรทัดนี้ทิ้ง เพื่อไม่ให้สร้าง Key ใหม่ทับตัว Global ---
 
+  // เพิ่ม GlobalKey สำหรับ ShellRoute โดยเฉพาะ
+  final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
   late final GoRouter _router;
 
   @override
@@ -334,6 +336,7 @@ class _MyAppState extends State<MyApp> {
         // --- เมนูหลักของแอป (มีแถบ MenuBar ด้านล่างเสมอ) -----------
         // ========================================================
         ShellRoute(
+          navigatorKey: _shellNavigatorKey, // กำหนด Key ให้ ShellRoute
           builder: (context, state, child) {
             return MenuBarPage(child: child);
           },
