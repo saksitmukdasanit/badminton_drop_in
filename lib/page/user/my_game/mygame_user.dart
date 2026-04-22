@@ -211,6 +211,20 @@ class MyGameUserPageState extends State<MyGameUserPage> {
           final List<String> courtImageUrls = List<String>.from(
             imageUrlsFromApi,
           );
+          
+          // แปลงวันที่และเวลาให้เป็น String ที่สมบูรณ์สำหรับใช้เปรียบเทียบเวลาในการแสดงปุ่ม Cancel
+          String sessionStartStr = game['sessionStart'] ?? '';
+          if (sessionStartStr.isEmpty) {
+            String d = game['sessionDate'] ?? '';
+            String t = game['startTime'] ?? '';
+            if (d.isNotEmpty && t.isNotEmpty) {
+               d = d.split('T')[0]; // ดึงเฉพาะ YYYY-MM-DD
+               sessionStartStr = '${d}T$t';
+               if (t.length == 5) sessionStartStr += ':00'; // เติมวินาทีให้ parse ได้สมบูรณ์
+            } else {
+               sessionStartStr = DateTime.now().toIso8601String();
+            }
+          }
 
           final bookingDetails = BookingDetails(
             code: game['sessionId'] ?? 0,
@@ -247,8 +261,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
                   '',
             ),
             isBuffet: game['costingMethod'] == 2,
-            sessionStart:
-                game['sessionStart'] ?? DateTime.now().toIso8601String(),
+            sessionStart: sessionStartStr,
           );
           context.push('/booking-confirm-game', extra: bookingDetails);
         },

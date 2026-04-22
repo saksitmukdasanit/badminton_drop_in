@@ -19,6 +19,7 @@ class ExpensePanel extends StatefulWidget {
   final bool isEnded;
   final VoidCallback? onToggleEndGame;
   final VoidCallback? onPaymentSuccess;
+  final bool isBuffet;
 
   const ExpensePanel({
     super.key,
@@ -33,6 +34,7 @@ class ExpensePanel extends StatefulWidget {
     this.isEnded = false,
     this.onToggleEndGame,
     this.onPaymentSuccess,
+    this.isBuffet = false,
   });
 
   @override
@@ -88,71 +90,18 @@ class _ExpensePanelState extends State<ExpensePanel> {
       final pType = parts[0].toLowerCase();
       final pId = parts[1];
     
-      double estimatedTotal = 0.0;
       List<Map<String, dynamic>> customLineItems = [];
 
-      // --- FIX: ตรวจสอบว่าจ่ายค่าสนามไปแล้วหรือยัง ---
-      double courtAmount = 0.0;
-      if (_billData != null && _billData['lineItems'] != null) {
-         final items = _billData['lineItems'] as List;
-         final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท' || i['description'] == 'ค่าสนาม', orElse: () => null);
-         if (item != null) courtAmount = (item['amount'] ?? 0).toDouble();
-      } else {
-         courtAmount = widget.courtFee; // Fallback
-      }
-      if (courtAmount > 0) {
-         customLineItems.add({'description': 'ค่าสนาม', 'amount': courtAmount});
-         estimatedTotal += courtAmount;
-      }
-
-      // --- FIX: ตรวจสอบว่าจ่ายค่าธรรมเนียมไปแล้วหรือยัง ---
-      double serviceFee = 0.0;
-      if (_billData != null && _billData['lineItems'] != null) {
-         final items = _billData['lineItems'] as List;
-         final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
-         if (item != null) serviceFee = (item['amount'] ?? 0).toDouble();
-      } else {
-         serviceFee = 10.0; // Fallback
-      }
-      if (serviceFee > 0) {
-         customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': serviceFee});
-         estimatedTotal += serviceFee;
-      }
-
-      double shuttleTotal = 0.0;
-      final int totalGames = _playerStats?.totalGamesPlayed ?? 0;
-      if (totalGames > 0 && widget.shuttleFee > 0) {
-         shuttleTotal = totalGames * widget.shuttleFee;
-      } else {
-         if (_billData != null && _billData['lineItems'] != null) {
-            final items = _billData['lineItems'] as List;
-            final item = items.firstWhere((i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'), orElse: () => null);
-            if (item != null) shuttleTotal = (item['amount'] ?? 0).toDouble();
-         }
-      }
-      if (shuttleTotal > 0) {
-         customLineItems.add({'description': 'ค่าลูกแบด ($totalGames เกม)', 'amount': shuttleTotal});
-         estimatedTotal += shuttleTotal;
-      }
-
+      // ส่งไปเฉพาะข้อมูลที่เราเพิ่ม/ลดเอง (Adjustments) เท่านั้น ค่าสนาม/ค่าลูกให้ API คำนวณเอง
       for (var adj in adjustments) {
         double amount = adj.amount;
         if (adj.type == AdjustmentType.subtraction) amount = -amount;
         customLineItems.add({'description': adj.name, 'amount': amount});
-        estimatedTotal += amount;
-      }
-
-      if (paymentMethod == 'QR Code') {
-        if (mounted) {
-          setState(() => _isLoading = false); 
-          final confirm = await showQrPaymentDialog(context, estimatedTotal);
-          if (confirm != true) return; 
-          setState(() => _isLoading = true); 
-        }
       }
 
       final checkoutRes = await ApiProvider().post('/participants/$pType/$pId/checkout', data: {'customLineItems': customLineItems});
       final int billId = checkoutRes['data']['billId'];
+      final double actualDueAmount = (num.tryParse('${checkoutRes['data']['totalAmount'] ?? 0}') ?? 0).toDouble();
 
       // --- NEW: ดักไว้ว่าถ้ายังไม่จ่าย ให้แค่ปิดหน้าจอ ไม่ต้องเรียก API ยืนยันรับเงิน ---
       if (paymentMethod == 'ยังไม่จ่าย' || paymentMethod == 'ค้างชำระ') {
@@ -162,8 +111,8 @@ class _ExpensePanelState extends State<ExpensePanel> {
             onConfirm: () { widget.onClose(); widget.onPaymentSuccess?.call(); },
           );
         }
-      } else if (estimatedTotal > 0) {
-        await _confirmPaymentAPI(billId, paymentMethod, estimatedTotal);
+      } else if (actualDueAmount > 0) {
+        await _confirmPaymentAPI(billId, paymentMethod, actualDueAmount);
       } else {
         widget.onClose(); widget.onPaymentSuccess?.call();
       }
@@ -310,8 +259,9 @@ class _ExpensePanelState extends State<ExpensePanel> {
                   totalGames: _playerStats?.totalGamesPlayed ?? 0,
                   paidAmount: (_billData?['paidAmount'] ?? 0.0).toDouble(),
                   serviceFee: (_billData?['serviceFee'] ?? 10.0).toDouble(),
-                  onConfirmPayment: (adjustments) =>
-                      _handlePayment('Cash', adjustments), // Default to 'Cash' or any method
+                  onConfirmPayment: (method, adjustments) =>
+                      _handlePayment(method, adjustments), // FIX: รับ 2 parameters ให้ตรงกับที่ส่ง
+                  isBuffet: widget.isBuffet,
                 ),
               ],
             ),

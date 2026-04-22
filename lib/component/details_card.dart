@@ -35,44 +35,77 @@ class DetailsCard extends StatelessWidget {
                   [],
             ),
             SizedBox(height: 16),
-            _buildText(
+            _buildInfoRow(
               context,
+              Icons.payments_outlined,
               'ค่าสนาม ${(num.tryParse('${model['courtFeePerPerson']}') ?? 0).toStringAsFixed(0)} บาท/ชั่วโมง',
             ),
-            _buildText(
+            _buildInfoRow(
               context,
-              '${model['shuttlecockBrandName'] ?? '-'} ${model['shuttlecockModelName'] ?? ''} ${model['shuttlecockFeePerPerson'] != null ? '${(num.tryParse('${model['shuttlecockFeePerPerson']}') ?? 0).toStringAsFixed(0)} บาท/ลูก' : ''}',
+              Icons.sell_outlined, // ใช้ไอคอนป้ายแท็กสินค้าเพื่อสื่อถึง แบรนด์/รุ่น/ราคา แทนลูกแบดมินตัน
+              '${model['shuttlecockBrandName'] ?? '-'} ${model['shuttlecockModelName'] ?? ''} ${model['shuttlecockFeePerPerson'] != null ? '${(num.tryParse('${model['shuttlecockFeePerPerson']}') ?? 0).toStringAsFixed(0)} บาท/ลูก' : ''}'.trim(),
             ),
-            _buildText(context, '${model['gameTypeName'] ?? '-'}'),
-            _buildText(context, 'สนามที่ ${model['courtNumbers'] ?? '-'}'),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    _buildText(
-                      context,
-                      'ผู้เล่น ${model['currentParticipants'] ?? 0}/${model['maxParticipants'] ?? 0} คน',
-                    ),
-                    _buildText(context, 'สำรอง $reserveCount/10 คน'),
-                  ],
+            _buildInfoRow(
+              context,
+              Icons.sports_tennis_outlined,
+              '${model['gameTypeName'] ?? '-'}',
+            ),
+            _buildInfoRow(
+              context,
+              Icons.map_outlined,
+              'สนามที่ ${model['courtNumbers'] ?? '-'}',
+            ),
+            _buildInfoRow(
+              context,
+              Icons.group_outlined,
+              'ผู้เล่น ${model['currentParticipants'] ?? 0}/${model['maxParticipants'] ?? 0} คน   (สำรอง $reserveCount/10)',
+              trailing: GestureDetector(
+                onTap: () => context.push(
+                  '/player-list/${model['gameSessionId'] ?? model['sessionId']}',
                 ),
-                GestureDetector(
-                  onTap: () => context.push(
-                    '/player-list/${model['gameSessionId'] ?? model['sessionId']}',
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0E9D7A).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text(
+                  child: const Text(
                     'ดูผู้เล่น',
                     style: TextStyle(
-                      color: Colors.teal[600],
+                      color: Color(0xFF0E9D7A),
                       fontWeight: FontWeight.bold,
-                      decoration: TextDecoration.underline,
+                      fontSize: 12,
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
-            Text('note : ${model['notes'] ?? '-'}'),
+
+            // --- ส่วนของ Note ---
+            if (model['notes'] != null && model['notes'].toString().trim().isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(top: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'หมายเหตุ: ${model['notes']}',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // รายละเอียดค่าใช้จ่ายและผู้เล่น
             const Divider(height: 32),
@@ -102,12 +135,27 @@ class DetailsCard extends StatelessWidget {
     return CircleAvatar(radius: 22, child: Image.network(iconUrl));
   }
 
-  Widget _buildText(BuildContext context, String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: getResponsiveFontSize(context, fontSize: 14),
-        fontWeight: FontWeight.w300,
+  // Helper สำหรับสร้างแถวข้อมูลพร้อมไอคอน
+  Widget _buildInfoRow(BuildContext context, IconData icon, String text, {Widget? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF0E9D7A)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontWeight: FontWeight.w400,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
       ),
     );
   }

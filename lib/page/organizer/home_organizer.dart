@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/loading_image_network.dart';
 import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/dialog.dart';
@@ -50,6 +51,7 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true, // ทะลุใต้ MenuBar
+      appBar: const AppBarHome(),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(

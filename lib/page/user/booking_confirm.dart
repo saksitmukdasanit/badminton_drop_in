@@ -202,14 +202,29 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       return _buildBottomBarWRC();
     }
 
-    // 2. ถ้าผู้เล่น Check Out และชำระเงินเรียบร้อยแล้ว
-    if (widget.details.currentUserStatus == 'CheckedOut') {
-      return _buildBottomBarS();
+    // --- NEW: ถ้าผู้เล่นค้างชำระ ให้แสดงแถบชำระเงิน (กันการกด Book Now ซ้ำ) ---
+    if (widget.details.currentUserStatus == 'PendingPayment' || 
+        widget.details.currentUserStatus == 'Unpaid' || 
+        widget.details.status == 5) {
+      return _buildBottomBarO();
     }
 
-    // --- NEW: ถ้าผู้เล่นค้างชำระ ให้แสดงแถบชำระเงิน (กันการกด Book Now ซ้ำ) ---
-    if (widget.details.currentUserStatus == 'PendingPayment' || widget.details.status == 5) {
-      return _buildBottomBarO();
+    // --- NEW: เช็คว่าเป็นก๊วนในอดีต (ผ่านเลยเวลาเริ่มมาเกิน 12 ชั่วโมงแล้ว) ---
+    DateTime sessionStartDt;
+    try {
+      sessionStartDt = DateTime.parse(widget.details.sessionStart).toLocal();
+    } catch (_) {
+      sessionStartDt = DateTime.now().add(const Duration(hours: 4));
+    }
+    bool isPastGame = sessionStartDt.isBefore(DateTime.now().subtract(const Duration(hours: 12)));
+
+    // 2. ถ้าผู้เล่น Check Out และชำระเงินเรียบร้อยแล้ว หรือเกมจบแล้วและไม่มีค้างชำระ
+    if (widget.details.currentUserStatus == 'CheckedOut' ||
+        widget.details.currentUserStatus == 'Paid' ||
+        widget.details.currentUserStatus == 'Completed' ||
+        widget.details.status == 4 ||
+        isPastGame) {
+      return _buildBottomBarS();
     }
 
     // 3. ถ้าผู้เล่นมีส่วนร่วมกับก๊วนนี้ (ตัวจริง, ตัวสำรอง, เช็คอินแล้ว)

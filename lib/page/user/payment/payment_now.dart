@@ -277,7 +277,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(item['description'] ?? '-', style: const TextStyle(fontSize: 15)),
-                                      Text('${item['amount'] ?? 0} ฿', style: const TextStyle(fontSize: 15)),
+                              Text('${(num.tryParse('${item['amount'] ?? 0}') ?? 0).toStringAsFixed(0)} ฿', style: const TextStyle(fontSize: 15)),
                                     ],
                                   ),
                                 );
@@ -312,7 +312,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
                                         child: Text(item['description'], style: const TextStyle(fontSize: 15)),
                                       ),
                                       Text(
-                                        '${isPositive ? '+' : ''}${item['amount']} ฿',
+                                '${isPositive ? '+' : ''}${(num.tryParse('${item['amount'] ?? 0}') ?? 0).toStringAsFixed(0)} ฿',
                                         style: TextStyle(
                                             fontSize: 15,
                                             color: isPositive ? Colors.red : Colors.green,
@@ -341,7 +341,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
                                       style: TextStyle(
                                           fontSize: 16,
                                           fontWeight: FontWeight.bold)),
-                                  Text('${_netTotal} บาท',
+                                  Text('${_netTotal.toStringAsFixed(0)} บาท',
                                       style: const TextStyle(
                                           fontSize: 22,
                                           fontWeight: FontWeight.bold,

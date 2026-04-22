@@ -1,3 +1,4 @@
+import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
 class GameCard extends StatefulWidget {
@@ -75,8 +76,10 @@ class _GameCardState extends State<GameCard> {
           children: [
             // --- ส่วนหัวข้อ ---
             Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFFFF5CC), // พื้นหลังเหลืองอ่อน
+              decoration: BoxDecoration(
+                color: dayColors.firstWhere(
+                  (d) => d['code'] == widget.day,
+                )['display'],
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -88,7 +91,10 @@ class _GameCardState extends State<GameCard> {
                 children: [
                   Text(
                     widget.teamName, // 4. ใช้ข้อมูลจาก widget
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   IconButton(
                     icon: Icon(
@@ -123,7 +129,10 @@ class _GameCardState extends State<GameCard> {
                 children: [
                   Text(
                     '${widget.date}  ${widget.time}', // 4. ใช้ข้อมูลจาก widget
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -143,45 +152,56 @@ class _GameCardState extends State<GameCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _buildInfoColumn('ค่าสนาม', widget.price),
-                      _buildInfoColumn(widget.shuttlecockBrand, widget.shuttlecockInfo),
+                      _buildInfoColumn(
+                        widget.shuttlecockBrand,
+                        widget.shuttlecockInfo,
+                      ),
                       _buildInfoColumn('เล่น 21 แต้ม', widget.gameInfo),
                     ],
                   ),
                   const Divider(height: 24),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('ผู้เล่น '),
-                      Text(
-                        '${widget.currentPlayers}/${widget.maxPlayers} คน', // 4. ใช้ข้อมูลจาก widget
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 8),
                       GestureDetector(
-                        onTap: widget.onTapPlayers,
-                        child: Text(
-                          'ดูผู้เล่น',
-                          style: TextStyle(
-                            color: Colors.teal[600],
-                            fontWeight: FontWeight.bold,
-                            decoration: TextDecoration.underline,
-                          ),
+                        onTap: widget.onTapOrganizer,
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 12,
+                              backgroundImage: NetworkImage(
+                                widget.organizerImageUrl,
+                              ), // 4. ใช้ข้อมูลจาก widget
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              widget.organizerName,
+                            ), // 4. ใช้ข้อมูลจาก widget
+                          ],
                         ),
+                      ),
+                      Row(
+                        children: [
+                          const Text('ผู้เล่น '),
+                          Text(
+                            '${widget.currentPlayers}/${widget.maxPlayers} คน', // 4. ใช้ข้อมูลจาก widget
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: widget.onTapPlayers,
+                            child: Text(
+                              'ดูผู้เล่น',
+                              style: TextStyle(
+                                color: Colors.teal[600],
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: widget.onTapOrganizer,
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 12,
-                          backgroundImage: NetworkImage(widget.organizerImageUrl), // 4. ใช้ข้อมูลจาก widget
-                        ),
-                        const SizedBox(width: 8),
-                        Text(widget.organizerName), // 4. ใช้ข้อมูลจาก widget
-                      ],
-                    ),
                   ),
                 ],
               ),

@@ -42,21 +42,12 @@ class HistoryUserPageState extends State<HistoryUserPage> {
   Timer? _debounce;
 
   int _page = 1;
-  final int _limit = 10;
+  final int _limit = 5; // เปลี่ยนให้ดึงข้อมูลทีละ 5 รายการ ตามที่คุณต้องการ
   bool _isLoadingInitial = true;
   bool _isLoadingMore = false;
   bool _hasMore = true;
   List<dynamic> _games = [];
   final ScrollController _scrollController = ScrollController();
-
-  final List<dynamic> _items = [
-    {"code": 1, "value": 'ล่าสุด'},
-    {"code": 2, "value": 'ยอดนิยม'},
-    {"code": 3, "value": 'วันที่'},
-    {"code": 4, "value": 'ใกล้ฉัน'},
-    {"code": 5, "value": 'ค่าสนาม'},
-    {"code": 6, "value": 'ค่าลูก'},
-  ];
 
   @override
   void initState() {
@@ -138,6 +129,51 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     }
   }
 
+  void _showSortOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'เรียงลำดับประวัติ',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.arrow_downward),
+                title: const Text('วันที่จัดก๊วน (ล่าสุดก่อน)'),
+                trailing: (_selectedItem == 'latest' || _selectedItem == null) ? const Icon(Icons.check, color: Color(0xFF0E9D7A)) : null,
+                onTap: () {
+                  setState(() => _selectedItem = 'latest');
+                  Navigator.pop(context);
+                  _fetchHistoryGames(refresh: true);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.arrow_upward),
+                title: const Text('วันที่จัดก๊วน (เก่าสุดก่อน)'),
+                trailing: _selectedItem == 'oldest' ? const Icon(Icons.check, color: Color(0xFF0E9D7A)) : null,
+                onTap: () {
+                  setState(() => _selectedItem = 'oldest');
+                  Navigator.pop(context);
+                  _fetchHistoryGames(refresh: true);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -158,36 +194,14 @@ class HistoryUserPageState extends State<HistoryUserPage> {
           children: [
             CustomTextFormField(
               labelText: 'พิมพ์เพื่อค้นหา...',
-              hintText: '',
+              hintText: 'ชื่อก๊วน, ชื่อสนาม, หรือผู้จัด',
               controller: searchController,
-              suffixIconData: Icons.filter_list,
+              suffixIconData: Icons.sort,
               onSuffixIconPressed: () {
-                // setState(() {
-                //   _showFilter(context);
-                // });
-              },
-            ),
-
-            const SizedBox(height: 15),
-            CustomDropdown(
-              labelText: 'จัดเรียงตาม',
-              initialValue: _selectedItem,
-              items: _items,
-              // isRequired: true,
-              onChanged: (value) {
-                setState(() {
-                  _selectedItem = value;
-                });
-              },
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'กรุณาเลือกเพศ';
-                }
-                return null;
+                _showSortOptions(context);
               },
             ),
             const SizedBox(height: 15),
-            _buildHeader(context),
             Expanded(
               child: _isLoadingInitial
                   ? const Center(child: CircularProgressIndicator())
@@ -209,67 +223,6 @@ class HistoryUserPageState extends State<HistoryUserPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // Widget สำหรับ Header ของตาราง
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              'วันเวลา',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              'ชื่อก๊วน',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              'ผู้จัด',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text(
-              'จ่าย',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text(
-              'สถานะ',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -302,121 +255,153 @@ class HistoryUserPageState extends State<HistoryUserPage> {
     final formattedDateTime = formatSessionStart(
       game['sessionStart'] ?? DateTime.now().toIso8601String(),
     );
+    final priceDisplay = game['price']?.replaceAll(' บาท', '') ?? '-';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              '${game['sessionDate']} ${game['startTime']}',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 10),
-                fontWeight: FontWeight.w300,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              game['groupName'] ?? 'N/A',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w700,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              game['organizerName'] ?? 'N/A',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text(
-              // ดึงยอดที่ต้องจ่ายจริงจาก Backend โดยตัดคำว่า " บาท" ออก
-              game['price']?.replaceAll(' บาท', '') ?? '-',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: GestureDetector(
-              onTap: () {
-                  final imageUrlsFromApi =
-                      game['courtImageUrls'] as List<dynamic>? ?? [];
-                  final List<String> courtImageUrls = List<String>.from(
-                    imageUrlsFromApi,
-                  );
-                  final data = BookingDetails(
-                    code: game['sessionId'] ?? 0,
-                    teamName: game['groupName'] ?? '',
-                    imageUrl: game['imageUrl'] ?? '',
-                    day: formattedDateTime['day'] ?? 'Mon',
-                    date: '${game['dayOfWeek']} ${game['sessionDate']}'.trim(),
-                    time: '${game['startTime']}-${game['endTime']}',
-                    courtName: game['courtName'] ?? '',
-                    location: game['location'] ?? '',
-                    price: (game['price'] ?? 0).toString(),
-                    shuttlecockInfo: game['shuttlecockModelName'] ?? '',
-                    shuttlecockBrand: game['shuttlecockBrandName'] ?? '',
-                    gameInfo: game['gameTypeName'] ?? '',
-                    courtNumbers: game['courtNumbers'] ?? '',
-                    currentPlayers: game['currentParticipants'] ?? 0,
-                    maxPlayers: game['maxParticipants'] ?? 0,
-                    organizerName: game['organizerName'] ?? '',
-                    organizerImageUrl: game['organizerImageUrl'] ?? '',
-                    notes: game['notes'] ?? '',
-                    courtImageUrls: courtImageUrls.isNotEmpty
-                        ? courtImageUrls
-                        : [
-                            'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
-                          ],
-                    status: game['status'] ?? 1,
-                    currentUserStatus: game['userStatus'] ?? 'Joined',
-                    courtFee: double.tryParse(
-                      (game['courtFeePerPerson'] ?? game['courtFee'])
-                              ?.toString() ??
-                          '',
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          final imageUrlsFromApi =
+              game['courtImageUrls'] as List<dynamic>? ?? [];
+          final List<String> courtImageUrls = List<String>.from(imageUrlsFromApi);
+          
+          String sessionStartStr = game['sessionStart'] ?? '';
+          if (sessionStartStr.isEmpty) {
+            String d = game['sessionDate'] ?? '';
+            String t = game['startTime'] ?? '';
+            if (d.isNotEmpty && t.isNotEmpty) {
+               d = d.split('T')[0];
+               sessionStartStr = '${d}T$t';
+               if (t.length == 5) sessionStartStr += ':00';
+            } else {
+               sessionStartStr = DateTime.now().toIso8601String();
+            }
+          }
+          
+          final data = BookingDetails(
+            code: game['sessionId'] ?? 0,
+            teamName: game['groupName'] ?? '',
+            imageUrl: game['imageUrl'] ?? '',
+            day: formattedDateTime['day'] ?? 'Mon',
+            date: '${game['dayOfWeek']} ${game['sessionDate']}'.trim(),
+            time: '${game['startTime']}-${game['endTime']}',
+            courtName: game['courtName'] ?? '',
+            location: game['location'] ?? '',
+            price: (game['price'] ?? 0).toString(),
+            shuttlecockInfo: game['shuttlecockModelName'] ?? '',
+            shuttlecockBrand: game['shuttlecockBrandName'] ?? '',
+            gameInfo: game['gameTypeName'] ?? '',
+            courtNumbers: game['courtNumbers'] ?? '',
+            currentPlayers: game['currentParticipants'] ?? 0,
+            maxPlayers: game['maxParticipants'] ?? 0,
+            organizerName: game['organizerName'] ?? '',
+            organizerImageUrl: game['organizerImageUrl'] ?? '',
+            notes: game['notes'] ?? '',
+            courtImageUrls: courtImageUrls.isNotEmpty
+                ? courtImageUrls
+                : ['https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png'],
+            status: game['status'] ?? 1,
+            currentUserStatus: game['userStatus'] ?? 'Joined',
+            courtFee: double.tryParse((game['courtFeePerPerson'] ?? game['courtFee'])?.toString() ?? ''),
+            shuttleFee: double.tryParse((game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'])?.toString() ?? ''),
+            isBuffet: game['costingMethod'] == 2,
+            sessionStart: sessionStartStr,
+          );
+          context.push('/booking-confirm-history', extra: data).then((_) {
+            _fetchHistoryGames(refresh: true);
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      game['groupName'] ?? 'N/A',
+                      style: TextStyle(
+                        fontSize: getResponsiveFontSize(context, fontSize: 16),
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    shuttleFee: double.tryParse(
-                      (game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'])
-                              ?.toString() ??
-                          '',
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(game).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    isBuffet: game['costingMethod'] == 2,
-                    sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
-                  );
-                  context.push('/booking-confirm-history', extra: data).then((_) {
-                    _fetchHistoryGames(refresh: true);
-                  });
-              },
-              child: Text(
-            _getStatusDisplay(game),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: getResponsiveFontSize(context, fontSize: 14),
-                  fontWeight: FontWeight.w500,
-              color: _getStatusColor(game),
-                ),
+                    child: Text(
+                      _getStatusDisplay(game),
+                      style: TextStyle(
+                        color: _getStatusColor(game),
+                        fontSize: getResponsiveFontSize(context, fontSize: 12),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${game['sessionDate']} ${game['startTime']}',
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontSize: getResponsiveFontSize(context, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, size: 14, color: Colors.grey[600]),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'ผู้จัด: ${game['organizerName'] ?? 'N/A'}',
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              fontSize: getResponsiveFontSize(context, fontSize: 13),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '฿ $priceDisplay',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: getResponsiveFontSize(context, fontSize: 15),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

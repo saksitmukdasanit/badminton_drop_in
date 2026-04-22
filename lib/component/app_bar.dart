@@ -13,7 +13,9 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return AppBar(
       elevation: 0,
-      backgroundColor: Colors.white,
+      scrolledUnderElevation: 8.0, // เพิ่มค่านี้เพื่อให้สีชัดขึ้นเวลาเลื่อน
+      backgroundColor: Colors.white, // กลับมาใช้พื้นหลังสีขาวตอนอยู่บนสุด
+      surfaceTintColor: Theme.of(context).colorScheme.primary, // สีที่จะค่อยๆ เข้มขึ้นตอนเลื่อน
       automaticallyImplyLeading: false,
       flexibleSpace: Container(
         margin: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10),
@@ -22,7 +24,7 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
           children: [
             Image.asset(
               'assets/icon/home.png',
-              color: const Color(0xFF000000),
+              color: const Color(0xFF000000), // คืนค่าไอคอนเป็นสีดำ
               width: 25,
             ),
             Expanded(
@@ -33,17 +35,18 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
                   style: TextStyle(
                     fontSize: getResponsiveFontSize(context, fontSize: 20),
                     fontWeight: FontWeight.w600,
+                    color: const Color(0xFF000000), // คืนค่าข้อความเป็นสีดำ
                   ),
                 ),
               ),
             ),
 
-            IconButton(
-              icon: Icon(Icons.settings, color: Color(0xFF000000), size: 25),
-              onPressed: () {
-                Navigator.pop(context);
-              },
-            ),
+            // IconButton(
+            //   icon: Icon(Icons.settings, color: Color(0xFF000000), size: 25),
+            //   onPressed: () {
+            //     Navigator.pop(context);
+            //   },
+            // ),
             Stack(
               children: [
                 IconButton(
@@ -106,6 +109,8 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
   final int amountItemInCart;
   final String title;
   final VoidCallback? onBackPressed; // เพิ่มตัวแปรรับฟังก์ชันกดกลับ
+  final bool showSettings; // เพิ่มตัวแปรซ่อน/แสดง ตั้งค่า
+  final bool showNotification; // เพิ่มตัวแปรซ่อน/แสดง แจ้งเตือน
 
   const AppBarSubMain({
     super.key,
@@ -113,6 +118,8 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
     this.amountItemInCart = 0,
     required this.title,
     this.onBackPressed, // รับค่าเข้ามา
+    this.showSettings = true,
+    this.showNotification = true,
   });
 
   @override
@@ -144,59 +151,61 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
                 ),
               ),
             ),
-            IconButton(
-              icon: Icon(Icons.settings, color: Color(0xFFFFFFFF), size: 25),
-              onPressed: () {
-                Navigator.pop(context);
-              },
-            ),
-            Stack(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    Icons.notifications,
-                    color: Color(0xFFFFFFFF),
-                    size: 25,
-                  ),
-                  onPressed: () {
-                    final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
-                    if (role == Role.organizer) {
-                      context.push('/organizer/noti');
-                    } else {
-                      context.push('/user/noti');
-                    }
-                  },
+        // if (showSettings)
+        //   IconButton(
+        //     icon: Icon(Icons.settings, color: Color(0xFFFFFFFF), size: 25),
+        //     onPressed: () {
+        //       Navigator.pop(context);
+        //     },
+        //   ),
+        if (showNotification)
+          Stack(
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.notifications,
+                  color: Color(0xFFFFFFFF),
+                  size: 25,
                 ),
-                if (amountItemInCart > 0)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      height: 15,
-                      width: 15,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFFe4253f),
-                      ),
-                      child: Text(
-                        amountItemInCart > 99
-                            ? '99+'
-                            : amountItemInCart.toString(),
-                        style: TextStyle(
-                          fontFamily: 'Kanit',
-                          fontSize: amountItemInCart.toString().length <= 1
-                              ? 10
-                              : amountItemInCart.toString().length == 2
-                              ? 9
-                              : 8,
-                          color: Color.fromARGB(255, 255, 255, 255),
-                        ),
+                onPressed: () {
+                  final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
+                  if (role == Role.organizer) {
+                    context.push('/organizer/noti');
+                  } else {
+                    context.push('/user/noti');
+                  }
+                },
+              ),
+              if (amountItemInCart > 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    height: 15,
+                    width: 15,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFFe4253f),
+                    ),
+                    child: Text(
+                      amountItemInCart > 99
+                          ? '99+'
+                          : amountItemInCart.toString(),
+                      style: TextStyle(
+                        fontFamily: 'Kanit',
+                        fontSize: amountItemInCart.toString().length <= 1
+                            ? 10
+                            : amountItemInCart.toString().length == 2
+                            ? 9
+                            : 8,
+                        color: Color.fromARGB(255, 255, 255, 255),
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
+          ),
           ],
         ),
       ),

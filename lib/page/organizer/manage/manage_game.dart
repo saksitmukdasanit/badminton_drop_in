@@ -58,6 +58,7 @@ class _ManageGamePage extends State<ManageGamePage> {
   int _maxParticipants = 0;
   double _courtFee = 0.0;
   double _shuttleFee = 0.0;
+  bool _isBuffet = false; // NEW: ตัวแปรเก็บรูปแบบการคิดเงิน
   Timer? _sessionTimer;
   Duration _sessionDuration = Duration.zero;
   bool _isQueueMode =
@@ -246,6 +247,7 @@ class _ManageGamePage extends State<ManageGamePage> {
           _maxParticipants = data['maxParticipants'] ?? 0;
           _courtFee = parseFee(data['courtFeePerPerson']);
           _shuttleFee = parseFee(data['shuttlecockFeePerPerson']);
+          _isBuffet = data['costingMethod'] == 2;
 
           // FIX: อัปเดตจำนวนเกมของผู้เล่นในหน้าจอทันทีที่มีข้อมูลใหม่จาก API (แก้ปัญหา G: ไม่ตรง)
           void updatePlayerGames(Player? player) {
@@ -392,20 +394,6 @@ class _ManageGamePage extends State<ManageGamePage> {
       DateTime waitingSince = apiCheckin;
       int gamesPlayed = p['totalGamesPlayed'] ?? 0;
 
-      // ถ้ามีข้อมูลในเครื่องที่ใหม่กว่า (คือเพิ่งเล่นจบ) ให้ใช้ข้อมูลในเครื่อง
-      if (_playerExtraData.containsKey(pid)) {
-        final localData = _playerExtraData[pid]!;
-        final localWaitingSince = localData['waitingSince'] as DateTime?;
-        if (localWaitingSince != null && localWaitingSince.isAfter(apiCheckin)) {
-          waitingSince = localWaitingSince;
-        }
-        
-        // FIX: ถ้าจำนวนเกมในเครื่องมากกว่า (เพิ่งจบเกมแต่ Server ยังไม่อัปเดต) ให้ใช้ค่าในเครื่อง
-        final localGames = localData['games'] as int?;
-        if (localGames != null && localGames > gamesPlayed) {
-          gamesPlayed = localGames;
-        }
-      }
 
       // อัปเดตข้อมูล Extra Data
       _playerExtraData[pid] = {
@@ -613,19 +601,6 @@ class _ManageGamePage extends State<ManageGamePage> {
                 player = PlayerFromJson.fromJson(pJson);
                 playerMap[playerId] = player;
 
-                // --- FIX: กู้คืนเวลาที่รอจากข้อมูล Local (ถ้ามี) ---
-                if (_playerExtraData.containsKey(playerId)) {
-                  final localData = _playerExtraData[playerId]!;
-                  final waitingSince = localData['waitingSince'] as DateTime?;
-                  if (waitingSince != null) {
-                    player.totalPlayTime = DateTime.now().difference(waitingSince);
-                  }
-                  // FIX: กู้คืนจำนวนเกมที่เล่นจาก Local Data
-                  final localGames = localData['games'] as int?;
-                  if (localGames != null) {
-                    player.gamesPlayed = localGames;
-                  }
-                }
               }
 
               targetReadyTeam.players[i] = player;
@@ -698,19 +673,6 @@ class _ManageGamePage extends State<ManageGamePage> {
                 player = PlayerFromJson.fromJson(pJson);
                 playerMap[playerId] = player;
 
-                // --- FIX: กู้คืนเวลาที่รอจากข้อมูล Local (ถ้ามี) ---
-                if (_playerExtraData.containsKey(playerId)) {
-                  final localData = _playerExtraData[playerId]!;
-                  final waitingSince = localData['waitingSince'] as DateTime?;
-                  if (waitingSince != null) {
-                    player.totalPlayTime = DateTime.now().difference(waitingSince);
-                  }
-                  // FIX: กู้คืนจำนวนเกมที่เล่นจาก Local Data
-                  final localGames = localData['games'] as int?;
-                  if (localGames != null) {
-                    player.gamesPlayed = localGames;
-                  }
-                }
               }
 
               targetReserveTeam.players[j] = player;
@@ -2034,6 +1996,7 @@ class _ManageGamePage extends State<ManageGamePage> {
               onToggleEndGame: _playerForExpenses != null
                   ? () => _togglePlayerEndGame(_playerForExpenses!)
                   : null, // NEW
+              isBuffet: _isBuffet, // NEW: ส่งสถานะเหมาจ่ายไป
               onClose: () {
                 setState(() {
                   _playerForExpenses = null; // สั่งปิด Expense Panel

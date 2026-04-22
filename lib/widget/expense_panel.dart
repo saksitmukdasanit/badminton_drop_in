@@ -34,6 +34,7 @@ class ExpensePanelWidget extends StatefulWidget {
   final double serviceFee; // NEW: รับค่าบริการ
   final double paidAmount; // NEW: รับยอดที่จ่ายไปแล้ว
   final bool isHistoryMode; // NEW: แยกโหมดหน้าประวัติ vs หน้าคิดเงิน
+  final bool isBuffet; // NEW: รับค่าบอกว่าคิดแบบเหมาจ่ายหรือไม่
 
   const ExpensePanelWidget({
     super.key,
@@ -45,6 +46,7 @@ class ExpensePanelWidget extends StatefulWidget {
     this.serviceFee = 0.0, // NEW
     this.paidAmount = 0.0,
     this.isHistoryMode = false, // ค่าเริ่มต้นคือหน้าคิดเงินปกติ
+    this.isBuffet = false,
   });
 
   @override
@@ -177,10 +179,39 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   // --- NEW: Helper properties แยกการแสดงผลตามโหมด ---
   double get _displayCourtFee => widget.isHistoryMode ? widget.courtFee : _apiCourtFee;
   double get _displayServiceFee => widget.isHistoryMode ? widget.serviceFee : _apiServiceFee;
-  double get _displayShuttleFee => widget.isHistoryMode ? (widget.totalGames * widget.shuttlecockFee) : (widget.totalGames * widget.shuttlecockFee > 0 ? widget.totalGames * widget.shuttlecockFee : _apiShuttleFee);
+  
+  // เชื่อถือยอดค่าลูกแบดจาก API (Backend) 100% หน้าบ้านไม่ต้องคำนวณเอง
+  // ยกเว้นโหมดประวัติ ที่บิลพรีวิวอาจเหลือยอดเป็น 0 (เพราะจ่ายไปแล้ว) จึงต้องใช้ยอดเต็มมาแสดง
+  double get _displayShuttleFee {
+    if (widget.isHistoryMode) {
+      return widget.isBuffet ? widget.shuttlecockFee : widget.totalGames * widget.shuttlecockFee;
+    }
+    // ถ้ามีข้อมูลบิลจาก API ให้ใช้ยอดจาก API
+    if (widget.billData != null && widget.billData['lineItems'] != null && 
+        (widget.billData['lineItems'] as List).any((i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'))) {
+      return _apiShuttleFee;
+    }
+    // Fallback: ถ้า API โหลดบิลพรีวิวไม่สำเร็จ หรือยังไม่มีข้อมูล ให้แสดงผลจากการคำนวณหน้าบ้าน
+    return widget.isBuffet ? widget.shuttlecockFee : widget.totalGames * widget.shuttlecockFee;
+  }
+
+  // ดึงชื่อรายการ (Description) จาก API มาแสดงเลย เพื่อให้ตรงกับ Database 100%
+  String get _displayShuttleFeeDescription {
+    if (!widget.isHistoryMode && widget.billData != null && widget.billData['lineItems'] != null) {
+      final items = widget.billData['lineItems'] as List;
+      final item = items.firstWhere(
+        (i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'),
+        orElse: () => null,
+      );
+      if (item != null) {
+        return item['description'].toString();
+      }
+    }
+    return widget.isBuffet ? 'ค่าลูกแบด (เหมาจ่าย)' : 'ค่าลูกแบด (${widget.totalGames} เกม)';
+  }
 
   double get _totalShuttlecockFee {
-    // FIX: ใช้ค่าคำนวณเองเป็นหลัก (Games * Fee) เพราะ API bill-preview อาจส่งค่า Default มา
+    // ดึงค่าเริ่มต้นมาจาก API
     double total = _displayShuttleFee;
 
     for (var adj in _adjustments) {
@@ -298,10 +329,9 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // แสดงค่าลูกแบดที่คำนวณจากจำนวนเกม
-            // FIX: แสดงยอดจาก API
+            // แสดงรายการและยอดค่าลูกแบดที่ได้จาก API
             _buildInfoRow(
-              'ค่าลูก (${widget.totalGames} เกม)', 
+              _displayShuttleFeeDescription,
               '${_displayShuttleFee.toStringAsFixed(0)} บาท'
             ),
               ..._adjustments.asMap().entries.map((entry) {

@@ -78,7 +78,12 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       // AppBar แบบโปร่งใสเพื่อให้เห็นปุ่ม Back
-      appBar: AppBarSubMain(title: 'Login', isBack: false),
+      appBar: const AppBarSubMain(
+        title: 'Login', 
+        isBack: false,
+        showSettings: false,
+        showNotification: false,
+      ),
       body: SingleChildScrollView(
         // ทำให้หน้าจอ scroll ได้ถ้าเนื้อหาล้น
         child: Padding(

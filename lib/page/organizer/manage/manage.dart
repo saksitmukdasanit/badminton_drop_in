@@ -576,7 +576,7 @@ class ManagePageState extends State<ManagePage> {
         final DateTime startTime = DateTime.parse(sessionStartString);
         final Duration timeUntilStart = startTime.difference(DateTime.now());
 
-        if (timeUntilStart.inHours > 3) {
+        if (timeUntilStart.inMinutes > 180) {
           // มากกว่า 3 ชั่วโมง, แสดงปุ่มยกเลิก/แก้ไข
           return _buildBottomBar();
         } else {

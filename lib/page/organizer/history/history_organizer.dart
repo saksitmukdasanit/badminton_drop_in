@@ -1,4 +1,6 @@
 // --- Widget หลัก สามารถนำไปใส่ใน Scaffold(body: HistoryOrganizerPage()) ---
+import 'dart:async';
+
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/button.dart';
 import 'package:badminton/component/details_card.dart'; // Import Widget กลาง
@@ -26,6 +28,13 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   bool _isAnalyticsLoading = false;
   bool isLoading = false;
 
+  int _page = 1;
+  final int _limit = 10;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+  Timer? _debounce;
+  final ScrollController _scrollController = ScrollController();
+
   void _backToList() {
     setState(() {
       _selectedItem = null;
@@ -37,20 +46,58 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   @override
   void initState() {
     searchController = TextEditingController();
-    _fetchHistory();
+    searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
+    _fetchHistory(refresh: true);
     super.initState();
   }
 
-  Future<void> _fetchHistory() async {
-    setState(() {
-      isLoading = true;
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMore) {
+        _fetchHistory(refresh: false);
+      }
+    }
+  }
+
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) _fetchHistory(refresh: true);
     });
+  }
+
+  Future<void> _fetchHistory({bool refresh = false}) async {
+    if (refresh) {
+      _page = 1;
+      _hasMore = true;
+      setState(() => isLoading = true);
+    } else {
+      setState(() => _isLoadingMore = true);
+    }
+
     try {
-      final response = await ApiProvider().get('/GameSessions/my-history');
+      final queryParams = <String, dynamic>{
+        'page': _page,
+        'limit': _limit,
+      };
+      if (searchController.text.isNotEmpty) {
+        queryParams['keyword'] = searchController.text;
+      }
+
+      final response = await ApiProvider().get('/GameSessions/my-history', queryParameters: queryParams);
       if (response['status'] == 200) {
+        final List<dynamic> newData = response['data'] ?? [];
         setState(() {
-          history = response['data'] ?? [];
+          if (refresh) {
+            history = newData;
+          } else {
+            history.addAll(newData);
+          }
+          if (newData.length < _limit) _hasMore = false;
+          _page++;
           isLoading = false;
+          _isLoadingMore = false;
         });
       } else {
         setState(() {
@@ -114,7 +161,10 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    searchController.removeListener(_onSearchChanged);
     searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -128,15 +178,15 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 3, child: historyList(context)),
+                Expanded(flex: 1, child: historyList(context)),
                 Expanded(
-                  flex: 4,
+                  flex: 1,
                   child: _selectedItem != null
                       ? _buildDetailsColumn(context)
                       : const Center(child: Text('กรุณาเลือกรายการ')),
                 ),
                 Expanded(
-                  flex: 4,
+                  flex: 1,
                   child: _selectedItem != null
                       ? _buildAnalyticsColumn(context)
                       : const SizedBox(),
@@ -170,6 +220,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
       color: Colors.white,
       padding: const EdgeInsets.all(16.0),
       child: ListView(
+        controller: _scrollController,
         children: [
           Text(
             'ประวัติการจัดก๊วน',
@@ -265,7 +316,12 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                 );
               },
             ),
-          const SizedBox(height: 16),
+          if (_isLoadingMore)
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          const SizedBox(height: 120), // เผื่อระยะด้านล่างกัน MenuBar บัง
         ],
       ),
     );
@@ -323,6 +379,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                 child: Center(child: Text('ไม่สามารถโหลดข้อมูลรายละเอียดได้')),
               ),
             badmintonSummaryPage2(context, _analyticsData, _isAnalyticsLoading),
+            const SizedBox(height: 120), // เผื่อระยะด้านล่างกัน MenuBar บัง
           ],
         ),
       ),
@@ -332,7 +389,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   Widget _buildDetailsColumn(BuildContext context) {
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(10.0),
         child: Column(
           children: [
             if (_isDetailLoading)
@@ -347,6 +404,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
                 padding: EdgeInsets.all(20.0),
                 child: Center(child: Text('ไม่สามารถโหลดข้อมูลรายละเอียดได้')),
               ),
+            const SizedBox(height: 120), // เผื่อระยะด้านล่างกัน MenuBar บัง
           ],
         ),
       ),
@@ -356,11 +414,16 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
   Widget _buildAnalyticsColumn(BuildContext context) {
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: badmintonSummaryPage2(
-          context,
-          _analyticsData,
-          _isAnalyticsLoading,
+        padding: const EdgeInsets.only(top: 10,right: 10,bottom: 10),
+        child: Column(
+          children: [
+            badmintonSummaryPage2(
+              context,
+              _analyticsData,
+              _isAnalyticsLoading,
+            ),
+            const SizedBox(height: 120), // เผื่อระยะด้านล่างกัน MenuBar บัง
+          ],
         ),
       ),
     );
@@ -370,13 +433,13 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     return Column(
       children: [
         GroupInfoCard(model: model),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
         ImageSlideshow(model: model),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
         DetailsCard(model: model),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
         ActionButtons(model: model, onNavigateBack: _fetchHistory),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
       ],
     );
   }
@@ -395,7 +458,7 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
     return Column(
       children: [
         SummaryCard(data: analytics),
-        SizedBox(height: 16),
+        SizedBox(height: 10),
         GameTimingCard(
           games:
               analytics?['matchHistory'] is List

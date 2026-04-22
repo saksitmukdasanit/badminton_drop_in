@@ -90,57 +90,7 @@ class _HistoryOrganizerPaymentPageState
 
     // 2. คำนวณยอดที่จะต้องจ่าย (Base + Adjustments)
     List<Map<String, dynamic>> customLineItems = [];
-    double baseTotal = 0.0;
 
-    // 2.1 ค่าสนาม
-    double courtFee = 0.0;
-    if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
-       final items = _selectedPlayerBill['lineItems'] as List;
-       final item = items.firstWhere((i) => i['description'] == 'ค่าคอร์ท' || i['description'] == 'ค่าสนาม', orElse: () => null);
-       if (item != null) courtFee = (item['amount'] ?? 0).toDouble();
-    } else {
-       courtFee = num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0; // Fallback
-    }
-    if (courtFee > 0) {
-        customLineItems.add({'description': 'ค่าสนาม', 'amount': courtFee});
-        baseTotal += courtFee;
-    }
-
-    // 2.2 ค่าธรรมเนียม
-    double serviceFee = 0.0;
-    if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
-       final items = _selectedPlayerBill['lineItems'] as List;
-       final item = items.firstWhere((i) => i['description'] == 'ค่าธรรมเนียม', orElse: () => null);
-       if (item != null) serviceFee = (item['amount'] ?? 0).toDouble();
-    } else {
-       serviceFee = _calculatedServiceFee; // Fallback
-    }
-    if (serviceFee > 0) {
-      customLineItems.add({'description': 'ค่าธรรมเนียม', 'amount': serviceFee});
-      baseTotal += serviceFee;
-    }
-
-    // 2.3 ค่าลูกแบด
-    double shuttleTotal = 0.0;
-    if (_selectedPlayerBill != null && _selectedPlayerBill['lineItems'] != null) {
-       final items = _selectedPlayerBill['lineItems'] as List;
-       final item = items.firstWhere((i) => (i['description'] ?? '').toString().startsWith('ค่าลูกแบด'), orElse: () => null);
-       if (item != null) shuttleTotal = (item['amount'] ?? 0).toDouble();
-    }
-    if (shuttleTotal == 0.0) {
-       final latestPlayer = _participants.firstWhere((p) => p['participantId']?.toString() == pId.toString(), orElse: () => _selectedPlayer);
-       final int totalGames = num.tryParse('${latestPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0;
-       final double shuttleFeePerPerson = num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
-       shuttleTotal = totalGames * shuttleFeePerPerson;
-    }
-    
-    if (shuttleTotal > 0) {
-       customLineItems.add({'description': 'ค่าลูกแบด', 'amount': shuttleTotal});
-       baseTotal += shuttleTotal;
-    }
-
-    // เพิ่มรายการปรับปรุง (Adjustments)
-    double adjustmentsTotal = 0.0;
     for (var adj in adjustments) {
       double amount = adj.amount;
       if (adj.type == AdjustmentType.subtraction) amount = -amount;
@@ -268,6 +218,7 @@ class _HistoryOrganizerPaymentPageState
   Widget build(BuildContext context) {
     final shuttlecockRate = _sessionData?['shuttlecockFeePerPerson'] ?? 0;
     final courtFee = _sessionData?['courtFeePerPerson'] ?? 0;
+    final bool isBuffet = _sessionData?['costingMethod'] == 2;
 
     return Scaffold(
       appBar: AppBarSubMain(title: 'ประวัติการจัดก๊วน'),
@@ -296,6 +247,7 @@ class _HistoryOrganizerPaymentPageState
                     serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                     onPlayerTap: _showPaymentPanel,
                     isScrollable: true,
+                            isBuffet: isBuffet,
                   ),
                 ),
 
@@ -338,6 +290,7 @@ class _HistoryOrganizerPaymentPageState
                             serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                             onPlayerTap: _showPaymentPanel,
                             isScrollable: true,
+                            isBuffet: isBuffet,
                           ),
                         ),
                       ],
@@ -370,6 +323,7 @@ class _HistoryOrganizerPaymentPageState
                     courtFee: courtFee,
                     serviceFee: _calculatedServiceFee, // NEW: Pass service fee
                     onPlayerTap: _showPaymentPanel,
+                    isBuffet: isBuffet,
                   ),
                 if (_isPanelVisible)
                   Padding(
@@ -439,6 +393,7 @@ class _HistoryOrganizerPaymentPageState
                       double sessionCourtFee = num.tryParse('${_sessionData?['courtFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
                       double sessionShuttleFeePerGame = num.tryParse('${_sessionData?['shuttlecockFeePerPerson'] ?? 0}')?.toDouble() ?? 0.0;
                       int totalGames = num.tryParse('${_selectedPlayer['gamesPlayed'] ?? 0}')?.toInt() ?? 0;
+                      bool isBuffet = _sessionData?['costingMethod'] == 2;
                       
 
                       return ExpensePanelWidget(
@@ -450,6 +405,7 @@ class _HistoryOrganizerPaymentPageState
                         paidAmount: grossPaid, // FIX: ส่งยอด Gross Paid แทน Net Paid 
                         serviceFee: serviceFeeRate, // ส่งค่า Service Fee เรทเต็มเข้าไป
                         onConfirmPayment: _handlePayment,
+                        isBuffet: isBuffet,
                       );
                     }),
                 ],
@@ -792,6 +748,7 @@ class PlayerListCard extends StatelessWidget {
   final bool isScrollable;
   final EdgeInsetsGeometry padding;
   final double serviceFee; // NEW
+  final bool isBuffet;
 
   const PlayerListCard({
     super.key,
@@ -802,6 +759,7 @@ class PlayerListCard extends StatelessWidget {
     this.serviceFee = 10.0, // NEW
     this.isScrollable = false,
     this.padding = const EdgeInsets.fromLTRB(16, 16, 16, 16),
+    this.isBuffet = false,
   });
 
   @override
