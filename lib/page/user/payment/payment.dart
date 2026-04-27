@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:badminton/component/qr_payment_dialog.dart';
 
 class PaymentPage extends StatefulWidget {
   // --- (เพิ่มใหม่) Parameter สำหรับรับข้อมูล ---
@@ -23,21 +24,11 @@ class PaymentPage extends StatefulWidget {
 
 class _PaymentPageState extends State<PaymentPage> {
   bool _autoConfirm = true;
-  bool isMemCard = true;
   String? _selectedPaymentMethod;
   final List<dynamic> _paymentMethods = [
-    {"code": 'Credit/Debit Card', "value": 'Credit/Debit Card'},
-    {"code": 'Mobile Banking', "value": 'Mobile Banking'},
-    {"code": 'QR Code', "value": 'QR Code'},
+    {"code": 'QR Code', "value": 'สแกน QR Code (PromptPay)'},
+    {"code": 'Wallet', "value": 'กระเป๋าเงิน (Wallet)'},
   ];
-
-  // -----Credit/Debit Card----
-  final _formKeyCard = GlobalKey<FormState>();
-  late TextEditingController _cardNumberController;
-  late TextEditingController _cardNameController;
-  late TextEditingController _expiryMonthController;
-  late TextEditingController _expiryYearController;
-  late TextEditingController _cvvController;
 
   // --- State สำหรับตัวนับเวลาถอยหลัง ---
   Timer? _timer;
@@ -50,23 +41,12 @@ class _PaymentPageState extends State<PaymentPage> {
 
   @override
   void initState() {
-    _cardNumberController = TextEditingController();
-    _cardNameController = TextEditingController();
-    _expiryMonthController = TextEditingController();
-    _expiryYearController = TextEditingController();
-    _cvvController = TextEditingController();
-    _startTimer();
     _fetchSessionData();
     super.initState();
   }
 
   @override
   void dispose() {
-    _cardNumberController.dispose();
-    _cardNameController.dispose();
-    _expiryMonthController.dispose();
-    _expiryYearController.dispose();
-    _cvvController.dispose();
     _timer?.cancel();
     super.dispose();
   }
@@ -132,13 +112,6 @@ class _PaymentPageState extends State<PaymentPage> {
       return;
     }
 
-    // --- 2. ตรวจสอบ Form บัตรเครดิต (ถ้าเลือก) ---
-    if (_selectedPaymentMethod == 'Credit/Debit Card') {
-      if (!(_formKeyCard.currentState?.validate() ?? false)) {
-        return; // หยุดถ้ากรอกบัตรไม่ถูกต้อง
-      }
-    }
-
     // --- 4. เริ่ม Loading ---
     setState(() {
       _isLoading = true;
@@ -151,38 +124,46 @@ class _PaymentPageState extends State<PaymentPage> {
         'autoPromote': _autoConfirm, // ส่งข้อมูลว่าต้องการเป็นตัวจริงอัตโนมัติหรือไม่
       };
 
-      if (_selectedPaymentMethod == 'Credit/Debit Card') {
-        paymentData.addAll({
-          'cardNumber': _cardNumberController.text,
-          'cardName': _cardNameController.text,
-          'expiryMonth': _expiryMonthController.text,
-          'expiryYear': _expiryYearController.text,
-          'cvv': _cvvController.text,
-          'saveCard': isMemCard,
-        });
-      } else if (_selectedPaymentMethod == 'Mobile Banking') {
-        paymentData.addAll({'bank': 'KBank'}); // ตัวอย่างสำหรับ Mobile Banking
-      }
-
       // --- 6. ยิง API ---
-      // (ApiProvider จะแนบ Token ไปใน Header ให้เอง)
-      await ApiProvider().post(
+      final response = await ApiProvider().post(
         '/player/gamesessions/${widget.bookingId}/join',
         data: paymentData,
       );
 
-      // --- 7. ถ้าสำเร็จ: แสดง Dialog ---
+      // --- 7. จัดการผลลัพธ์ตามประเภทการชำระเงิน ---
       if (mounted) {
-        showDialogMsg(
-          context,
-          title: 'การจองสำเร็จ', // เปลี่ยนข้อความให้ยืดหยุ่นขึ้น
-          subtitle: 'คุณได้ชำระเงินและยืนยัน\nการเข้าร่วมก๊วนเรียบร้อยแล้ว',
-          btnLeft: 'ไปหน้าการจอง',
-          onConfirm: () {
-            context.pop(); // ปิด Dialog
-            context.go('/my-game-user'); // กลับไปหน้า "เกมของฉัน"
-          },
-        );
+        if (_selectedPaymentMethod == 'QR Code') {
+          // --- รอรับ QR Code จาก Backend (ใส่ Mock ไว้ก่อนเพื่อทดสอบ UI) ---
+          final qrCode = response['data']?['qrCode'] ?? '00020101021129370016A000000677010111011300668000000005802TH530376454045.006304E612';
+          final billId = response['data']?['billId'] ?? 0;
+
+          final confirmed = await showQrPaymentDialog(
+            context,
+            _courtFee + _serviceFee,
+            qrData: qrCode,
+            sessionId: int.parse(widget.bookingId),
+            billId: billId,
+          );
+          
+          if (confirmed == true) {
+            _showSuccessDialog();
+          } else {
+            // --- NEW: ทางเลือกที่ 2 กดยกเลิก/ปิดหน้า QR ให้ยิง API ยกเลิกการจองทันที ---
+            try {
+              await ApiProvider().delete('/player/gamesessions/${widget.bookingId}/cancel');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ยกเลิกรายการจองแล้ว เนื่องจากยังไม่ได้ชำระเงิน')),
+                );
+              }
+            } catch (e) {
+              debugPrint('Cancel booking failed: $e');
+            }
+          }
+        } else {
+          // ถ้าจ่ายด้วย Wallet หรือช่องทางอื่น ถือว่าจองสำเร็จทันที
+          _showSuccessDialog();
+        }
       }
     } catch (e) {
       // --- 8. ถ้าล้มเหลว: แสดง Error ---
@@ -204,14 +185,28 @@ class _PaymentPageState extends State<PaymentPage> {
     }
   }
 
+  void _showSuccessDialog() {
+    showDialogMsg(
+      context,
+      title: 'การจองสำเร็จ',
+      subtitle: 'คุณได้ชำระเงินและยืนยัน\nการเข้าร่วมก๊วนเรียบร้อยแล้ว',
+      btnLeft: 'ไปหน้าการจอง',
+      onConfirm: () {
+        context.pop();
+        context.go('/my-game-user');
+      },
+    );
+  }
+
   Widget _buildPaymentDetails() {
     switch (_selectedPaymentMethod) {
-      case 'Credit/Debit Card':
-        return _buildCreditCardForm();
-      case 'Mobile Banking':
-        return _buildMobileBankingForm();
-      case 'QR Code':
-        return _buildQrCodeView();
+      case 'Wallet':
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 20),
+          child: Center(
+              child: Text('หักเงินจากกระเป๋าเงินในระบบของคุณอัตโนมัติ',
+                  style: TextStyle(color: Colors.grey))),
+        );
       default:
         return const SizedBox.shrink(); // ถ้ายังไม่เลือก ให้แสดง Widget ว่างๆ
     }
@@ -228,9 +223,11 @@ class _PaymentPageState extends State<PaymentPage> {
         padding: const EdgeInsets.all(16.0),
 
         child: CustomElevatedButton(
-          text: _selectedPaymentMethod == 'QR Code' ? 'Download QR' : 'Pay Now',
+          text: _selectedPaymentMethod == 'QR Code' 
+              ? 'สร้าง QR Code ยืนยันการจอง'
+              : 'ชำระเงินด้วย Wallet',
           isLoading: _isLoading,
-          onPressed: _handlePayment, // <<< CHANGED: เรียกใช้ฟังก์ชันใหม่
+          onPressed: _handlePayment,
           backgroundColor: _selectedPaymentMethod == 'QR Code'
               ? Colors.white
               : Colors.black,
@@ -385,9 +382,7 @@ class _PaymentPageState extends State<PaymentPage> {
                   onChanged: (value) {
                     setState(() {
                       _selectedPaymentMethod = value;
-                      if (value == 'QR Code') {
-                        _startTimer();
-                      }
+                      // นำ _startTimer() ออก เพื่อให้รอจับเวลาตอนที่ได้ QR Code มาจริงๆ
                     });
                   },
                 ),
@@ -428,152 +423,6 @@ class _PaymentPageState extends State<PaymentPage> {
           ),
         ],
       ),
-    );
-  }
-
-  // --- Widget สำหรับฟอร์มบัตรเครดิต ---
-  Widget _buildCreditCardForm() {
-    final sizedbox = SizedBox(height: 10);
-    return Form(
-      key: _formKeyCard,
-      child: Column(
-        children: [
-          CustomTextFormField(
-            labelText: 'หมายเลขบัตร',
-            hintText: 'กรุณากรอกหมายเลขบัตร',
-            isRequired: true,
-            controller: _cardNumberController,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(16),
-              // CardNumberInputFormatter(),
-            ],
-            suffixIconData: Icons.credit_card,
-          ),
-          sizedbox,
-          CustomTextFormField(
-            labelText: 'ชื่อบนบัตร',
-            hintText: 'กรุณากรอกชื่อบนบัตร',
-            isRequired: true,
-            controller: _cardNameController,
-          ),
-          sizedbox,
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: CustomTextFormField(
-                  labelText: 'เดือน',
-                  hintText: 'MM',
-                  isRequired: true,
-                  controller: _expiryMonthController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(2),
-                  ],
-                ),
-              ),
-              SizedBox(width: MediaQuery.of(context).size.width * 0.04),
-              Expanded(
-                child: CustomTextFormField(
-                  labelText: 'ปี',
-                  hintText: 'YY',
-                  isRequired: true,
-                  controller: _expiryYearController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(2),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          sizedbox,
-          CustomTextFormField(
-            labelText: 'CVV',
-            isRequired: true,
-            controller: _cvvController,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(3),
-            ],
-          ),
-          sizedbox,
-          CheckboxListTile(
-            title: Text(
-              'บันทึกสำหรับใช้ครั้งถัดไป',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 16),
-                fontWeight: FontWeight.w400,
-                color: Color(0xFF64646D),
-              ),
-            ),
-            value: isMemCard,
-            onChanged: (val) {
-              setState(() {
-                isMemCard = !isMemCard;
-              });
-            },
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- Widget สำหรับ Mobile Banking ---
-  Widget _buildMobileBankingForm() {
-    return Column(
-      children: [
-        CustomDropdown(
-          labelText: 'เลือกธนาคาร',
-          // initialValue: _selectedPaymentMethod,
-          items: [
-            {"code": 1, "value": 'KBank'},
-            {"code": 2, "value": 'SCB'},
-            {"code": 3, "value": 'BBL'},
-          ],
-          onChanged: (val) {},
-        ),
-      ],
-    );
-  }
-
-  // --- Widget สำหรับ QR Code ---
-  Widget _buildQrCodeView() {
-    String formattedTime =
-        '${_remainingTime.inMinutes.toString().padLeft(2, '0')}:${(_remainingTime.inSeconds % 60).toString().padLeft(2, '0')}';
-    return Column(
-      children: [
-        const Center(
-          child: Icon(Icons.qr_code_2, size: 150, color: Colors.black87),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'วิธีการชำระเงิน',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 20),
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-            Text(
-              'เวลาเหลือ $formattedTime นาที',
-              style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
-                fontWeight: FontWeight.w300,
-                color: Theme.of(context).primaryColor,
-              ),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }

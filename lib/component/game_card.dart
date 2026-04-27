@@ -151,7 +151,7 @@ class _GameCardState extends State<GameCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildInfoColumn('ค่าสนาม', widget.price),
+                      _buildInfoColumn('ค่าใช้จ่าย', widget.price),
                       _buildInfoColumn(
                         widget.shuttlecockBrand,
                         widget.shuttlecockInfo,

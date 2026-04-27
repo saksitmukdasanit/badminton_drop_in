@@ -136,7 +136,15 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
             if (isBack)
               IconButton(
                 icon: const Icon(Icons.arrow_back, color: Color(0xFFFFFFFF)),
-                onPressed: onBackPressed ?? () => Navigator.pop(context), // ถ้ามี onBackPressed ให้ใช้ ถ้าไม่มีให้ใช้ Navigator.pop ตามเดิม
+                onPressed: onBackPressed ?? () {
+                  // ตรวจสอบว่ามีประวัติหน้าจอให้ย้อนกลับหรือไม่
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    // ถ้าไม่มี (เช่น โดนเตะมาจาก MenuBar) ให้พากลับไปหน้า Home เพื่อป้องกันจอดำ
+                    context.go('/');
+                  }
+                },
               ),
             Expanded(
               child: Padding(

@@ -60,11 +60,14 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
   final _formKey = GlobalKey<FormState>(); // Key สำหรับ validation
 
   String? _selectedPaymentMethod;
-  final List<dynamic> _paymentMethods = [
-    {"code": 'QR Code', "value": 'QR Code'},
-    {"code": 'Cash', "value": 'เงินสด'},
-    {"code": 'ยังไม่จ่าย', "value": 'ยังไม่จ่าย (ค้างชำระ)'},
-  ];
+  
+  List<dynamic> get _paymentMethods {
+    return [
+      {"code": 'QR Code', "value": 'QR Code'},
+      {"code": 'Cash', "value": 'เงินสด'},
+      {"code": 'ยังไม่จ่าย', "value": 'บันทึกค้างชำระ (ส่งบิลให้ผู้เล่น)'},
+    ];
+  }
 
   @override
   void initState() {
@@ -446,10 +449,6 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
                       double grandTotal = _displayCourtFee + _displayServiceFee + _totalShuttlecockFee;
                       double due = grandTotal - widget.paidAmount;
                       
-                      if (_selectedPaymentMethod == 'QR Code' && due > 0) {
-                        final confirmed = await showQrPaymentDialog(context, due);
-                        if (confirmed != true) return; // หากผู้ใช้กดยกเลิกในหน้า QR Code ให้หยุดการทำงาน
-                      }
                       try {
                         widget.onConfirmPayment(_selectedPaymentMethod, _adjustments);
                       } catch (e) {

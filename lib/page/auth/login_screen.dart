@@ -5,6 +5,7 @@ import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/component/dialog.dart';
+import 'package:badminton/shared/firebase_messaging_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -54,18 +55,27 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) {
           Provider.of<AuthProvider>(context, listen: false).login(token);
         }
+            
+            // ส่ง FCM Token ไปที่ Backend เพื่อรับ Push Notification
+            await FirebaseMessagingService().updateTokenToServer();
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
+        final errorMsg = e.toString().replaceFirst('Exception: ', '');
         showDialogMsg(
           context,
-          title: 'เกิดข้อผิดพลาด',
-          subtitle: e.toString().replaceFirst('Exception: ', ''),
-          btnLeft: 'ตกลง',
-          onConfirm: () {},
+          title: errorMsg.contains('OTP') ? 'บัญชียังไม่ยืนยัน' : 'เกิดข้อผิดพลาด',
+          subtitle: errorMsg,
+          btnLeft: errorMsg.contains('OTP') ? 'สมัครสมาชิกใหม่' : 'ตกลง',
+          btnRight: errorMsg.contains('OTP') ? 'ยกเลิก' : '',
+          onConfirm: () {
+            if (errorMsg.contains('OTP')) {
+              context.push('/register-screen');
+            }
+          },
         );
       }
     }
@@ -80,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // AppBar แบบโปร่งใสเพื่อให้เห็นปุ่ม Back
       appBar: const AppBarSubMain(
         title: 'Login', 
-        isBack: false,
+        isBack: true,
         showSettings: false,
         showNotification: false,
       ),

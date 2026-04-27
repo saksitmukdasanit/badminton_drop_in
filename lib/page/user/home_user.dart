@@ -8,6 +8,8 @@ import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:badminton/shared/user_role.dart';
 
 class HomeUserPage extends StatefulWidget {
   const HomeUserPage({super.key});
@@ -27,6 +29,13 @@ class HomeUserPageState extends State<HomeUserPage> {
   }
 
   Future<void> _fetchDashboardData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isLoggedIn) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return; // ข้ามการดึงข้อมูลสำหรับ Guest
+    }
     try {
       final response = await ApiProvider().get('/player/dashboard');
       if (mounted) {
@@ -101,6 +110,55 @@ class HomeUserPageState extends State<HomeUserPage> {
   }
 
   Widget _buildHeader() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isLoggedIn) {
+      return Row(
+        children: [
+          const CircleAvatar(
+            radius: 35,
+            backgroundColor: Colors.white,
+            backgroundImage: AssetImage('assets/icon/profile.png'),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'สวัสดี, ผู้เยี่ยมชม 🏸',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                GestureDetector(
+                  onTap: () => context.push('/login'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      'เข้าสู่ระบบ / สมัครสมาชิก',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     final profile = _dashboardData?['profile'] ?? {};
     final nickname = profile['nickname'] ?? 'ผู้เล่น';
     final photoUrl = profile['profilePhotoUrl'];
@@ -182,22 +240,34 @@ class HomeUserPageState extends State<HomeUserPage> {
           color: Colors.blue,
         ),
         _buildStatCard(
-          title: 'เวลาบนคอร์ท',
-          value: _formatPlayTime(stats['totalPlayTimeMinutes'] ?? 0),
-          icon: Icons.timer,
+          title: 'เกมที่ชนะ',
+          value: '${stats['totalWins'] ?? 0} เกม',
+          icon: Icons.emoji_events,
           color: Colors.orange,
         ),
         _buildStatCard(
-          title: 'ติดตามผู้จัด',
-          value: '${stats['followingCount'] ?? 0} คน',
-          icon: Icons.people_alt_outlined,
+          title: 'ค้างชำระ',
+          value: '฿${currencyFormat.format(stats['unpaidBalance'] ?? 0)}',
+          icon: Icons.warning_amber_rounded,
+          color: Colors.redAccent,
+        ),
+        _buildStatCard(
+          title: 'กระเป๋าเงิน (Wallet)',
+          value: '฿${currencyFormat.format(stats['walletBalance'] ?? 0)}',
+          icon: Icons.account_balance_wallet,
           color: Colors.green,
         ),
         _buildStatCard(
-          title: 'ยอดใช้จ่าย',
+          title: 'เวลาบนคอร์ท',
+          value: _formatPlayTime(stats['totalPlayTimeMinutes'] ?? 0),
+          icon: Icons.timer,
+          color: Colors.purple,
+        ),
+        _buildStatCard(
+          title: 'ยอดใช้จ่ายรวม',
           value: '฿${currencyFormat.format(stats['totalSpent'] ?? 0)}',
-          icon: Icons.account_balance_wallet_outlined,
-          color: Colors.redAccent,
+          icon: Icons.payments_outlined,
+          color: Colors.teal,
         ),
       ],
     );
@@ -266,6 +336,40 @@ class HomeUserPageState extends State<HomeUserPage> {
   }
 
   Widget _buildNextGameCard() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isLoggedIn) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            Icon(Icons.lock_outline, size: 50, color: Colors.grey.shade400),
+            const SizedBox(height: 10),
+            const Text(
+              'สมัครสมาชิกหรือเข้าสู่ระบบ\nเพื่อจองก๊วนและดูคิวตีแบดของคุณ',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF666666), fontSize: 16),
+            ),
+            const SizedBox(height: 15),
+            ElevatedButton(
+              onPressed: () => context.push('/login'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text('เข้าสู่ระบบ / สมัครสมาชิก', style: TextStyle(color: Colors.white)),
+            )
+          ],
+        ),
+      );
+    }
+
     final nextGame = _dashboardData?['nextUpcomingSession'];
 
     if (nextGame == null) {

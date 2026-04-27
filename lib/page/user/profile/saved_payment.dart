@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
+import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 class SavedPaymentPage extends StatefulWidget {
   const SavedPaymentPage({super.key});
@@ -14,77 +18,169 @@ class SavedPaymentPage extends StatefulWidget {
 }
 
 class SavedPaymentPageState extends State<SavedPaymentPage> {
-  late Future<dynamic> futureModel;
-  String profileImageUrl = '';
-  bool loadingImage = false;
-  String image = '';
+  bool _isLoading = false;
   double gapHeight = 20;
 
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _cardNumberController;
-  late TextEditingController _cardNameController;
-  late TextEditingController _expiryMonthController;
-  late TextEditingController _expiryYearController;
-  late TextEditingController _cvvController;
+  late TextEditingController _accountNumberController;
+  late TextEditingController _accountNameController;
+  
+  String? _selectedBankId;
+  List<dynamic> _banks = [];
+  
+  File? _imageFile;
+  String? _existingImageUrl;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
-    _cardNumberController = TextEditingController();
-    _cardNameController = TextEditingController();
-    _expiryMonthController = TextEditingController();
-    _expiryYearController = TextEditingController();
-    _cvvController = TextEditingController();
+    _accountNumberController = TextEditingController();
+    _accountNameController = TextEditingController();
     super.initState();
+    _fetchInitialData();
+  }
+
+  Future<void> _fetchInitialData() async {
+    setState(() => _isLoading = true);
+    try {
+      // 1. โหลดรายชื่อธนาคาร
+      final bankRes = await ApiProvider().get('/Dropdown/banks');
+      if (bankRes['data'] != null) {
+        _banks = (bankRes['data'] as List).map((b) => {
+          "code": b['id'].toString(),
+          "value": b['name']
+        }).toList();
+      }
+
+      // 2. โหลดข้อมูล Profile ปัจจุบัน (เพื่อดึงบัญชีเก่ามาแสดง)
+      final profileRes = await ApiProvider().get('/Profiles/me');
+      final data = profileRes['data'];
+      if (data != null) {
+        _accountNumberController.text = data['bankAccountNumber'] ?? '';
+        _accountNameController.text = data['bankAccountName'] ?? '';
+        if (data['bankId'] != null) {
+           _selectedBankId = data['bankId'].toString();
+        }
+        _existingImageUrl = data['bankAccountPhotoUrl'];
+      }
+    } catch (e) {
+      debugPrint("Error fetching bank data: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = File(pickedFile.path);
+      });
+    }
   }
 
   @override
   void dispose() {
-    _cardNumberController.dispose();
-    _cardNameController.dispose();
-    _expiryMonthController.dispose();
-    _expiryYearController.dispose();
-    _cvvController.dispose();
+    _accountNumberController.dispose();
+    _accountNameController.dispose();
     super.dispose();
   }
 
-  void _submitForm() {
+  Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
-      // final cardNumber = _cardNumberController.text;
-      // final cardName = _cardNameController.text;
-      // final expiryDate =
-      //     '${_expiryMonthController.text}/${_expiryYearController.text}';
-      // final cvv = _cvvController.text;
+      if (_selectedBankId == null) {
+        showDialogMsg(context, title: 'แจ้งเตือน', subtitle: 'กรุณาเลือกธนาคาร', btnLeft: 'ตกลง', onConfirm: () {});
+        return;
+      }
 
-      // เพิ่ม DialogMsg ที่นี้ถ้าข้อมูลถูกต้อง
-      showDialogMsg(
-        context,
-        title: 'แก้ไขเรียบร้อย',
-        subtitle: 'บันทึกการแก้ไขรหัสผ่าน',
-        btnLeft: 'ไปหน้าโปรโฟล์',
-        onConfirm: () {
-          // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-        },
-      );
+      setState(() => _isLoading = true);
+      try {
+        String? finalImageUrl = _existingImageUrl;
+
+        // --- หากมีการเลือกรูปใหม่ ให้ทำการอัปโหลดไฟล์ไปที่ Server ก่อน ---
+        if (_imageFile != null) {
+          final uploadRes = await ApiProvider().uploadFiles(
+            files: [_imageFile!],
+            folderName: 'Bookbank',
+          );
+          
+          if (uploadRes != null && uploadRes.length > 0) {
+            finalImageUrl = uploadRes[0]['imageUrl'];
+          } else {
+            throw Exception('ไม่สามารถอัปโหลดรูปหน้าสมุดบัญชีได้ โปรดลองอีกครั้ง');
+          }
+        }
+
+        // --- ยิง API อัปเดตข้อมูลบัญชีธนาคาร ---
+        await ApiProvider().put(
+          '/Profiles/me/bank',
+          data: {
+            'bankId': int.parse(_selectedBankId!),
+            'bankAccountNumber': _accountNumberController.text.trim(),
+            'bankAccountName': _accountNameController.text.trim(),
+            'bankAccountPhotoUrl': finalImageUrl,
+          },
+        );
+        
+        if (mounted) {
+          showDialogMsg(
+            context, title: 'บันทึกสำเร็จ', subtitle: 'ข้อมูลบัญชีรับเงินถูกอัปเดตแล้ว', btnLeft: 'ตกลง',
+            onConfirm: () => Navigator.pop(context),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: e.toString().replaceFirst('Exception: ', ''), btnLeft: 'ตกลง', onConfirm: () {});
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
-    showDialogMsg(
-      context,
-      title: 'แก้ไขเรียบร้อย',
-      subtitle: 'บันทึกการแก้ไขรหัสผ่าน',
-      btnLeft: 'ไปหน้าโปรโฟล์',
-      onConfirm: () {
-        // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
-      },
-    );
   }
 
   void _deleteData() {
     showDialogMsg(
       context,
-      title: 'ลบข้อมูลบัตรเรียบร้อย',
-      subtitle: '',
-      btnLeft: 'ไปหน้าโปรโฟล์',
-      onConfirm: () {
-        // เพิ่มโค้ดสำหรับไปหน้า OTP ที่นี่
+      title: 'ยืนยันการลบ',
+      subtitle: 'คุณต้องการลบข้อมูลบัญชีรับเงินนี้หรือไม่?',
+      isWarning: true,
+      btnLeft: 'ลบข้อมูล',
+      btnLeftBackColor: Colors.red,
+      btnLeftForeColor: Colors.white,
+      btnRight: 'ยกเลิก',
+      onConfirm: () async {
+        setState(() => _isLoading = true);
+        try {
+          // ลบข้อมูลโดยการส่งค่า null ไปอัปเดตแทน
+          await ApiProvider().put(
+            '/Profiles/me/bank',
+            data: {
+              'bankId': null,
+              'bankAccountNumber': null,
+              'bankAccountName': null,
+              'bankAccountPhotoUrl': null,
+            },
+          );
+
+          if (mounted) {
+            setState(() {
+              _selectedBankId = null;
+              _accountNumberController.clear();
+              _accountNameController.clear();
+              _imageFile = null;
+              _existingImageUrl = null;
+            });
+            Navigator.pop(context); // ปิด Dialog ยืนยันการลบ
+            showDialogMsg(context, title: 'สำเร็จ', subtitle: 'ลบข้อมูลบัญชีเรียบร้อยแล้ว', btnLeft: 'ตกลง', onConfirm: () {});
+          }
+        } catch (e) {
+          if (mounted) {
+            Navigator.pop(context); // ปิด Dialog ยืนยันการลบ
+            showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: e.toString().replaceFirst('Exception: ', ''), btnLeft: 'ตกลง', onConfirm: () {});
+          }
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
       },
     );
   }
@@ -92,26 +188,28 @@ class SavedPaymentPageState extends State<SavedPaymentPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: false,
+      extendBody: true,
       backgroundColor: Colors.white,
-      appBar: AppBarSubMain(title: 'Saved Payment'),
+      appBar: AppBarSubMain(title: 'บัญชีรับเงิน (ถอนเงิน)'),
       bottomNavigationBar: Container(
-        color: Color(0xFFCBF5EA),
+        color: Colors.transparent,
         padding: EdgeInsets.all(15),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             CustomElevatedButton(
-              text: 'บันทึกการแก้ไข',
+              text: 'บันทึกข้อมูลบัญชี',
               onPressed: _submitForm,
+              isLoading: _isLoading,
             ),
             SizedBox(height: gapHeight),
             CustomElevatedButton(
               text: 'ลบข้อมูล',
               onPressed: _deleteData,
               backgroundColor: Colors.white,
-              foregroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.red,
+              side: const BorderSide(color: Colors.red),
             ),
           ],
         ),
@@ -125,76 +223,79 @@ class SavedPaymentPageState extends State<SavedPaymentPage> {
             end: Alignment.bottomCenter,
           ),
         ),
-        child: Form(
+        child: _isLoading && _banks.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Form(
           key: _formKey,
           child: ListView(
             children: [
+              const Text(
+                'ข้อมูลบัญชีสำหรับรับเงินคืนและถอนเงิน Wallet',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              SizedBox(height: gapHeight),
+              CustomDropdown(
+                labelText: 'ธนาคาร',
+                initialValue: _selectedBankId,
+                items: _banks,
+                isRequired: true,
+                onChanged: (val) => setState(() => _selectedBankId = val),
+              ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
-                labelText: 'หมายเลขบัตร',
-                hintText: 'กรุณากรอกหมายเลขบัตร',
+                labelText: 'เลขที่บัญชี',
+                hintText: 'กรุณากรอกเลขบัญชีธนาคาร',
                 isRequired: true,
-                controller: _cardNumberController,
+                controller: _accountNumberController,
                 keyboardType: TextInputType.number,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(16),
-                  // CardNumberInputFormatter(),
-                ],
-                suffixIconData: Icons.credit_card,
-              ),
-              SizedBox(height: gapHeight),
-              CustomTextFormField(
-                labelText: 'ชื่อบนบัตร',
-                hintText: 'กรุณากรอกชื่อบนบัตร',
-                isRequired: true,
-                controller: _cardNameController,
-              ),
-              SizedBox(height: gapHeight),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: CustomTextFormField(
-                      labelText: 'เดือน',
-                      hintText: 'MM',
-                      isRequired: true,
-                      controller: _expiryMonthController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(2),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: MediaQuery.of(context).size.width * 0.04),
-                  Expanded(
-                    child: CustomTextFormField(
-                      labelText: 'ปี',
-                      hintText: 'YY',
-                      isRequired: true,
-                      controller: _expiryYearController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(2),
-                      ],
-                    ),
-                  ),
                 ],
               ),
               SizedBox(height: gapHeight),
               CustomTextFormField(
-                labelText: 'CVV',
+                labelText: 'ชื่อบัญชี',
+                hintText: 'กรุณากรอกชื่อบัญชี',
                 isRequired: true,
-                controller: _cvvController,
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(3),
-                ],
+                controller: _accountNameController,
               ),
               SizedBox(height: gapHeight),
+              const Text(
+                'รูปสมุดบัญชี (ตัวเลือก)',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  height: 150,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: _imageFile != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.file(_imageFile!, fit: BoxFit.cover),
+                        )
+                      : _existingImageUrl != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(_existingImageUrl!, fit: BoxFit.cover),
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_photo_alternate, size: 40, color: Colors.grey.shade400),
+                                const SizedBox(height: 8),
+                                Text('แตะเพื่ออัปโหลดรูปหน้าสมุดบัญชี', style: TextStyle(color: Colors.grey.shade600)),
+                              ],
+                            ),
+                ),
+                    ),
+              const SizedBox(height: 80), // เผื่อระยะปุ่มด้านล่าง
             ],
           ),
         ),

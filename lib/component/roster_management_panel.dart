@@ -246,12 +246,19 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
         rows: filteredPlayers.asMap().entries.map((entry) {
           final index = entry.key + 1;
           final player = entry.value;
+          
+          int? currentSkill = player.skillLevel;
+          bool skillExists = _skillLevels.any((s) => s['id'] == currentSkill);
+          if (!skillExists) {
+            currentSkill = null; // ป้องกันแครชถ้าระดับมือถูกซ่อนไปแล้ว
+          }
+          
           return DataRow(cells: [
             DataCell(Text('$index')),
             DataCell(SizedBox(width: 80, child: Text(player.nickname, overflow: TextOverflow.ellipsis))),
             DataCell(Text(player.gender)),
             DataCell(DropdownButton<int>(
-              value: player.skillLevel, 
+              value: currentSkill, 
               isDense: true, 
               underline: const SizedBox(),
               items: _skillLevels.map((level) => DropdownMenuItem<int>(value: level['id'], child: Text(level['name'], style: const TextStyle(fontSize: 12)))).toList(),

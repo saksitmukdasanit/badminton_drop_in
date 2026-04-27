@@ -71,20 +71,27 @@ class ProFileUserPageState extends State<ProFileUserPage> {
           // --- NEW: ดึงค่า isOrganizer จาก API ---
           final bool isOrganizer = userData['data']['isOrganizer'] ?? false;
 
-          return Container(
-            padding: const EdgeInsets.only(bottom: 100), // เพิ่มระยะด้านล่างไม่ให้เมนูบาร์บัง
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  children: [
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.only(bottom: 100), // เพิ่มระยะด้านล่างไม่ให้เมนูบาร์บัง
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          children: [
                     profile(context, userData),
                     menu('แก้ไขข้อมูลส่วนตัว', () async {
                       await context.push('/edit-profile-user');
@@ -93,7 +100,10 @@ class ProFileUserPageState extends State<ProFileUserPage> {
                     menu('เปลี่ยนรหัสผ่าน', () {
                       context.push('/change-password');
                     }),
-                    menu('Saved Payment', () {
+                    menu('กระเป๋าเงินของฉัน (Wallet)', () {
+                      context.push('/my-wallet');
+                    }),
+                    menu('บัญชีรับเงิน (ถอนเงิน)', () {
                       context.push('/saved-payment');
                     }),
                     menu('Favourite', () {
@@ -191,7 +201,11 @@ class ProFileUserPageState extends State<ProFileUserPage> {
                 ),
               ],
             ),
-          );
+                    ),
+                  ),
+                );
+              },
+            );
         },
       ),
     );

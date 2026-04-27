@@ -2,7 +2,6 @@ import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
-import 'package:badminton/component/payment_action_card.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/component/player_match_card.dart';

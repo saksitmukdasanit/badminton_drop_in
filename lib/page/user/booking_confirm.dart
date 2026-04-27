@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
-import 'package:badminton/component/booking_confirm.dart';
+import 'package:badminton/component/booking_confirm_dialog.dart';
 import 'package:badminton/component/qr_dialog.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/url_launcher.dart';

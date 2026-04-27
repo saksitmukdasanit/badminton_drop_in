@@ -9,6 +9,7 @@ import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/image_picker_form.dart';
 import 'package:badminton/component/loading_image_network.dart';
 import 'package:badminton/component/text_box.dart';
+import 'package:intl/intl.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/page/organizer/history/history_organizer_payment.dart';
 import 'package:badminton/page/organizer/profile/edit_skill_levels.dart';
@@ -106,6 +107,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   dynamic _selectedFinanceSession;
   Map<String, dynamic>? _financeAnalytics;
   bool _isFinanceLoading = false;
+  Map<String, dynamic>? _financeDashboard;
 
   @override
   void initState() {
@@ -122,6 +124,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     _generateSkillLevels(int.parse(_numberOfLevels));
     _fetchData();
     _fetchFinanceHistory(); // ดึงข้อมูลประวัติการเงิน
+    _fetchFinanceDashboard(); // ดึงข้อมูล Dashboard การเงิน (สำหรับ Tablet)
     super.initState();
     _topMenuItems = [
       ProfileMenuItem(
@@ -328,6 +331,19 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
       }
     } catch (e) {
       if (mounted) setState(() => _isFinanceLoading = false);
+    }
+  }
+
+  Future<void> _fetchFinanceDashboard() async {
+    try {
+      final res = await ApiProvider().get('/organizer/finance/dashboard');
+      if (mounted && res['status'] == 200) {
+        setState(() {
+          _financeDashboard = res['data'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching dashboard: $e');
     }
   }
 
@@ -953,46 +969,6 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               ),
             ),
             const SizedBox(height: 16),
-            // CustomTextFormField(
-            //   controller: _phoneController,
-            //   labelText: 'เบอร์โทรลงทะเบียน',
-            //   enabled: false,
-            // ),
-            // Row(
-            //   children: [
-            //     Expanded(
-            //       child: CheckboxListTile(
-            //         title: Text(
-            //           'แสดงข้อมูลก่อนจอง',
-            //           style: TextStyle(
-            //             fontWeight: FontWeight.w400,
-            //             fontSize: getResponsiveFontSize(context, fontSize: 12),
-            //           ),
-            //         ),
-            //         value: false,
-            //         onChanged: (bool? value) => {},
-            //         controlAffinity: ListTileControlAffinity.leading,
-            //         contentPadding: EdgeInsets.zero,
-            //       ),
-            //     ),
-            //     Expanded(
-            //       child: CheckboxListTile(
-            //         title: Text(
-            //           'แสดงข้อมูลหลังจอง',
-            //           style: TextStyle(
-            //             fontWeight: FontWeight.w400,
-            //             fontSize: getResponsiveFontSize(context, fontSize: 12),
-            //           ),
-            //         ),
-            //         value: false,
-            //         onChanged: (bool? value) => {},
-            //         controlAffinity: ListTileControlAffinity.leading,
-            //         contentPadding: EdgeInsets.zero,
-            //       ),
-            //     ),
-            //   ],
-            // ),
-            // const SizedBox(height: 16),
             CustomTextFormField(
               controller: _publicPhoneController,
               labelText: 'เบอร์โทรสาธารณะ',
@@ -1000,147 +976,54 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _phoneVisibility == 3 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _phoneVisibility = 3;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _phoneVisibility == 2 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _phoneVisibility = 2;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
+            const SizedBox(height: 8),
+            CustomDropdown(
+              labelText: 'การแสดงผลเบอร์โทรศัพท์',
+              initialValue: _phoneVisibility?.toString() ?? '0',
+              items: const [
+                {"code": "0", "value": "ไม่แสดงผล"},
+                {"code": "1", "value": "แสดงเฉพาะผู้ที่จองก๊วนแล้ว"},
+                {"code": "2", "value": "แสดงต่อสาธารณะ"},
               ],
+              onChanged: (value) {
+                setState(() => _phoneVisibility = int.parse(value ?? '0'));
+              },
             ),
             const SizedBox(height: 16),
             CustomTextFormField(
               controller: _facebookController,
               labelText: 'Facebook link',
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _facebookVisibility == 3 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _facebookVisibility = 3;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _facebookVisibility == 2 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _facebookVisibility = 2;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
+            const SizedBox(height: 8),
+            CustomDropdown(
+              labelText: 'การแสดงผล Facebook',
+              initialValue: _facebookVisibility?.toString() ?? '0',
+              items: const [
+                {"code": "0", "value": "ไม่แสดงผล"},
+                {"code": "1", "value": "แสดงเฉพาะผู้ที่จองก๊วนแล้ว"},
+                {"code": "2", "value": "แสดงต่อสาธารณะ"},
               ],
+              onChanged: (value) {
+                setState(() => _facebookVisibility = int.parse(value ?? '0'));
+              },
             ),
             const SizedBox(height: 16),
             CustomTextFormField(
               controller: _lineIdController,
               labelText: 'Line ID',
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _lineVisibility == 3 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _lineVisibility = 3;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                Expanded(
-                  child: CheckboxListTile(
-                    title: Text(
-                      'แสดงข้อมูลก่อนจอง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w400,
-                        fontSize: getResponsiveFontSize(context, fontSize: 12),
-                      ),
-                    ),
-                    value: _lineVisibility == 2 ? true : false,
-                    onChanged: (bool? value) => {
-                      if (value == true)
-                        setState(() {
-                          _lineVisibility = 2;
-                        }),
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
+            const SizedBox(height: 8),
+            CustomDropdown(
+              labelText: 'การแสดงผล Line ID',
+              initialValue: _lineVisibility?.toString() ?? '0',
+              items: const [
+                {"code": "0", "value": "ไม่แสดงผล"},
+                {"code": "1", "value": "แสดงเฉพาะผู้ที่จองก๊วนแล้ว"},
+                {"code": "2", "value": "แสดงต่อสาธารณะ"},
               ],
+              onChanged: (value) {
+                setState(() => _lineVisibility = int.parse(value ?? '0'));
+              },
             ),
           ],
         ),
@@ -1551,6 +1434,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
   // ------- Tap 5 -------
   void _showWithdrawAmountSheet() {
+    if ((_financeDashboard?['balance'] ?? 0) <= 0) {
+      showDialogMsg(context, title: 'ไม่สามารถถอนเงินได้', subtitle: 'ยอดเงินคงเหลือของคุณไม่เพียงพอ หรือมียอดค้างชำระติดลบอยู่', btnLeft: 'ตกลง', onConfirm: (){});
+      return;
+    }
+
     final amountController = TextEditingController();
     showModalBottomSheet(
       context: context,
@@ -1570,6 +1458,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               'ถอนเงินจำนวน',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            Text('ยอดที่ถอนได้สูงสุด: ${NumberFormat('#,##0').format(_financeDashboard?['balance'] ?? 0)} บาท', style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             TextFormField(
               controller: amountController,
@@ -1584,8 +1473,13 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.pop(ctx); // ปิด Bottom Sheet
-                  _showWithdrawConfirmationDialog(); // เปิด Dialog ยืนยัน
+                  final double? amount = double.tryParse(amountController.text);
+                  if (amount != null && amount > 0 && amount <= (_financeDashboard?['balance'] ?? 0)) {
+                    Navigator.pop(ctx); 
+                    _showWithdrawConfirmationDialog(amount);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('จำนวนเงินไม่ถูกต้อง หรือเกินยอดคงเหลือ')));
+                  }
                 },
                 child: const Text('ถอนเงิน'),
               ),
@@ -1597,7 +1491,12 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     );
   }
 
-  void _showWithdrawConfirmationDialog() {
+  void _showWithdrawConfirmationDialog(double amount) {
+    final bankName = _financeDashboard?['bankName'] ?? 'ยังไม่ได้ตั้งค่า';
+    final accountNo = _financeDashboard?['bankAccountNumber'] ?? 'ยังไม่ได้ตั้งค่า';
+    final nationalId = _financeDashboard?['nationalId'] ?? '-';
+    final photoUrl = _financeDashboard?['bankAccountPhotoUrl'];
+
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -1614,33 +1513,35 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                   onPressed: () => Navigator.pop(ctx),
                 ),
               ),
-              _buildDialogRow('ถอนเงิน', '100 บาท'),
-              _buildDialogRow('ค่าธรรมเนียม', '10 บาท'),
+              _buildDialogRow('ถอนเงิน', '${NumberFormat('#,##0').format(amount)} บาท'),
+              _buildDialogRow('ค่าธรรมเนียม', '0 บาท'),
               const Divider(height: 24),
-              _buildDialogRow('ราคารวม', '90 บาท', isBold: true),
+              _buildDialogRow('ราคารวม', '${NumberFormat('#,##0').format(amount)} บาท', isBold: true),
               const SizedBox(height: 20),
               const Text('ยืนยันการถอนเงินไปที่'),
               const SizedBox(height: 16),
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                readOnly: true,
+                controller: TextEditingController(text: nationalId),
+                decoration: const InputDecoration(
                   labelText: 'เลขบัตรประชาชน *',
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField(
-                items: const [
-                  DropdownMenuItem(value: 'Kbank', child: Text('Kbank')),
-                ],
-                onChanged: (v) {},
+              TextField(
+                readOnly: true,
+                controller: TextEditingController(text: bankName),
                 decoration: const InputDecoration(
                   labelText: 'ธนาคาร *',
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                readOnly: true,
+                controller: TextEditingController(text: accountNo),
+                decoration: const InputDecoration(
                   labelText: 'Bookbank *',
                   border: OutlineInputBorder(),
                 ),
@@ -1648,13 +1549,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               const SizedBox(height: 12),
               TextField(
                 readOnly: true,
+                controller: TextEditingController(text: photoUrl != null ? '(แนบรูปสมุดบัญชีไว้แล้ว)' : 'ไม่มีรูปสมุดบัญชี'),
                 decoration: InputDecoration(
                   labelText: 'รูป Bookbank *',
                   border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.camera_alt),
-                    onPressed: () {},
-                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -1663,6 +1561,7 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.pop(ctx);
+                    _processWithdraw(amount);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.black,
@@ -1676,6 +1575,29 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _processWithdraw(double amount) async {
+    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+    try {
+      final res = await ApiProvider().post('/organizer/finance/withdraw', data: {'amount': amount});
+      if (mounted) {
+        Navigator.pop(context); // close loading
+        if (res['status'] == 200) {
+          showDialogMsg(context, title: 'ทำรายการสำเร็จ', subtitle: res['message'] ?? 'ส่งคำขอถอนเงินเรียบร้อยแล้ว', btnLeft: 'ตกลง', onConfirm: () => _fetchFinanceDashboard());
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // close loading
+        final errorMsg = e.toString().replaceFirst('Exception: ', '');
+        if (errorMsg.contains('ตั้งค่าบัญชี')) {
+           showDialogMsg(context, title: 'แจ้งเตือน', subtitle: errorMsg, btnLeft: 'ไปตั้งค่าบัญชี', btnRight: 'ปิด', btnLeftBackColor: Colors.white, btnLeftForeColor: Theme.of(context).colorScheme.primary, onConfirm: () => context.push('/edit-transfer'));
+        } else {
+           showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: errorMsg, btnLeft: 'ตกลง', onConfirm: () {});
+        }
+      }
+    }
   }
 
   Widget _buildDialogRow(String title, String value, {bool isBold = false}) {
@@ -1704,6 +1626,15 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   }
 
   Widget _buildFinanceForm(BuildContext context) {
+    final chartGames = _financeDashboard?['latestGames'] as List? ?? [];
+    List<ChartGroup> chartData = chartGames.map((g) => ChartGroup(
+      name: g['name'] ?? 'N/A',
+      playersValue: (g['playersCount'] ?? 0).toDouble(),
+      paidValue: (g['paidCount'] ?? 0).toDouble(),
+    )).toList();
+    double currentBalance = (_financeDashboard?['balance'] ?? 0).toDouble();
+    bool isNegative = currentBalance < 0;
+
     // ใช้ LayoutBuilder เพื่อเช็คขนาดของพื้นที่ที่วาดได้
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1726,43 +1657,18 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                           children: [
                             // _balanceCardFinance(),
                             BalanceCardFinance(
-                              balance: '1860 บาท',
-                              incomeText: 'รายได้: 4000 บาท',
-                              pendingText: 'รอชำระ: 1600 บาท',
-                              onWithdrawPressed: () =>
-                                  _showWithdrawAmountSheet(),
+                              title: isNegative ? 'ยอดค้างชำระระบบ (ติดลบ)' : 'เงินคงเหลือ',
+                              balanceColor: isNegative ? Colors.redAccent : Colors.white,
+                              balance: '${NumberFormat('#,##0').format(currentBalance)} บาท',
+                              incomeText: 'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
+                              pendingText: 'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
+                              onWithdrawPressed: () => _showWithdrawAmountSheet(),
                             ),
                             SizedBox(height: 16),
                             IncomeChartCard(
                               title: 'รายละเอียด 5 เกมล่าสุด',
-                              totalIncomeText: 'รายได้ 2,560 บาท',
-                              chartData: [
-                                ChartGroup(
-                                  name: 'ก๊วนแซมสเดย์',
-                                  playersValue: 42,
-                                  paidValue: 30,
-                                ),
-                                ChartGroup(
-                                  name: 'ก๊วนแมวเหมียว',
-                                  playersValue: 78,
-                                  paidValue: 52,
-                                ),
-                                ChartGroup(
-                                  name: 'ก๊วนหมาบ้า',
-                                  playersValue: 50,
-                                  paidValue: 38,
-                                ),
-                                ChartGroup(
-                                  name: 'ก๊วนช้าง',
-                                  playersValue: 65,
-                                  paidValue: 45,
-                                ),
-                                ChartGroup(
-                                  name: 'ก๊วนหมีง่วง',
-                                  playersValue: 42,
-                                  paidValue: 32,
-                                ),
-                              ],
+                              totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
+                              chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
                               onDetailsPressed: () {
                                 print('Details button pressed!');
                                 // Navigate to details page
@@ -1847,42 +1753,18 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       BalanceCardFinance(
-                        balance: '1860 บาท',
-                        incomeText: 'รายได้: 4000 บาท',
-                        pendingText: 'รอชำระ: 1600 บาท',
+                        title: isNegative ? 'ยอดค้างชำระระบบ (ติดลบ)' : 'เงินคงเหลือ',
+                        balanceColor: isNegative ? Colors.redAccent : Colors.white,
+                        balance: '${NumberFormat('#,##0').format(currentBalance)} บาท',
+                        incomeText: 'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
+                        pendingText: 'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
                         onWithdrawPressed: () => _showWithdrawAmountSheet(),
                       ),
                       SizedBox(height: 16),
                       IncomeChartCard(
                         title: 'รายละเอียด 5 เกมล่าสุด',
-                        totalIncomeText: 'รายได้ 2,560 บาท',
-                        chartData: [
-                          ChartGroup(
-                            name: 'ก๊วนแซมสเดย์',
-                            playersValue: 42,
-                            paidValue: 30,
-                          ),
-                          ChartGroup(
-                            name: 'ก๊วนแมวเหมียว',
-                            playersValue: 78,
-                            paidValue: 52,
-                          ),
-                          ChartGroup(
-                            name: 'ก๊วนหมาบ้า',
-                            playersValue: 50,
-                            paidValue: 38,
-                          ),
-                          ChartGroup(
-                            name: 'ก๊วนช้าง',
-                            playersValue: 65,
-                            paidValue: 45,
-                          ),
-                          ChartGroup(
-                            name: 'ก๊วนหมีง่วง',
-                            playersValue: 42,
-                            paidValue: 32,
-                          ),
-                        ],
+                        totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
+                        chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
                         onDetailsPressed: () {
                           print('Details button pressed!');
                           // Navigate to details page

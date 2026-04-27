@@ -38,6 +38,7 @@ import 'package:badminton/page/user/profile/edit_profile.dart';
 import 'package:badminton/page/user/profile/favourite.dart';
 import 'package:badminton/page/user/profile/saved_payment.dart';
 import 'package:badminton/page/user/profile/profile_user.dart';
+import 'package:badminton/page/user/wallet/my_wallet_page.dart';
 import 'package:badminton/page/user/search/search_user.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/navigator_key.dart'; // --- FIX: Import navigator_key เพื่อใช้ Global Key ตัวเดียวกับ ApiProvider ---
@@ -46,6 +47,9 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:badminton/shared/firebase_messaging_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -76,6 +80,8 @@ Future<void> main() async {
   // NEW: ต้องมีบรรทัดนี้เสมอเมื่อใช้ async ใน main
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('th_TH', null);
+  await Firebase.initializeApp(); // Initialize Firebase
+  await FirebaseMessagingService().init(); // Initialize FCM Service
   // สร้าง provider และเรียก tryAutoLogin ก่อนรันแอป
   final authProvider = AuthProvider();
   await authProvider.tryAutoLogin();
@@ -111,6 +117,8 @@ class _MyAppState extends State<MyApp> {
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
+        _setupInteractedMessage(); // ดักจับ Noti เมื่อเปิดแอป
+
     _router = GoRouter(
       refreshListenable: authProvider,
       navigatorKey: navigatorKey, // <-- เพิ่มบรรทัดนี้
@@ -120,23 +128,18 @@ class _MyAppState extends State<MyApp> {
         final bool loggedIn = authProvider.isLoggedIn;
         final String location = state.matchedLocation;
 
-        final isAuthPage =
-            location == '/' ||
-            location == '/login' ||
-            location == '/register-screen' ||
-            location == '/otp-verification-screen' ||
-            location == '/personal-info-screen';
-        final isPublicPage =
-            location == '/search-user' ||
-            location == '/my-game-user' ||
-            location == '/history-user';
+        // 1. หน้าสำหรับผู้ที่ยังไม่ได้ Login เท่านั้น (เช่น หน้าสมัคร/เข้าสู่ระบบ)
+        final isAuthPage = location == '/login' || location == '/register-screen' || location == '/otp-verification-screen' || location == '/personal-info-screen';
+        
+        // 2. หน้าที่อนุญาตให้บุคคลทั่วไป (ยังไม่ Login) เข้าดูได้ (เพื่อผ่านกฎ Apple Guideline)
+        final isPublicPage = location == '/' || location == '/search-user' || location.startsWith('/game-player/');
 
         if (!loggedIn && !isPublicPage && !isAuthPage) {
           authProvider.redirectAfterLogin = location;
           return '/login';
         }
 
-        if (loggedIn && location == '/login') {
+        if (loggedIn && isAuthPage) {
           final target = authProvider.redirectAfterLogin;
           authProvider.redirectAfterLogin = null;
           return target ?? '/';
@@ -325,6 +328,10 @@ class _MyAppState extends State<MyApp> {
           builder: (context, state) => const FinancePage(),
         ),
         GoRoute(
+          path: '/my-wallet',
+          builder: (context, state) => const MyWalletPage(),
+        ),
+        GoRoute(
           path: '/organizer/noti',
           builder: (context, state) => const OrganizerNotificationPage(),
         ),
@@ -392,6 +399,28 @@ class _MyAppState extends State<MyApp> {
         ),
       ],
     );
+  }
+
+  // --- NEW: จัดการการกด Noti เมื่อแอปปิดสนิท (Terminated State) ---
+  Future<void> _setupInteractedMessage() async {
+    RemoteMessage? initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      final referenceId = initialMessage.data['referenceId'];
+      if (referenceId != null && referenceId.isNotEmpty) {
+        // รอให้แอป Build เฟรมแรกเสร็จก่อน (เพื่อให้ GoRouter พร้อมและมี Context)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final context = navigatorKey.currentContext;
+          if (context != null) {
+            final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
+            if (role == Role.organizer) {
+              context.push('/manage-game/$referenceId');
+            } else {
+              context.push('/game-player/$referenceId');
+            }
+          }
+        });
+      }
+    }
   }
 
   @override

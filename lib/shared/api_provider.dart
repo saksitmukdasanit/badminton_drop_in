@@ -81,7 +81,14 @@ class ApiProvider {
                 // ถ้าไม่มี Refresh Token ก็ไม่ต้องทำอะไรต่อ
                 _isRefreshing = false;
                 _refreshCompleter?.complete(null);
-                _handleLogout(); // เพิ่ม: บังคับ Logout ถ้าไม่มี Refresh Token
+              // --- FIX: เช็คก่อนว่าเคย Login ไหม ถ้าเป็น Guest ไม่ต้องบังคับเด้งไปหน้า Login ---
+              final context = navigatorKey.currentContext;
+              if (context != null && context.mounted) {
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                if (authProvider.isLoggedIn) {
+                  _handleLogout(); 
+                }
+              }
                 return handler.next(e);
               }
 
@@ -161,8 +168,11 @@ class ApiProvider {
     final context = navigatorKey.currentContext;
     if (context != null && context.mounted) {
       print('Force Logout: Token expired or invalid');
-      await Provider.of<AuthProvider>(context, listen: false).logout();
-      context.go('/login');
+      // ใช้ Future.delayed เพื่อหลีกเลี่ยง Exception: '!_debugLocked': is not true (ปัญหา Router ทำงานซ้อนกัน)
+      Future.delayed(Duration.zero, () async {
+        await Provider.of<AuthProvider>(context, listen: false).logout();
+        if (context.mounted) context.go('/login');
+      });
     } else {
       print('CRITICAL: Navigator Context is NULL. Cannot redirect to login.');
     }

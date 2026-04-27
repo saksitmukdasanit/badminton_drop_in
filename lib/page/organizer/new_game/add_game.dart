@@ -144,7 +144,7 @@ class AddGamePageState extends State<AddGamePage> {
 
     try {
       var response = await Dio().get(baseURL, queryParameters: {
-        'input': input,
+        'input': '$input แบดมินตัน', // ทริค: แอบเติมคำว่า แบดมินตัน เข้าไปเพื่อให้ Google ค้นหาเจาะจงเฉพาะสนามแบด
         'key': apiKey,
         'sessiontoken': _sessionToken, // ส่ง Token ไปด้วยเพื่อประหยัดค่าใช้จ่าย
         'components': 'country:th',
@@ -612,6 +612,29 @@ class AddGamePageState extends State<AddGamePage> {
       return;
     }
 
+    // --- NEW: ตรวจสอบเวลาเริ่มต้นและสิ้นสุดที่ฝั่ง Frontend ---
+    try {
+      final startFormat = DateFormat('HH:mm').parse(_formatTimeForApi(_startTimeController.text));
+      final endFormat = DateFormat('HH:mm').parse(_formatTimeForApi(_endTimeController.text));
+      if (startFormat.compareTo(endFormat) >= 0) {
+         showDialogMsg(context, title: 'เวลาไม่ถูกต้อง', subtitle: 'เวลาเริ่มต้นต้องน้อยกว่าเวลาสิ้นสุด', btnLeft: 'ตกลง', onConfirm: () {});
+         return;
+      }
+    } catch (e) {
+      // ปล่อยผ่านถ้า parse ไม่ได้ (Backend จะดักจับอีกชั้น)
+    }
+
+    if (_selectedPlace == null) {
+      showDialogMsg(
+        context,
+        title: 'แจ้งเตือน',
+        subtitle: 'กรุณาเลือกสนามจากรายการค้นหา',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -648,8 +671,8 @@ class AddGamePageState extends State<AddGamePage> {
         "sessionDate": _formatDateForApi(_dateController.text),
         "startTime": _formatTimeForApi(_startTimeController.text),
         "endTime": _formatTimeForApi(_endTimeController.text),
-        "gameTypeId": int.tryParse(_selectedGameType ?? '0'),
-        "pairingMethodId": int.tryParse(_selectedQueueType ?? '0'),
+        "gameTypeId": int.tryParse(_selectedGameType ?? ''),
+        "pairingMethodId": int.tryParse(_selectedQueueType ?? ''),
         "maxParticipants": int.tryParse(_slotsController.text),
         "costingMethod":
             _shuttleChargeMethod, // สมมติว่า 1 = PER_UNIT, 2 = BUFFET
@@ -659,7 +682,7 @@ class AddGamePageState extends State<AddGamePage> {
         ),
         "totalCourtCost": double.tryParse(_courtTotalCostController.text),
         "shuttlecockCostPerUnit": double.tryParse(_shuttleCostController.text),
-        "shuttlecockModelId": int.tryParse(_selectedShuttleModel ?? '0'),
+        "shuttlecockModelId": int.tryParse(_selectedShuttleModel ?? ''),
         "numberOfCourts": int.tryParse(_openCourtsController.text),
         "courtNumbers": _courtNumberControllers
             .map((c) => c.text)

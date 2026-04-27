@@ -24,6 +24,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
   final List<dynamic> _paymentMethods = [
     {"code": 'QR Code', "value": 'QR Code'},
     {"code": 'Cash', "value": 'เงินสด'},
+    {"code": 'Wallet', "value": 'กระเป๋าเงิน (Wallet)'},
   ];
 
   @override
@@ -86,16 +87,8 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
     try {
       double totalAmount = _netTotal;
 
-      if (_selectedPaymentMethod == 'QR Code') {
-        final confirmed = await showQrPaymentDialog(context, totalAmount);
-        if (confirmed != true) {
-          setState(() => _isLoading = false);
-          return; // User cancelled
-        }
-      }
-
-      // Call the new backend endpoint
-      await ApiProvider().post(
+      // Call the new backend endpoint ก่อน เพื่อไปเอา String QR
+      final response = await ApiProvider().post(
         '/player/gamesessions/${widget.code}/checkout-and-pay',
         data: {
           'paymentMethod': _selectedPaymentMethod,
@@ -106,6 +99,24 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
               .toList(),
         },
       );
+
+      // ถ้าเลือก QR ให้ดึงข้อความมาเปิด Dialog
+      if (_selectedPaymentMethod == 'QR Code' && response['data'] != null && response['data']['qrCode'] != null) {
+        String qrString = response['data']['qrCode'];
+        int billId = response['data']['billId'];
+        final confirmed = await showQrPaymentDialog(
+          context, 
+          totalAmount, 
+          qrData: qrString,
+          sessionId: int.parse(widget.code),
+          billId: billId,
+        );
+        
+        if (confirmed != true) {
+          setState(() => _isLoading = false);
+          return; // ถ้ายกเลิก/กดปิดเอง ไม่ต้องโชว์ Success
+        }
+      }
 
       if (mounted) {
         showDialogMsg(

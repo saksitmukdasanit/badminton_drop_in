@@ -105,6 +105,12 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
   Widget build(BuildContext context) {
     if (widget.player == null) return const SizedBox.shrink();
     final player = widget.player!;
+    
+    String? dropdownValue = _selectedSkillLevel.toString();
+    if (!widget.skillLevels.any((s) => s['code'] == dropdownValue)) {
+      dropdownValue = null; // ป้องกันแครชถ้าระดับมือถูกซ่อนไปแล้ว
+    }
+    
     return Material(
       color: Colors.transparent,
       child: Align(
@@ -138,7 +144,7 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
                             children: [
                               const Text('ระดับมือ: ', style: TextStyle(fontSize: 14)),
                               DropdownButton<String>(
-                                value: _selectedSkillLevel.toString(),
+                                value: dropdownValue,
                                 items: widget.skillLevels.map((skill) => DropdownMenuItem<String>(value: skill['code'], child: Text(skill['value'], style: const TextStyle(fontSize: 14)))).toList(),
                                 onChanged: (String? newValue) { if (newValue != null) _updateSkillLevel(int.parse(newValue)); },
                               ),

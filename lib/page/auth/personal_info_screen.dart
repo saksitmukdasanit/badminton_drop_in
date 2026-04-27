@@ -6,6 +6,7 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/firebase_messaging_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -109,6 +110,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         _isLoading = false;
       });
       if (response['status'] == 200) {
+        // ส่ง FCM Token ไปที่ Backend หลังจากกรอกข้อมูลสมัครสมาชิกเสร็จสิ้น
+        await FirebaseMessagingService().updateTokenToServer();
+        
         if (mounted) {
           showDialogMsg(
             context,

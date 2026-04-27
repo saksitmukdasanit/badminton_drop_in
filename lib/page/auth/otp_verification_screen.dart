@@ -48,10 +48,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         if (mounted) {
           // ยืนยันสำเร็จ -> ค่อยทำการ Login เข้าระบบที่นี่
           if (widget.tokens != null) {
-            Provider.of<AuthProvider>(context, listen: false).login(widget.tokens);
+            final authProvider = Provider.of<AuthProvider>(context, listen: false);
+            authProvider.redirectAfterLogin = '/personal-info-screen';
+            authProvider.login(widget.tokens);
+          } else {
+            // ใช้ pushReplacement เพื่อไม่ให้กด Back กลับมาหน้า OTP ได้อีก
+            context.pushReplacement('/personal-info-screen');
           }
-          // ใช้ pushReplacement เพื่อไม่ให้กด Back กลับมาหน้า OTP ได้อีก
-          context.pushReplacement('/personal-info-screen');
         }
       } else {
         _pinController.clear(); // เคลียร์ PIN เมื่อผิด

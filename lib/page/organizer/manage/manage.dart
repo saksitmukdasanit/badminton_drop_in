@@ -1303,6 +1303,12 @@ class ManagePageState extends State<ManagePage> {
     final num paidAmount = num.tryParse('${player['paidAmount'] ?? 0}') ?? 0;
     final num unpaidAmount = totalCost - paidAmount;
     final bool isReserve = player['status'] == 2; // เช็คจากสถานะจริง
+    
+    String? currentSkillValue = player['skillLevelId']?.toString();
+    bool skillExists = _skillLevels.any((s) => s['code'] == currentSkillValue);
+    if (!skillExists && currentSkillValue != null) {
+      currentSkillValue = null; // ถ้าระดับเดิมถูกลบ ให้รีเซ็ตเป็น null
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
@@ -1351,7 +1357,7 @@ class ManagePageState extends State<ManagePage> {
           Expanded(
             flex: 3,
             child: DropdownButton<String>(
-              value: player['skillLevelId']?.toString(),
+              value: currentSkillValue,
               isExpanded: true,
               underline: const SizedBox.shrink(),
               items: _skillLevels.map<DropdownMenuItem<String>>((

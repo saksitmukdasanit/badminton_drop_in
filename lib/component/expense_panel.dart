@@ -129,7 +129,20 @@ class _ExpensePanelState extends State<ExpensePanel> {
   }
 
   Future<void> _confirmPaymentAPI(int billId, String method, double amount) async {
-    await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
+    final res = await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
+    
+    // --- NEW: ถ้าเป็น QR Code ให้รับ String มาแล้วค่อยเปิดหน้าจอ QR ให้สแกน ---
+    if (method == 'QR Code' && res['data'] != null && res['data']['qrCode'] != null) {
+        String qrString = res['data']['qrCode'];
+        final confirmed = await showQrPaymentDialog(
+          context, 
+          amount, 
+          qrData: qrString,
+          sessionId: int.parse(widget.sessionId),
+          billId: billId,
+        );
+        if (confirmed != true) return; // ถ้ายกเลิก ไม่ต้องโชว์ Message แจ้งเตือนซ้ำซ้อน
+    }
     if (mounted) {
       showDialogMsg(
         context, title: 'ชำระเงินสำเร็จ', subtitle: 'บันทึกการชำระเงินเรียบร้อยแล้ว', btnLeft: 'ตกลง', btnLeftBackColor: const Color(0xFF0E9D7A), btnLeftForeColor: Colors.white,
