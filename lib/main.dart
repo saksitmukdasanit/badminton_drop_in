@@ -50,6 +50,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:badminton/shared/firebase_messaging_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:badminton/component/notification_provider.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -90,6 +91,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (context) => UserRoleProvider()),
         ChangeNotifierProvider.value(value: authProvider),
+        ChangeNotifierProvider(create: (context) => NotificationProvider()),
       ],
       child: MyApp(),
     ),

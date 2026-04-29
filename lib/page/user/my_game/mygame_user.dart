@@ -215,15 +215,8 @@ class MyGameUserPageState extends State<MyGameUserPage> {
           // แปลงวันที่และเวลาให้เป็น String ที่สมบูรณ์สำหรับใช้เปรียบเทียบเวลาในการแสดงปุ่ม Cancel
           String sessionStartStr = game['sessionStart'] ?? '';
           if (sessionStartStr.isEmpty) {
-            String d = game['sessionDate'] ?? '';
-            String t = game['startTime'] ?? '';
-            if (d.isNotEmpty && t.isNotEmpty) {
-               d = d.split('T')[0]; // ดึงเฉพาะ YYYY-MM-DD
-               sessionStartStr = '${d}T$t';
-               if (t.length == 5) sessionStartStr += ':00'; // เติมวินาทีให้ parse ได้สมบูรณ์
-            } else {
-               sessionStartStr = DateTime.now().toIso8601String();
-            }
+             // Fallback เผื่อกรณี API คืนค่าว่าง (ซึ่งปกติจะไม่เกิด)
+             sessionStartStr = DateTime.now().toIso8601String();
           }
 
           final bookingDetails = BookingDetails(

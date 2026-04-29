@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/component/notification_provider.dart';
 
 class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
   final int amountItemInCart;
@@ -11,6 +12,8 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final unreadCount = context.watch<NotificationProvider>().unreadCount;
+
     return AppBar(
       elevation: 0,
       scrolledUnderElevation: 8.0, // เพิ่มค่านี้เพื่อให้สีชัดขึ้นเวลาเลื่อน
@@ -64,7 +67,7 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
                     }
                   },
                 ),
-                if (amountItemInCart > 0)
+                if (unreadCount > 0)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -77,14 +80,14 @@ class AppBarHome extends StatelessWidget implements PreferredSizeWidget {
                         color: Color(0xFFe4253f),
                       ),
                       child: Text(
-                        amountItemInCart > 99
+                        unreadCount > 99
                             ? '99+'
-                            : amountItemInCart.toString(),
+                            : unreadCount.toString(),
                         style: TextStyle(
                           fontFamily: 'Kanit',
-                          fontSize: amountItemInCart.toString().length <= 1
+                          fontSize: unreadCount.toString().length <= 1
                               ? 10
-                              : amountItemInCart.toString().length == 2
+                              : unreadCount.toString().length == 2
                               ? 9
                               : 8,
                           color: Color.fromARGB(255, 255, 255, 255),
@@ -124,6 +127,8 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final unreadCount = context.watch<NotificationProvider>().unreadCount;
+
     return AppBar(
       elevation: 0,
       backgroundColor: Theme.of(context).colorScheme.primary,
@@ -184,7 +189,7 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
                   }
                 },
               ),
-              if (amountItemInCart > 0)
+              if (unreadCount > 0)
                 Positioned(
                   right: 0,
                   top: 0,
@@ -197,14 +202,14 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
                       color: Color(0xFFe4253f),
                     ),
                     child: Text(
-                      amountItemInCart > 99
+                      unreadCount > 99
                           ? '99+'
-                          : amountItemInCart.toString(),
+                          : unreadCount.toString(),
                       style: TextStyle(
                         fontFamily: 'Kanit',
-                        fontSize: amountItemInCart.toString().length <= 1
+                        fontSize: unreadCount.toString().length <= 1
                             ? 10
-                            : amountItemInCart.toString().length == 2
+                            : unreadCount.toString().length == 2
                             ? 9
                             : 8,
                         color: Color.fromARGB(255, 255, 255, 255),

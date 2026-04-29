@@ -196,49 +196,30 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   }
 
   Widget _buildbottomBar() {
+    final status = widget.details.status;
+    final userStatus = widget.details.currentUserStatus;
+
     // 1. ถ้าก๊วนถูกยกเลิก หรือรอคืนเงิน
-    if (widget.details.status == 3 ||
-        widget.details.currentUserStatus == 'Refund') {
+    if (status == 3 || userStatus == 'Refund') {
       return _buildBottomBarWRC();
     }
 
     // --- NEW: ถ้าผู้เล่นค้างชำระ ให้แสดงแถบชำระเงิน (กันการกด Book Now ซ้ำ) ---
-    if (widget.details.currentUserStatus == 'PendingPayment' || 
-        widget.details.currentUserStatus == 'Unpaid' || 
-        widget.details.status == 5) {
+    if (userStatus == 'PendingPayment' || userStatus == 'Unpaid' || status == 5) {
       return _buildBottomBarO();
     }
 
-    // --- NEW: เช็คว่าเป็นก๊วนในอดีต (ผ่านเลยเวลาเริ่มมาเกิน 12 ชั่วโมงแล้ว) ---
-    DateTime sessionStartDt;
-    try {
-      sessionStartDt = DateTime.parse(widget.details.sessionStart).toLocal();
-    } catch (_) {
-      sessionStartDt = DateTime.now().add(const Duration(hours: 4));
-    }
-    bool isPastGame = sessionStartDt.isBefore(DateTime.now().subtract(const Duration(hours: 12)));
-
     // 2. ถ้าผู้เล่น Check Out และชำระเงินเรียบร้อยแล้ว หรือเกมจบแล้วและไม่มีค้างชำระ
-    if (widget.details.currentUserStatus == 'CheckedOut' ||
-        widget.details.currentUserStatus == 'Paid' ||
-        widget.details.currentUserStatus == 'Completed' ||
-        widget.details.status == 4 ||
-        isPastGame) {
+    if (status >= 4 || userStatus == 'CheckedOut' || userStatus == 'Paid' || userStatus == 'Completed') {
       return _buildBottomBarS();
     }
 
     // 3. ถ้าผู้เล่นมีส่วนร่วมกับก๊วนนี้ (ตัวจริง, ตัวสำรอง, เช็คอินแล้ว)
-    if (widget.details.currentUserStatus == 'Joined' ||
-        widget.details.currentUserStatus == 'CheckedIn' ||
-        widget.details.currentUserStatus == 'Waitlisted') {
+    if (userStatus == 'Joined' || userStatus == 'CheckedIn' || userStatus == 'Waitlisted') {
       return _buildPlayerActiveBar();
     }
 
     // 4. ถ้าผู้เล่นเป็นคนนอก (NotJoined)
-    if (widget.details.status == 1) {
-      return _buildBookNowBar();
-    }
-
     return _buildBookNowBar(); // Fallback
   }
 
@@ -798,7 +779,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
   // --- Widget ใหม่: แถบสถานะสำหรับคนที่เข้าร่วมแล้ว ---
   Widget _buildPlayerActiveBar() {
-    if (widget.details.currentUserStatus == 'Waitlisted') {
+    final status = widget.details.status;
+    final userStatus = widget.details.currentUserStatus;
+
+    if (userStatus == 'Waitlisted') {
       return Container(
         padding: const EdgeInsets.all(15),
         child: const CustomElevatedButton(
@@ -809,32 +793,35 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       );
     }
 
-    // สำหรับคนที่เป็น Joined หรือ CheckedIn
-    DateTime startTime;
-    try {
-      startTime = DateTime.parse(widget.details.sessionStart).toLocal();
-    } catch (e) {
-      startTime = DateTime.now().add(const Duration(hours: 4));
-    }
-    final Duration timeUntilStart = startTime.difference(DateTime.now());
+    bool isCheckedIn = _isCheckedInLocal || userStatus == 'CheckedIn';
 
-    // 1. ถ้ายังเหลือเวลาเกิน 3 ชม. และ ยังไม่ได้เช็คอิน
-    if (timeUntilStart.inMinutes > 180 &&
-        widget.details.currentUserStatus != 'CheckedIn' &&
-        !_isCheckedInLocal) {
+    // 1. ถ้าก๊วนยังไม่เริ่ม (Status = 1) และยังไม่ได้เช็คอิน อนุญาตให้ยกเลิกได้
+    if (status == 1 && !isCheckedIn) {
       return Container(
         padding: const EdgeInsets.all(15),
-        child: CustomElevatedButton(
-          text: 'ยกเลิกการจอง',
-          backgroundColor: Colors.red,
-          onPressed: _cancelBooking,
+        child: Row(
+          children: [
+            Expanded(
+              child: CustomElevatedButton(
+                text: 'ยกเลิกการจอง',
+                backgroundColor: Colors.red,
+                onPressed: _cancelBooking,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: CustomElevatedButton(
+                text: 'Check In',
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                onPressed: _showMyQrCodeDialog,
+              ),
+            ),
+          ],
         ),
       );
     }
-    // 2. ถ้าน้อยกว่า 3 ชม. หรือ เช็คอินเรียบร้อยแล้ว
-    else {
-      bool isCheckedIn =
-          _isCheckedInLocal || widget.details.currentUserStatus == 'CheckedIn';
+
+    // 2. ถ้าก๊วนเริ่มแล้ว (Status = 2) หรือ เช็คอินแล้ว
       return Container(
         padding: const EdgeInsets.all(15),
         child: Row(
@@ -868,7 +855,6 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
           ],
         ),
       );
-    }
   }
 
   // --- Widget ใหม่: แถบสถานะสำหรับคนที่ยังไม่ได้เข้าร่วม (จะมาแทน _buildBottomBar เดิม) ---

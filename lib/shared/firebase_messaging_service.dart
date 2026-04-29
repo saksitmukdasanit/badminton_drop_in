@@ -1,3 +1,4 @@
+import 'package:badminton/component/notification_provider.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -72,6 +73,11 @@ class FirebaseMessagingService {
     // 4. จัดการเมื่อมี Noti เข้ามาตอนเปิดแอปอยู่ (Foreground)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
+      
+      final context = navigatorKey.currentContext;
+      if (context != null) {
+        Provider.of<NotificationProvider>(context, listen: false).increment();
+      }
     });
 
     // 5. --- NEW: จัดการเมื่อกด Noti ตอนแอปเปิดอยู่ (Foreground/Background) ---
@@ -79,6 +85,9 @@ class FirebaseMessagingService {
 
     // 6. --- NEW: จัดการเมื่อกด Noti ตอนแอปปิดสนิท (Terminated) ---
     // (ย้ายไปจัดการใน main.dart เพื่อให้แน่ใจว่า UI และ GoRouter สร้างเสร็จแล้ว)
+    
+    // 7. อัปเดต FCM Token ไปยัง Backend ทุกครั้งที่เริ่มแอป
+    await updateTokenToServer();
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {

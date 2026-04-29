@@ -571,13 +571,14 @@ class ManagePageState extends State<ManagePage> {
 
     switch (status) {
       case 1:
-        // ถ้า status เป็น 1, ตรวจสอบเวลาที่เหลือ
-        final String sessionStartString = game['sessionStart'];
-        final DateTime startTime = DateTime.parse(sessionStartString);
-        final Duration timeUntilStart = startTime.difference(DateTime.now());
+        // [Smart Backend Alert 🚨] 
+        // Logic ตรวจสอบว่าเหลือน้อยกว่า 3 ชั่วโมงหรือยัง ควรมาจาก Backend (เช่น game['canStartSession'] == true)
+        // การใช้เวลาเครื่องมือถือคำนวณแบบนี้อันตรายมาก ถ้าผู้จัดตั้งเวลามือถือไม่ตรง ปุ่มอาจจะไม่แสดง!
+        final bool canStart = game['canStartSession'] == true || 
+            (DateTime.parse(game['sessionStart']).difference(DateTime.now()).inMinutes <= 180);
 
-        if (timeUntilStart.inMinutes > 180) {
-          // มากกว่า 3 ชั่วโมง, แสดงปุ่มยกเลิก/แก้ไข
+        if (!canStart) {
+          // มากกว่า 3 ชั่วโมง (หรือไม่ได้รับอนุญาตให้เปิด), แสดงปุ่มยกเลิก/แก้ไข
           return _buildBottomBar();
         } else {
           // 3 ชั่วโมงหรือน้อยกว่า, แสดงปุ่มเปิดก๊วน
@@ -1298,11 +1299,13 @@ class ManagePageState extends State<ManagePage> {
       return ListTile(title: Text('ข้อมูลผู้เล่นไม่ถูกต้อง #${index + 1}'));
     }
 
-    // คำนวณยอดค้างจ่าย (ถ้ามีข้อมูล)
-    final num totalCost = num.tryParse('${player['totalCost'] ?? 0}') ?? 0;
-    final num paidAmount = num.tryParse('${player['paidAmount'] ?? 0}') ?? 0;
-    final num unpaidAmount = totalCost - paidAmount;
+    // [Smart Backend Alert 🚨] ดึงค่า UnpaidAmount และ IsCheckedOut จาก Backend โดยตรง
+    // ใส่ Fallback คำนวณเดิมไว้ชั่วคราว เผื่อ Backend API (/my-upcoming) ยังไม่ได้ส่งค่ามา
+    final num unpaidAmount = player['unpaidAmount'] != null ? (player['unpaidAmount'] as num) : 
+        ((num.tryParse('${player['totalCost'] ?? 0}') ?? 0) - (num.tryParse('${player['paidAmount'] ?? 0}') ?? 0));
+        
     final bool isReserve = player['status'] == 2; // เช็คจากสถานะจริง
+    final bool isCheckedOut = player['checkoutTime'] != null || player['isCheckedOut'] == true; // เช็คสถานะ Check-out
     
     String? currentSkillValue = player['skillLevelId']?.toString();
     bool skillExists = _skillLevels.any((s) => s['code'] == currentSkillValue);
@@ -1326,21 +1329,41 @@ class ManagePageState extends State<ManagePage> {
           ),
           Expanded(
             flex: 4,
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if ((player['profilePhotoUrl'] ?? "") != "")
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundImage: NetworkImage(player['profilePhotoUrl']),
-                  ),
-                const SizedBox(width: 8),
-                Text(
-                  player['nickname'],
-                  style: TextStyle(
-                    fontSize: getResponsiveFontSize(context, fontSize: 14),
-                    fontWeight: FontWeight.w500,
-                  ),
+                Row(
+                  children: [
+                    if ((player['profilePhotoUrl'] ?? "") != "")
+                      CircleAvatar(
+                        radius: 12,
+                        backgroundImage: NetworkImage(player['profilePhotoUrl']),
+                      ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        player['nickname'] ?? 'N/A',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: getResponsiveFontSize(context, fontSize: 14),
+                          fontWeight: FontWeight.w500,
+                          color: isCheckedOut ? Colors.grey : Colors.black, // ซีดลงถ้ากลับแล้ว
+                          decoration: isCheckedOut ? TextDecoration.lineThrough : null, // ขีดฆ่าชื่อเบาๆ
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                if (isCheckedOut)
+                  Text(
+                    'Check-out แล้ว',
+                    style: TextStyle(
+                      fontSize: getResponsiveFontSize(context, fontSize: 10),
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
               ],
             ),
           ),

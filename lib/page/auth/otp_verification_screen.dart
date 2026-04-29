@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pinput/pinput.dart';
 import 'package:provider/provider.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/shared/firebase_messaging_service.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   // รับค่าเบอร์โทรมาจากหน้า Register
@@ -51,6 +52,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             final authProvider = Provider.of<AuthProvider>(context, listen: false);
             authProvider.redirectAfterLogin = '/personal-info-screen';
             authProvider.login(widget.tokens);
+            
+            // อัปเดต FCM Token ไปยัง Backend ทันทีเมื่อยืนยัน OTP ล็อกอินสำเร็จ
+            FirebaseMessagingService().updateTokenToServer();
           } else {
             // ใช้ pushReplacement เพื่อไม่ให้กด Back กลับมาหน้า OTP ได้อีก
             context.pushReplacement('/personal-info-screen');

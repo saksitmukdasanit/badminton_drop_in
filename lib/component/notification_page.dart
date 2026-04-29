@@ -1,6 +1,9 @@
+import 'package:badminton/component/notification_provider.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:flutter/material.dart';
+import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/dialog.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -26,14 +29,14 @@ class NotificationModel {
 
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
     return NotificationModel(
-      notificationId: json['notificationId'] ?? 0,
-      title: json['title'] ?? '',
-      message: json['message'] ?? '',
-      type: json['type'] ?? '',
-      referenceId: json['referenceId'],
-      isRead: json['isRead'] ?? false,
+      notificationId: json['notificationId'] is int ? json['notificationId'] : int.tryParse(json['notificationId']?.toString() ?? '0') ?? 0,
+      title: json['title']?.toString() ?? '',
+      message: json['message']?.toString() ?? '',
+      type: json['type']?.toString() ?? '',
+      referenceId: json['referenceId'] is int ? json['referenceId'] : int.tryParse(json['referenceId']?.toString() ?? ''),
+      isRead: json['isRead'] is bool ? json['isRead'] : (json['isRead']?.toString().toLowerCase() == 'true'),
       createdDate:
-          DateTime.tryParse(json['createdDate'] ?? '')?.toLocal() ??
+          DateTime.tryParse(json['createdDate']?.toString() ?? '')?.toLocal() ??
           DateTime.now(),
     );
   }
@@ -65,23 +68,26 @@ class _NotificationPageState extends State<NotificationPage> {
       _error = '';
     });
     try {
-      final response = await ApiProvider().get('/notifications');
-      if (mounted && response['status'] == 200 && response['data'] is List) {
-        final data = response['data'] as List;
+      final response = await ApiProvider().get('/Notifications');
+      if (mounted && response['status'] == 200) {
+        final data = response['data'] as List? ?? [];
         setState(() {
           _notifications = data
-              .map((json) => NotificationModel.fromJson(json))
+              .map((json) => NotificationModel.fromJson(json as Map<String, dynamic>))
               .toList();
           _isLoading = false;
         });
+        // ซิงค์จำนวนแจ้งเตือนที่ยังไม่อ่านกับ Provider
+        if (mounted) Provider.of<NotificationProvider>(context, listen: false).fetchUnreadCount();
       } else {
-        throw Exception('Failed to load notifications');
+        throw Exception(response['message'] ?? 'Failed to load notifications');
       }
     } catch (e) {
+      debugPrint('Error fetching notifications: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _error = 'ไม่สามารถโหลดการแจ้งเตือนได้';
+          _error = 'ไม่สามารถโหลดการแจ้งเตือนได้\n(${e.toString().replaceFirst('Exception: ', '')})';
         });
       }
     }
@@ -109,9 +115,10 @@ class _NotificationPageState extends State<NotificationPage> {
         }
       });
       await ApiProvider().put(
-        '/notifications/${notification.notificationId}/read',
+        '/Notifications/${notification.notificationId}/read',
         data: {},
       );
+      if (mounted) Provider.of<NotificationProvider>(context, listen: false).decrement();
     } catch (e) {
       debugPrint('Failed to mark notification as read: $e');
     }
@@ -119,11 +126,34 @@ class _NotificationPageState extends State<NotificationPage> {
 
   Future<void> _markAllAsRead() async {
     try {
-      await ApiProvider().put('/notifications/read-all', data: {});
+      await ApiProvider().put('/Notifications/read-all', data: {});
       _fetchNotifications(); // Refresh the list
+      if (mounted) Provider.of<NotificationProvider>(context, listen: false).clear();
     } catch (e) {
       debugPrint('Failed to mark all as read: $e');
     }
+  }
+
+  Future<void> _deleteAll() async {
+    showDialogMsg(
+      context,
+      title: 'ลบการแจ้งเตือนทั้งหมด',
+      subtitle: 'คุณต้องการลบการแจ้งเตือนทั้งหมดใช่หรือไม่?',
+      isWarning: true,
+      btnLeft: 'ลบทั้งหมด',
+      btnLeftBackColor: Colors.red,
+      btnLeftForeColor: Colors.white,
+      btnRight: 'ยกเลิก',
+      onConfirm: () async {
+        try {
+          await ApiProvider().delete('/Notifications/delete-all');
+          _fetchNotifications();
+          if (mounted) Provider.of<NotificationProvider>(context, listen: false).clear();
+        } catch (e) {
+          debugPrint('Failed to delete all notifications: $e');
+        }
+      },
+    );
   }
 
   Future<void> _onNotificationTap(NotificationModel notification) async {
@@ -191,19 +221,38 @@ class _NotificationPageState extends State<NotificationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('การแจ้งเตือน'),
-        actions: [
-          if (_notifications.any((n) => !n.isRead))
-            TextButton(
-              onPressed: _markAllAsRead,
-              child: const Text('อ่านทั้งหมด'),
-            ),
-        ],
+      backgroundColor: Colors.white,
+      appBar: const AppBarSubMain(
+        title: 'การแจ้งเตือน',
+        showNotification: false, // ซ่อนไอคอนกระดิ่งซ้ำซ้อนในหน้านี้
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchNotifications,
-        child: _buildBody(),
+      body: Column(
+        children: [
+          if (_notifications.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (_notifications.any((n) => !n.isRead))
+                    TextButton(
+                      onPressed: _markAllAsRead,
+                      child: const Text('อ่านทั้งหมด'),
+                    ),
+                  TextButton(
+                    onPressed: _deleteAll,
+                    child: const Text('ลบทั้งหมด', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _fetchNotifications,
+              child: _buildBody(),
+            ),
+          ),
+        ],
       ),
     );
   }

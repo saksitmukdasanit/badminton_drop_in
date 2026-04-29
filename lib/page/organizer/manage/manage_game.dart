@@ -1040,22 +1040,32 @@ class _ManageGamePage extends State<ManageGamePage> {
     try {
       await _callStartMatchAPI(currentCourt); 
     } catch (e) {
-      // --- ROLLBACK: ถ้า API Error ให้ยกเลิกทุกอย่าง ---
-      _timers[currentCourt.courtNumber]?.cancel();
-      if (mounted) {
-        setState(() {
-          currentCourt.status = CourtStatus.waiting;
-          currentCourt.isLocked = false;
-          currentCourt.elapsedTime = Duration.zero;
-          currentCourt.matchId = null;
-        });
-        showDialogMsg(
-          context,
-          title: 'เริ่มเกมไม่สำเร็จ',
-          subtitle: e.toString().replaceFirst('Exception: ', ''),
-          btnLeft: 'ตกลง',
-          onConfirm: () {},
-        );
+      final errorStr = e.toString().toLowerCase();
+      // ถ้าเป็นการ Timeout (The request took longer than...)
+      if (errorStr.contains('took longer than') || errorStr.contains('timeout')) {
+        // ไม่ต้อง Rollback ทันที เพราะเซิร์ฟเวอร์อาจจะเริ่มเกมไปแล้ว
+        // ให้ทำการดึงข้อมูลล่าสุดเพื่อ Sync หน้าจอแทนแบบเงียบๆ
+        if (mounted) {
+          _fetchLiveState(showLoading: false);
+        }
+      } else {
+        // --- ROLLBACK: ถ้า API Error ทั่วไป ให้ยกเลิกทุกอย่าง ---
+        _timers[currentCourt.courtNumber]?.cancel();
+        if (mounted) {
+          setState(() {
+            currentCourt.status = CourtStatus.waiting;
+            currentCourt.isLocked = false;
+            currentCourt.elapsedTime = Duration.zero;
+            currentCourt.matchId = null;
+          });
+          showDialogMsg(
+            context,
+            title: 'เริ่มเกมไม่สำเร็จ',
+            subtitle: e.toString().replaceFirst('Exception: ', ''),
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
+        }
       }
     }
   }
@@ -1198,13 +1208,15 @@ class _ManageGamePage extends State<ManageGamePage> {
         if (mounted) {
           final errStr = e.toString();
           if (!errStr.contains('401')) {
-             showDialogMsg(
-               context,
-               title: 'จบเกมไม่สำเร็จ',
-               subtitle: 'ระบบจะโหลดข้อมูลล่าสุด: ${e.toString().replaceFirst('Exception: ', '')}',
-               btnLeft: 'ตกลง',
-               onConfirm: () {},
-             );
+             if (!errStr.toLowerCase().contains('took longer than') && !errStr.toLowerCase().contains('timeout')) {
+               showDialogMsg(
+                 context,
+                 title: 'จบเกมไม่สำเร็จ',
+                 subtitle: 'ระบบจะโหลดข้อมูลล่าสุด: ${e.toString().replaceFirst('Exception: ', '')}',
+                 btnLeft: 'ตกลง',
+                 onConfirm: () {},
+               );
+             }
              _fetchLiveState(showLoading: false); // โหลดข้อมูลใหม่เงียบๆ
           }
         }

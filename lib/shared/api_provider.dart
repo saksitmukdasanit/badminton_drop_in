@@ -1,5 +1,6 @@
 // import 'package:camera/camera.dart';
 
+import 'package:badminton/shared/firebase_messaging_service.dart';
 import 'dart:io';
 import 'dart:async'; // NEW: Import สำหรับ Completer
 import 'package:badminton/navigator_key.dart';
@@ -34,8 +35,8 @@ class ApiProvider {
   ApiProvider._internal() {
     final options = BaseOptions(
       baseUrl: server,
-      connectTimeout: const Duration(seconds: 10), // 10 วินาที
-      receiveTimeout: const Duration(seconds: 10),
+      connectTimeout: const Duration(seconds: 30), // เพิ่มเป็น 30 วินาที
+      receiveTimeout: const Duration(seconds: 30), // เพิ่มเป็น 30 วินาที
       headers: {'Content-Type': 'application/json'},
     );
     _dio = Dio(options);
@@ -120,6 +121,10 @@ class ApiProvider {
                 // --- ปลด Lock และแจ้งคนอื่นว่าเสร็จแล้ว ---
                 _isRefreshing = false;
                 _refreshCompleter?.complete(newAccessToken);
+
+                // --- NEW: อัปเดต FCM Token ทุกครั้งที่ Refresh Token สำเร็จ ---
+                // เพื่อให้แน่ใจว่า User ที่ Auto-Login จะมี Token ในระบบเสมอ
+                FirebaseMessagingService().updateTokenToServer();
 
                 // 5. อัปเดต Header ของ Request เดิมที่เคยล้มเหลว
                 e.requestOptions.headers['Authorization'] =

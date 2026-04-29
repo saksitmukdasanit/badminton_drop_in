@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:ui';
 
 import 'package:provider/provider.dart'; // สำหรับ ImageFilter
+import 'package:badminton/component/notification_provider.dart';
 
 class BottomNavItem {
   final String iconPath;
@@ -20,10 +21,16 @@ class BottomNavItem {
   });
 }
 
-class MenuBarPage extends StatelessWidget {
+class MenuBarPage extends StatefulWidget {
   final Widget child; // ตัวแปรสำหรับรับหน้าที่ต้องการแสดง
 
-  MenuBarPage({super.key, required this.child});
+  const MenuBarPage({super.key, required this.child});
+
+  @override
+  State<MenuBarPage> createState() => _MenuBarPageState();
+}
+
+class _MenuBarPageState extends State<MenuBarPage> {
 
   //--- ผู้ใช้ ----
   // --- เมนูสำหรับ Player ---
@@ -124,6 +131,15 @@ class MenuBarPage extends StatelessWidget {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // ดึงจำนวน Noti ที่ยังไม่อ่านทันทีที่โหลดหน้าเมนูหลัก
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<NotificationProvider>(context, listen: false).fetchUnreadCount();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currentRole = context.watch<UserRoleProvider>().currentRole;
     final location = GoRouterState.of(context).uri.path;
@@ -161,7 +177,7 @@ class MenuBarPage extends StatelessWidget {
           ),
         ),
         // 3. ปิด bottom safe area เพื่อให้สีลากยาวไปสุดขอบจอด้านล่าง (ทะลุใต้เมนูลอย)
-        child: SafeArea(top: false, bottom: false, child: child),
+        child: SafeArea(top: false, bottom: false, child: widget.child),
       ),
       bottomNavigationBar: Padding(
         padding: EdgeInsets.only(
