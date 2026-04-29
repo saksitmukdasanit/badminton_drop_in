@@ -201,8 +201,14 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
                       unselectedLabelColor: Colors.grey,
                       indicatorColor: Colors.teal,
                       tabs: [
-                        Tab(child: Text('ผู้เล่น (${_rosterPlayers.where((p) => p.status == 1).length}/${widget.maxParticipants})', style: const TextStyle(fontWeight: FontWeight.bold))),
-                        Tab(child: Text('สำรอง (${_rosterPlayers.where((p) => p.status == 2).length})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                        Tab(child: Text('ผู้เล่น (${_rosterPlayers.where((p) {
+                          final orig = p.status > 10 ? p.status - 10 : p.status;
+                          return orig == 1;
+                        }).length}/${widget.maxParticipants})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                        Tab(child: Text('สำรอง (${_rosterPlayers.where((p) {
+                          final orig = p.status > 10 ? p.status - 10 : p.status;
+                          return orig == 2;
+                        }).length})', style: const TextStyle(fontWeight: FontWeight.bold))),
                       ],
                     ),
                   ],
@@ -236,7 +242,10 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
   }
 
   Widget _buildPlayerTable(int statusFilter) {
-    final filteredPlayers = _rosterPlayers.where((p) => p.status == statusFilter).toList();
+    final filteredPlayers = _rosterPlayers.where((p) {
+      final orig = p.status > 10 ? p.status - 10 : p.status;
+      return orig == statusFilter;
+    }).toList();
     if (filteredPlayers.isEmpty) return Center(child: Text(statusFilter == 1 ? 'ไม่มีผู้เล่นตัวจริง' : 'ไม่มีผู้เล่นสำรอง'));
     return SingleChildScrollView(
       child: DataTable(
@@ -252,19 +261,46 @@ class _RosterManagementPanelState extends State<RosterManagementPanel> with Sing
           if (!skillExists) {
             currentSkill = null; // ป้องกันแครชถ้าระดับมือถูกซ่อนไปแล้ว
           }
+
+          final isCheckedOut = player.status > 10;
           
           return DataRow(cells: [
             DataCell(Text('$index')),
-            DataCell(SizedBox(width: 80, child: Text(player.nickname, overflow: TextOverflow.ellipsis))),
+            DataCell(
+              SizedBox(
+                width: 80, 
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      player.nickname, 
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isCheckedOut ? Colors.grey : Colors.black,
+                        decoration: isCheckedOut ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    if (isCheckedOut)
+                      const Text('จ่ายเงินแล้ว', style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
+            ),
             DataCell(Text(player.gender)),
             DataCell(DropdownButton<int>(
               value: currentSkill, 
               isDense: true, 
               underline: const SizedBox(),
               items: _skillLevels.map((level) => DropdownMenuItem<int>(value: level['id'], child: Text(level['name'], style: const TextStyle(fontSize: 12)))).toList(),
-              onChanged: (newValue) { if (newValue != null) _updatePlayerSkill(player, newValue); },
+              onChanged: isCheckedOut ? null : (newValue) { if (newValue != null) _updatePlayerSkill(player, newValue); },
             )),
-            DataCell(Checkbox(value: player.isChecked, onChanged: (player.isChecked || _processingPlayerIds.contains(player.participantId)) ? null : (bool? newValue) { if (newValue == true) _checkInPlayer(player); })),
+            DataCell(Checkbox(
+              value: player.isChecked || isCheckedOut, 
+              onChanged: (player.isChecked || isCheckedOut || _processingPlayerIds.contains(player.participantId)) 
+                  ? null 
+                  : (bool? newValue) { if (newValue == true) _checkInPlayer(player); }
+            )),
           ]);
         }).toList(),
       ),

@@ -40,7 +40,8 @@ class _HistoryOrganizerPaymentPageState
   late TextEditingController _expenseNameController;
   late TextEditingController _expenseAmountController;
 
-  void _showPaymentPanel(dynamic player) async {
+  // เปลี่ยนเป็น Future<void> เพื่อให้ await ได้
+  Future<void> _showPaymentPanel(dynamic player) async {
     setState(() {
       _selectedPlayer = player;
       _isPanelVisible = true;
@@ -161,6 +162,10 @@ class _HistoryOrganizerPaymentPageState
           );
           
           if (confirmed != true) {
+            // ถ้ายกเลิก/กดปิด QR เอง ให้ดึงยอดรวมใหม่ และรอจนกว่าจะโหลดบิลค้างชำระเสร็จ
+            if (!mounted) return;
+            await _fetchSessionData();
+            await _showPaymentPanel(_selectedPlayer);
             return; // ถ้ายกเลิก/กดปิด QR เอง ไม่ต้องโชว์ Success
           }
         }
@@ -413,6 +418,7 @@ class _HistoryOrganizerPaymentPageState
                       
 
                       return ExpensePanelWidget(
+                        key: ValueKey(_selectedPlayerBill?.hashCode ?? DateTime.now().millisecondsSinceEpoch),
                         isHistoryMode: true, // เปิดโหมดประวัติเพื่อแสดงยอดเต็ม และซ่อนปุ่มถ้าหักลบยอดจ่ายแล้วเป็น 0
                         billData: _selectedPlayerBill, // กลับมาใช้ข้อมูลจริงจาก API เพราะ Backend ส่งชื่อที่ถูกต้องมาให้แล้ว
                         courtFee: sessionCourtFee,

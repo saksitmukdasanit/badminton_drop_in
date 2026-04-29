@@ -21,7 +21,7 @@ class GamePlayerPage extends StatefulWidget {
 }
 
 class GamePlayerPageState extends State<GamePlayerPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
 
   // --- SignalR & State ---
@@ -59,6 +59,7 @@ class GamePlayerPageState extends State<GamePlayerPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // --- NEW: ผูก Observer เพื่อดักจับสถานะหน้าจอ ---
     _tabController = TabController(length: 2, vsync: this);
     _initData();
   }
@@ -432,11 +433,26 @@ class GamePlayerPageState extends State<GamePlayerPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // --- NEW: ยกเลิกการผูก Observer ---
     _tabController.dispose();
     _sessionTimer?.cancel();
     _fabMenuOverlay?.remove();
     _hubConnection?.stop();
     super.dispose();
+  }
+
+  // --- NEW: ดักจับเหตุการณ์เมื่อแอปถูกพับหรือจอเปิดขึ้นมาใหม่ ---
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint("App Resumed: กำลังโหลดกระดานและเชื่อมต่อ SignalR ใหม่...");
+      
+      _fetchLiveState(); // โหลดข้อมูลกระดานล่าสุดเพื่อป้องกันข้อมูลค้าง (Stale Data)
+      
+      if (_hubConnection?.state == HubConnectionState.Disconnected) {
+         _hubConnection?.start(); // ถ้า SignalR ยอมแพ้และหลุดไปแล้ว ให้บังคับต่อใหม่
+      }
+    }
   }
 
   // --- FAB MENU ---

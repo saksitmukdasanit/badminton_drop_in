@@ -256,7 +256,11 @@ class MyGameUserPageState extends State<MyGameUserPage> {
             isBuffet: game['costingMethod'] == 2,
             sessionStart: sessionStartStr,
           );
-          context.push('/booking-confirm-game', extra: bookingDetails);
+          context.push('/booking-confirm-game', extra: bookingDetails).then((_) {
+            setState(() {
+              _myGamesFuture = _fetchMyGames(); // รีเฟรชข้อมูลใหม่เวลาย้อนกลับมา
+            });
+          });
         },
         onTapOrganizer: () async {
           // โชว์ Loading ก่อนเปิด Dialog

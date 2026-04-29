@@ -48,7 +48,7 @@ class CustomDropdown extends StatelessWidget {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
       ),
       hint: const Text('กรุณาเลือก'),
-      initialValue: initialValue, // แก้ไขจาก initialValue เป็น value
+      value: initialValue, // เปลี่ยนเป็น value เพื่อให้ Dropdown อัปเดตตาม State ได้ถูกต้อง
       items: items.map((dynamic item) {
         return DropdownMenuItem<dynamic>(value: item['code'].toString(), child: Text(item['value'] ?? ''));
       }).toList(),

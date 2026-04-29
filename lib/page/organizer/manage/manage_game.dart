@@ -29,7 +29,7 @@ class ManageGamePage extends StatefulWidget {
   State<ManageGamePage> createState() => _ManageGamePage();
 }
 
-class _ManageGamePage extends State<ManageGamePage> {
+class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver {
   // --- 1. STATE MANAGEMENT: ข้อมูลทั้งหมดของหน้าจอ ---
   bool _isLoading = true;
   String _groupName = '';
@@ -78,6 +78,7 @@ class _ManageGamePage extends State<ManageGamePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // --- NEW: ผูก Observer เพื่อดักจับสถานะหน้าจอ ---
     _fetchLiveState(); // 2. เรียกข้อมูลครั้งแรกเพื่อแสดงผลทันที
     _fetchSkillLevels(); // NEW: ดึงข้อมูลระดับมือเมื่อเข้าหน้า
     _fetchSessionDetails();
@@ -88,6 +89,7 @@ class _ManageGamePage extends State<ManageGamePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // --- NEW: ยกเลิกการผูก Observer ---
     _fabMenuOverlay?.remove(); // ป้องกัน Overlay ค้างเมื่อกด Back ออกจากหน้า
     _timers.forEach((key, timer) => timer.cancel());
     _sessionTimer?.cancel();
@@ -99,6 +101,18 @@ class _ManageGamePage extends State<ManageGamePage> {
     }
     // REMOVED: _teamDebounceTimers.cancel
     super.dispose();
+  }
+
+  // --- NEW: ดักจับเหตุการณ์เมื่อแอปถูกพับหรือจอเปิดขึ้นมาใหม่ ---
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint("App Resumed: กำลังโหลดข้อมูลกระดานใหม่และตรวจสอบ SignalR (Organizer)...");
+      _fetchLiveState(showLoading: false); // โหลดข้อมูลกระดานใหม่แบบเงียบๆ
+      if (_hubConnection?.state == HubConnectionState.Disconnected) {
+        _hubConnection?.start(); // สั่งเชื่อมต่อ SignalR ใหม่
+      }
+    }
   }
 
   // NEW: ฟังก์ชันสำหรับเริ่ม Timer อัปเดตเวลาที่รอ

@@ -141,7 +141,11 @@ class _ExpensePanelState extends State<ExpensePanel> {
           sessionId: int.parse(widget.sessionId),
           billId: billId,
         );
-        if (confirmed != true) return; // ถ้ายกเลิก ไม่ต้องโชว์ Message แจ้งเตือนซ้ำซ้อน
+        if (confirmed != true) {
+          // ถ้ายกเลิก QR ให้ดึงข้อมูลบิลใหม่เพื่อแสดงรายการค้างชำระที่เพิ่งเพิ่มเข้าไป
+          if (mounted) await _fetchData();
+          return; 
+        }
     }
     if (mounted) {
       showDialogMsg(

@@ -29,6 +29,7 @@ class _FinancePageState extends State<FinancePage> {
   dynamic _selectedFinanceSession;
   Map<String, dynamic>? _financeAnalytics;
   bool _isFinanceLoading = false;
+  String _selectedTimeRange = 'วันนี้'; // เพิ่ม State เก็บค่า Filter
 
   @override
   void initState() {
@@ -53,13 +54,18 @@ class _FinancePageState extends State<FinancePage> {
     }
   }
 
-  Future<void> _fetchFinanceHistory() async {
+  Future<void> _fetchFinanceHistory({String? timeRange}) async {
     setState(() => _isFinanceLoading = true);
     try {
-      final response = await ApiProvider().get('/GameSessions/my-history');
+      // ส่ง Query ไปให้หลังบ้านกรองข้อมูลตาม Dropdown
+      final response = await ApiProvider().get('/GameSessions/my-history', queryParameters: {
+        if (timeRange != null && timeRange != 'ทั้งหมด') 'timeRange': timeRange
+      });
       if (mounted && response['status'] == 200) {
+        List<dynamic> dataList = response['data'] ?? [];
+        
         setState(() {
-          _financeHistoryList = response['data'] ?? [];
+          _financeHistoryList = dataList;
         });
       }
     } catch (e) {
@@ -70,15 +76,23 @@ class _FinancePageState extends State<FinancePage> {
   }
 
   Future<void> _fetchFinanceSessionDetail(int sessionId) async {
-    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
       final sessionRes = await ApiProvider().get('/GameSessions/$sessionId');
-      final analyticsRes = await ApiProvider().get('/GameSessions/$sessionId/analytics');
+      final analyticsRes = await ApiProvider().get(
+        '/GameSessions/$sessionId/analytics',
+      );
       if (mounted) {
         Navigator.pop(context); // close loading
         setState(() {
-          if (sessionRes['status'] == 200) _selectedFinanceSession = sessionRes['data'];
-          if (analyticsRes['status'] == 200) _financeAnalytics = analyticsRes['data'];
+          if (sessionRes['status'] == 200)
+            _selectedFinanceSession = sessionRes['data'];
+          if (analyticsRes['status'] == 200)
+            _financeAnalytics = analyticsRes['data'];
         });
       }
     } catch (e) {
@@ -97,105 +111,144 @@ class _FinancePageState extends State<FinancePage> {
     }
 
     final chartGames = _financeDashboard?['latestGames'] as List? ?? [];
-    List<ChartGroup> chartData = chartGames.map((g) => ChartGroup(
-      name: g['name'] ?? 'N/A',
-      playersValue: (g['playersCount'] ?? 0).toDouble(),
-      paidValue: (g['paidCount'] ?? 0).toDouble(),
-    )).toList();
+    List<ChartGroup> chartData = chartGames
+        .map(
+          (g) => ChartGroup(
+            name: g['name'] ?? 'N/A',
+            playersValue: (g['playersCount'] ?? 0).toDouble(),
+            paidValue: (g['paidCount'] ?? 0).toDouble(),
+          ),
+        )
+        .toList();
 
     double currentBalance = (_financeDashboard?['balance'] ?? 0).toDouble();
     bool isNegative = currentBalance < 0;
 
     return Scaffold(
-        appBar: AppBarSubMain(title: 'การเงิน', isBack: false),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: ListView(
-            children: [
-              if (!isHistory && !isHistoryFinance)
-                Column(
-                  children: [
-                    BalanceCardFinance(
-                      title: isNegative ? 'ยอดค้างชำระระบบ (ติดลบ)' : 'เงินคงเหลือ',
-                      balanceColor: isNegative ? Colors.redAccent : Colors.white,
-                      balance: '${NumberFormat('#,##0').format(currentBalance)} บาท',
-                      incomeText: 'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
-                      pendingText: 'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
-                      onWithdrawPressed: () => _showWithdrawAmountSheet(),
+      appBar: AppBarSubMain(title: 'การเงิน', isBack: false),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: [
+            if (!isHistory && !isHistoryFinance)
+              Column(
+                children: [
+                  BalanceCardFinance(
+                    title: isNegative
+                        ? 'ยอดค้างชำระระบบ (ติดลบ)'
+                        : 'เงินคงเหลือ',
+                    balanceColor: isNegative ? Colors.redAccent : Colors.white,
+                    balance:
+                        '${NumberFormat('#,##0').format(currentBalance)} บาท',
+                    incomeText:
+                        'รายได้รวม: ${NumberFormat('#,##0').format(_financeDashboard?['totalIncome'] ?? 0)} บาท',
+                    pendingText:
+                        'รอชำระ: ${NumberFormat('#,##0').format(_financeDashboard?['pendingAmount'] ?? 0)} บาท',
+                    onWithdrawPressed: () => _showWithdrawAmountSheet(),
+                  ),
+                  const SizedBox(height: 16),
+                  IncomeChartCard(
+                    title: 'รายละเอียด 5 เกมล่าสุด',
+                    totalIncomeText:
+                        'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
+                    chartData: chartData.isNotEmpty
+                        ? chartData
+                        : [
+                            ChartGroup(
+                              name: 'ไม่มีข้อมูล',
+                              playersValue: 0,
+                              paidValue: 0,
+                            ),
+                          ],
+                    onDetailsPressed: () {
+                      setState(() {
+                        isHistory = false;
+                        isHistoryFinance = false;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  HistoryCardFinance(
+                    initialTimeRange: _selectedTimeRange,
+                    timeRangeItems: [
+                      {"code": "วันนี้", "value": 'วันนี้'},
+                      {"code": "สัปดาห์นี้", "value": 'สัปดาห์นี้'},
+                      {"code": "เดือนนี้", "value": 'เดือนนี้'},
+                      {"code": "ทั้งหมด", "value": 'ทั้งหมด'},
+                    ],
+                    incomeHistory: _financeHistoryList.map((item) {
+                      final dt =
+                          DateTime.tryParse(item['date'] ?? '')?.toLocal() ??
+                          DateTime.now();
+                      return HistoryItem(
+                        date:
+                            '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}',
+                        time:
+                            '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
+                        amount: NumberFormat('#,##0').format(item['paidAmount'] ?? 0),
+                        totalAmount: NumberFormat('#,##0').format(item['totalIncome'] ?? 0),
+                        groupName: item['groupName'] ?? '-',
+                        originalData: item,
+                      );
+                    }).toList(),
+                    withdrawalHistoryView: const Center(
+                      child: Text('ประวัติเงินออกแสดงที่นี่'),
                     ),
-                    const SizedBox(height: 16),
-                    IncomeChartCard(
-                      title: 'รายละเอียด 5 เกมล่าสุด',
-                      totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
-                      chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
-                      onDetailsPressed: () {
-                        setState(() {
-                          isHistory = false;
-                          isHistoryFinance = false;
+                    onTimeRangeChanged: (value) {
+                      if (value != null) {
+                        _selectedTimeRange = value;
+                        _fetchFinanceHistory(timeRange: _selectedTimeRange); // โหลดข้อมูลใหม่
+                      }
+                    },
+                    onIncomeItemAmountTap: (item) {
+                      if (item.originalData['gameSessionId'] != null) {
+                        context.push(
+                          '/history-organizer-payment',
+                          extra: item.originalData['gameSessionId'],
+                        ).then((_) {
+                          _fetchFinanceDashboard();
+                          _fetchFinanceHistory(timeRange: _selectedTimeRange);
                         });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    HistoryCardFinance(
-                      initialTimeRange: '1',
-                      timeRangeItems: [
-                        {"code": "1", "value": 'วันนี้'},
-                        {"code": "2", "value": 'สัปดาห์นี้'},
-                        {"code": "3", "value": 'เดือนนี้'},
-                        {"code": "4", "value": 'ทั้งหมด'},
-                      ],
-                  incomeHistory: _financeHistoryList.map((item) {
-                    final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
-                    return HistoryItem(
-                      date: '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}',
-                      time: '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
-                      amount: '${item['paidAmount'] ?? 0}',
-                      totalAmount: '${item['totalIncome'] ?? 0}',
-                      groupName: item['groupName'] ?? '-',
-                      originalData: item,
-                    );
-                  }).toList(),
-                      withdrawalHistoryView: const Center(
-                        child: Text('ประวัติเงินออกแสดงที่นี่'),
-                      ),
-                      onTimeRangeChanged: (value) {
-                        print('Selected time range: $value');
-                        // Fetch new data based on the selected time range
-                      },
-                      onIncomeItemAmountTap: (item) {
-                    if (item.originalData['gameSessionId'] != null) {
-                      context.push('/history-organizer-payment', extra: item.originalData['gameSessionId']);
-                    }
-                      },
-                      onIncomeItemGroupTap: (item) {
-                        setState(() {
-                      _selectedFinanceSession = item.originalData;
-                          isHistory = true;
-                        });
-                    if (item.originalData['gameSessionId'] != null) {
-                      _fetchFinanceSessionDetail(item.originalData['gameSessionId']);
-                    }
-                      },
-                    ),
-                  ],
-                ),
-              if (isHistory)
-                detailsViewHistory(
-                  context,
-                  onBack: () => setState(() {
-                    isHistory = false;
-                    isHistoryFinance = false;
-                  }),
-                ),
-            ],
-          ),
+                      }
+                    },
+                    onIncomeItemGroupTap: (item) {
+                      setState(() {
+                        _selectedFinanceSession = item.originalData;
+                        isHistory = true;
+                      });
+                      if (item.originalData['gameSessionId'] != null) {
+                        _fetchFinanceSessionDetail(
+                          item.originalData['gameSessionId'],
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            if (isHistory)
+              detailsViewHistory(
+                context,
+                onBack: () => setState(() {
+                  isHistory = false;
+                  isHistoryFinance = false;
+                }),
+              ),
+            const SizedBox(height: 100), // เพิ่มระยะเว้นด้านล่างป้องกัน MenuBar บัง
+          ],
         ),
+      ),
     );
   }
 
   void _showWithdrawAmountSheet() {
     if ((_financeDashboard?['balance'] ?? 0) <= 0) {
-      showDialogMsg(context, title: 'ไม่สามารถถอนเงินได้', subtitle: 'ยอดเงินคงเหลือของคุณไม่เพียงพอ หรือมียอดค้างชำระติดลบอยู่', btnLeft: 'ตกลง', onConfirm: (){});
+      showDialogMsg(
+        context,
+        title: 'ไม่สามารถถอนเงินได้',
+        subtitle: 'ยอดเงินคงเหลือของคุณไม่เพียงพอ หรือมียอดค้างชำระติดลบอยู่',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
       return;
     }
 
@@ -218,7 +271,10 @@ class _FinancePageState extends State<FinancePage> {
               'ถอนเงินจำนวน',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            Text('ยอดที่ถอนได้สูงสุด: ${NumberFormat('#,##0').format(_financeDashboard?['balance'] ?? 0)} บาท', style: const TextStyle(color: Colors.grey)),
+            Text(
+              'ยอดที่ถอนได้สูงสุด: ${NumberFormat('#,##0').format(_financeDashboard?['balance'] ?? 0)} บาท',
+              style: const TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 16),
             TextFormField(
               controller: amountController,
@@ -234,11 +290,17 @@ class _FinancePageState extends State<FinancePage> {
               child: ElevatedButton(
                 onPressed: () {
                   final double? amount = double.tryParse(amountController.text);
-                  if (amount != null && amount > 0 && amount <= (_financeDashboard?['balance'] ?? 0)) {
-                    Navigator.pop(ctx); 
+                  if (amount != null &&
+                      amount > 0 &&
+                      amount <= (_financeDashboard?['balance'] ?? 0)) {
+                    Navigator.pop(ctx);
                     _showWithdrawConfirmationDialog(amount);
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('จำนวนเงินไม่ถูกต้อง หรือเกินยอดคงเหลือ')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('จำนวนเงินไม่ถูกต้อง หรือเกินยอดคงเหลือ'),
+                      ),
+                    );
                   }
                 },
                 child: const Text('ถอนเงิน'),
@@ -253,7 +315,8 @@ class _FinancePageState extends State<FinancePage> {
 
   void _showWithdrawConfirmationDialog(double amount) {
     final bankName = _financeDashboard?['bankName'] ?? 'ยังไม่ได้ตั้งค่า';
-    final accountNo = _financeDashboard?['bankAccountNumber'] ?? 'ยังไม่ได้ตั้งค่า';
+    final accountNo =
+        _financeDashboard?['bankAccountNumber'] ?? 'ยังไม่ได้ตั้งค่า';
     final nationalId = _financeDashboard?['nationalId'] ?? '-';
     final photoUrl = _financeDashboard?['bankAccountPhotoUrl'];
 
@@ -273,10 +336,17 @@ class _FinancePageState extends State<FinancePage> {
                   onPressed: () => Navigator.pop(ctx),
                 ),
               ),
-              _buildDialogRow('ถอนเงิน', '${NumberFormat('#,##0').format(amount)} บาท'),
+              _buildDialogRow(
+                'ถอนเงิน',
+                '${NumberFormat('#,##0').format(amount)} บาท',
+              ),
               _buildDialogRow('ค่าธรรมเนียม', '0 บาท'),
               const Divider(height: 24),
-              _buildDialogRow('ราคารวม', '${NumberFormat('#,##0').format(amount)} บาท', isBold: true),
+              _buildDialogRow(
+                'ราคารวม',
+                '${NumberFormat('#,##0').format(amount)} บาท',
+                isBold: true,
+              ),
               const SizedBox(height: 20),
               const Text('ยืนยันการถอนเงินไปที่'),
               const SizedBox(height: 16),
@@ -309,7 +379,11 @@ class _FinancePageState extends State<FinancePage> {
               const SizedBox(height: 12),
               TextField(
                 readOnly: true,
-                controller: TextEditingController(text: photoUrl != null ? '(แนบรูปสมุดบัญชีไว้แล้ว)' : 'ไม่มีรูปสมุดบัญชี'),
+                controller: TextEditingController(
+                  text: photoUrl != null
+                      ? '(แนบรูปสมุดบัญชีไว้แล้ว)'
+                      : 'ไม่มีรูปสมุดบัญชี',
+                ),
                 decoration: InputDecoration(
                   labelText: 'รูป Bookbank *',
                   border: const OutlineInputBorder(),
@@ -338,13 +412,26 @@ class _FinancePageState extends State<FinancePage> {
   }
 
   Future<void> _processWithdraw(double amount) async {
-    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
-      final res = await ApiProvider().post('/organizer/finance/withdraw', data: {'amount': amount});
+      final res = await ApiProvider().post(
+        '/organizer/finance/withdraw',
+        data: {'amount': amount},
+      );
       if (mounted) {
         Navigator.pop(context); // close loading
         if (res['status'] == 200) {
-          showDialogMsg(context, title: 'ทำรายการสำเร็จ', subtitle: res['message'] ?? 'ส่งคำขอถอนเงินเรียบร้อยแล้ว', btnLeft: 'ตกลง', onConfirm: () => _fetchFinanceDashboard());
+          showDialogMsg(
+            context,
+            title: 'ทำรายการสำเร็จ',
+            subtitle: res['message'] ?? 'ส่งคำขอถอนเงินเรียบร้อยแล้ว',
+            btnLeft: 'ตกลง',
+            onConfirm: () => _fetchFinanceDashboard(),
+          );
         }
       }
     } catch (e) {
@@ -352,9 +439,24 @@ class _FinancePageState extends State<FinancePage> {
         Navigator.pop(context); // close loading
         final errorMsg = e.toString().replaceFirst('Exception: ', '');
         if (errorMsg.contains('ตั้งค่าบัญชี')) {
-           showDialogMsg(context, title: 'แจ้งเตือน', subtitle: errorMsg, btnLeft: 'ไปตั้งค่าบัญชี', btnRight: 'ปิด', btnLeftBackColor: Colors.white, btnLeftForeColor: Theme.of(context).colorScheme.primary, onConfirm: () => context.push('/edit-transfer'));
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: errorMsg,
+            btnLeft: 'ไปตั้งค่าบัญชี',
+            btnRight: 'ปิด',
+            btnLeftBackColor: Colors.white,
+            btnLeftForeColor: Theme.of(context).colorScheme.primary,
+            onConfirm: () => context.push('/edit-transfer'),
+          );
         } else {
-           showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: errorMsg, btnLeft: 'ตกลง', onConfirm: () {});
+          showDialogMsg(
+            context,
+            title: 'เกิดข้อผิดพลาด',
+            subtitle: errorMsg,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
         }
       }
     }
@@ -424,9 +526,13 @@ class _FinancePageState extends State<FinancePage> {
   Widget badmintonSummaryPage2(BuildContext context) {
     return Column(
       children: [
-        SummaryCard(data: _financeAnalytics), 
-        SizedBox(height: 16), 
-        GameTimingCard(games: _financeAnalytics?['matchHistory'] is List ? _financeAnalytics!['matchHistory'] : [])
+        SummaryCard(data: _financeAnalytics),
+        SizedBox(height: 16),
+        GameTimingCard(
+          games: _financeAnalytics?['matchHistory'] is List
+              ? _financeAnalytics!['matchHistory']
+              : [],
+        ),
       ],
     );
   }
@@ -480,41 +586,48 @@ class BalanceCardFinance extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title, // ใช้ค่าจาก parameter
-                    textAlign: TextAlign.start,
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 20),
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFFB3B3C1),
+                  Expanded(
+                    child: Text(
+                      title, // ใช้ค่าจาก parameter
+                      textAlign: TextAlign.start,
+                      style: TextStyle(
+                        fontSize: getResponsiveFontSize(context, fontSize: 20),
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFFB3B3C1),
+                      ),
                     ),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        incomeText, // ใช้ค่าจาก parameter
-                        style: TextStyle(
-                          fontSize: getResponsiveFontSize(
-                            context,
-                            fontSize: 10,
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          incomeText, // ใช้ค่าจาก parameter
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: getResponsiveFontSize(
+                              context,
+                              fontSize: 12, // ปรับให้ใหญ่ขึ้นอ่านง่าย
+                            ),
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFFB3B3C1),
                           ),
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFFB3B3C1),
                         ),
-                      ),
-                      Text(
-                        pendingText, // ใช้ค่าจาก parameter
-                        style: TextStyle(
-                          fontSize: getResponsiveFontSize(
-                            context,
-                            fontSize: 10,
+                        Text(
+                          pendingText, // ใช้ค่าจาก parameter
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: getResponsiveFontSize(
+                              context,
+                              fontSize: 12, // ปรับให้ใหญ่ขึ้นอ่านง่าย
+                            ),
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFFB3B3C1),
                           ),
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFFB3B3C1),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -522,12 +635,16 @@ class BalanceCardFinance extends StatelessWidget {
               const SizedBox(height: 8),
 
               /// Balance Text
-              Text(
-                balance, // ใช้ค่าจาก parameter
-                style: TextStyle(
-                  color: balanceColor,
-                  fontSize: getResponsiveFontSize(context, fontSize: 32),
-                  fontWeight: FontWeight.w700,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  balance, // ใช้ค่าจาก parameter
+                  style: TextStyle(
+                    color: balanceColor,
+                    fontSize: getResponsiveFontSize(context, fontSize: 32),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
 
@@ -682,50 +799,62 @@ class _HistoryCardFinanceState extends State<HistoryCardFinance> {
       itemBuilder: (context, index) {
         final item = widget.incomeHistory[index];
         return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            Text(
-              '${item.date} ${item.time}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFF5E5E5E),
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            InkWell(
-              onTap: () => widget.onIncomeItemAmountTap(item), // ใช้ callback
-              child: RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: item.amount,
-                      style: const TextStyle(
-                        color: Color(0XFF0E9D7A),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    TextSpan(
-                      text: '/${item.totalAmount}',
-                      style: const TextStyle(
-                        color: Color(0xFF5E5E5E),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+            Expanded(
+              flex: 3,
+              child: Text(
+                '${item.date}\n${item.time}', // ปรับให้ขึ้นบรรทัดใหม่ ประหยัดพื้นที่
+                textAlign: TextAlign.start,
+                style: const TextStyle(
+                  color: Color(0xFF5E5E5E),
+                  fontSize: 13, // ลดขนาดลงนิดนึงให้ลงตัว
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
-            InkWell(
-              onTap: () => widget.onIncomeItemGroupTap(item), // ใช้ callback
-              child: Text(
-                item.groupName,
-                style: const TextStyle(
-                  color: Color(0xFF5E5E5E),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+            Expanded(
+              flex: 3,
+              child: InkWell(
+                onTap: () => widget.onIncomeItemAmountTap(item), // ใช้ callback
+                child: RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: item.amount,
+                        style: const TextStyle(
+                          color: Color(0XFF0E9D7A),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '/${item.totalAmount}',
+                        style: const TextStyle(
+                          color: Color(0xFF5E5E5E),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 4,
+              child: InkWell(
+                onTap: () => widget.onIncomeItemGroupTap(item), // ใช้ callback
+                child: Text(
+                  item.groupName,
+                  textAlign: TextAlign.end,
+                  overflow: TextOverflow
+                      .ellipsis, // เพิ่มการตัดคำด้วย ... ถ้าชื่อยาวไป
+                  style: const TextStyle(
+                    color: Color(0xFF5E5E5E),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
@@ -795,12 +924,16 @@ class IncomeChartCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
-              totalIncomeText,
-              style: const TextStyle(
-                color: Color(0xFF393941),
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Text(
+                totalIncomeText,
+                style: const TextStyle(
+                  color: Color(0xFF393941),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             const SizedBox(height: 24),

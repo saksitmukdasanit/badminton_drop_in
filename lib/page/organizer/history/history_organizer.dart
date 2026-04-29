@@ -438,7 +438,13 @@ class _HistoryOrganizerPageState extends State<HistoryOrganizerPage> {
         SizedBox(height: 10),
         DetailsCard(model: model),
         SizedBox(height: 10),
-        ActionButtons(model: model, onNavigateBack: _fetchHistory),
+        ActionButtons(model: model, onNavigateBack: () {
+          _fetchHistory(refresh: true); // บังคับดึงข้อมูลรายการใหม่
+          if (model != null && model['gameSessionId'] != null) {
+            _fetchSessionDetail(model['gameSessionId']); // โหลดรายละเอียดใหม่
+            _fetchAnalytics(model['gameSessionId']); // โหลดสถิติใหม่
+          }
+        }),
         SizedBox(height: 10),
       ],
     );

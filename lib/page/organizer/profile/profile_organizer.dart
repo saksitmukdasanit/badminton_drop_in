@@ -353,7 +353,9 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
       // ดึงรายละเอียด Session
       final sessionRes = await ApiProvider().get('/GameSessions/$sessionId');
       // ดึง Analytics
-      final analyticsRes = await ApiProvider().get('/GameSessions/$sessionId/analytics');
+      final analyticsRes = await ApiProvider().get(
+        '/GameSessions/$sessionId/analytics',
+      );
 
       if (mounted) {
         setState(() {
@@ -368,12 +370,14 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     } catch (e) {
       // Handle error
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('โหลดข้อมูลรายละเอียดไม่สำเร็จ: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('โหลดข้อมูลรายละเอียดไม่สำเร็จ: $e')),
+        );
       }
     }
   }
 
-  _uploadImage(List<File> file,String type) async {
+  _uploadImage(List<File> file, String type) async {
     try {
       final response = await ApiProvider().uploadFiles(
         files: file,
@@ -759,7 +763,9 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
           ..._bottomMenuItems.map((item) {
             return menu(item.title, item.onTap, path: item.iconPath);
           }),
-          const SizedBox(height: 100), // เพิ่มระยะห่างด้านล่างไม่ให้เมนูบาร์บังปุ่ม Logout
+          const SizedBox(
+            height: 100,
+          ), // เพิ่มระยะห่างด้านล่างไม่ให้เมนูบาร์บังปุ่ม Logout
         ],
       ),
     );
@@ -1435,7 +1441,13 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   // ------- Tap 5 -------
   void _showWithdrawAmountSheet() {
     if ((_financeDashboard?['balance'] ?? 0) <= 0) {
-      showDialogMsg(context, title: 'ไม่สามารถถอนเงินได้', subtitle: 'ยอดเงินคงเหลือของคุณไม่เพียงพอ หรือมียอดค้างชำระติดลบอยู่', btnLeft: 'ตกลง', onConfirm: (){});
+      showDialogMsg(
+        context,
+        title: 'ไม่สามารถถอนเงินได้',
+        subtitle: 'ยอดเงินคงเหลือของคุณไม่เพียงพอ หรือมียอดค้างชำระติดลบอยู่',
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
       return;
     }
 
@@ -1458,7 +1470,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               'ถอนเงินจำนวน',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            Text('ยอดที่ถอนได้สูงสุด: ${NumberFormat('#,##0').format(_financeDashboard?['balance'] ?? 0)} บาท', style: const TextStyle(color: Colors.grey)),
+            Text(
+              'ยอดที่ถอนได้สูงสุด: ${NumberFormat('#,##0').format(_financeDashboard?['balance'] ?? 0)} บาท',
+              style: const TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 16),
             TextFormField(
               controller: amountController,
@@ -1474,11 +1489,17 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               child: ElevatedButton(
                 onPressed: () {
                   final double? amount = double.tryParse(amountController.text);
-                  if (amount != null && amount > 0 && amount <= (_financeDashboard?['balance'] ?? 0)) {
-                    Navigator.pop(ctx); 
+                  if (amount != null &&
+                      amount > 0 &&
+                      amount <= (_financeDashboard?['balance'] ?? 0)) {
+                    Navigator.pop(ctx);
                     _showWithdrawConfirmationDialog(amount);
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('จำนวนเงินไม่ถูกต้อง หรือเกินยอดคงเหลือ')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('จำนวนเงินไม่ถูกต้อง หรือเกินยอดคงเหลือ'),
+                      ),
+                    );
                   }
                 },
                 child: const Text('ถอนเงิน'),
@@ -1493,7 +1514,8 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
   void _showWithdrawConfirmationDialog(double amount) {
     final bankName = _financeDashboard?['bankName'] ?? 'ยังไม่ได้ตั้งค่า';
-    final accountNo = _financeDashboard?['bankAccountNumber'] ?? 'ยังไม่ได้ตั้งค่า';
+    final accountNo =
+        _financeDashboard?['bankAccountNumber'] ?? 'ยังไม่ได้ตั้งค่า';
     final nationalId = _financeDashboard?['nationalId'] ?? '-';
     final photoUrl = _financeDashboard?['bankAccountPhotoUrl'];
 
@@ -1513,10 +1535,17 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                   onPressed: () => Navigator.pop(ctx),
                 ),
               ),
-              _buildDialogRow('ถอนเงิน', '${NumberFormat('#,##0').format(amount)} บาท'),
+              _buildDialogRow(
+                'ถอนเงิน',
+                '${NumberFormat('#,##0').format(amount)} บาท',
+              ),
               _buildDialogRow('ค่าธรรมเนียม', '0 บาท'),
               const Divider(height: 24),
-              _buildDialogRow('ราคารวม', '${NumberFormat('#,##0').format(amount)} บาท', isBold: true),
+              _buildDialogRow(
+                'ราคารวม',
+                '${NumberFormat('#,##0').format(amount)} บาท',
+                isBold: true,
+              ),
               const SizedBox(height: 20),
               const Text('ยืนยันการถอนเงินไปที่'),
               const SizedBox(height: 16),
@@ -1549,7 +1578,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
               const SizedBox(height: 12),
               TextField(
                 readOnly: true,
-                controller: TextEditingController(text: photoUrl != null ? '(แนบรูปสมุดบัญชีไว้แล้ว)' : 'ไม่มีรูปสมุดบัญชี'),
+                controller: TextEditingController(
+                  text: photoUrl != null
+                      ? '(แนบรูปสมุดบัญชีไว้แล้ว)'
+                      : 'ไม่มีรูปสมุดบัญชี',
+                ),
                 decoration: InputDecoration(
                   labelText: 'รูป Bookbank *',
                   border: const OutlineInputBorder(),
@@ -1578,13 +1611,26 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
   }
 
   Future<void> _processWithdraw(double amount) async {
-    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
-      final res = await ApiProvider().post('/organizer/finance/withdraw', data: {'amount': amount});
+      final res = await ApiProvider().post(
+        '/organizer/finance/withdraw',
+        data: {'amount': amount},
+      );
       if (mounted) {
         Navigator.pop(context); // close loading
         if (res['status'] == 200) {
-          showDialogMsg(context, title: 'ทำรายการสำเร็จ', subtitle: res['message'] ?? 'ส่งคำขอถอนเงินเรียบร้อยแล้ว', btnLeft: 'ตกลง', onConfirm: () => _fetchFinanceDashboard());
+          showDialogMsg(
+            context,
+            title: 'ทำรายการสำเร็จ',
+            subtitle: res['message'] ?? 'ส่งคำขอถอนเงินเรียบร้อยแล้ว',
+            btnLeft: 'ตกลง',
+            onConfirm: () => _fetchFinanceDashboard(),
+          );
         }
       }
     } catch (e) {
@@ -1592,9 +1638,24 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
         Navigator.pop(context); // close loading
         final errorMsg = e.toString().replaceFirst('Exception: ', '');
         if (errorMsg.contains('ตั้งค่าบัญชี')) {
-           showDialogMsg(context, title: 'แจ้งเตือน', subtitle: errorMsg, btnLeft: 'ไปตั้งค่าบัญชี', btnRight: 'ปิด', btnLeftBackColor: Colors.white, btnLeftForeColor: Theme.of(context).colorScheme.primary, onConfirm: () => context.push('/edit-transfer'));
+          showDialogMsg(
+            context,
+            title: 'แจ้งเตือน',
+            subtitle: errorMsg,
+            btnLeft: 'ไปตั้งค่าบัญชี',
+            btnRight: 'ปิด',
+            btnLeftBackColor: Colors.white,
+            btnLeftForeColor: Theme.of(context).colorScheme.primary,
+            onConfirm: () => context.push('/edit-transfer'),
+          );
         } else {
-           showDialogMsg(context, title: 'เกิดข้อผิดพลาด', subtitle: errorMsg, btnLeft: 'ตกลง', onConfirm: () {});
+          showDialogMsg(
+            context,
+            title: 'เกิดข้อผิดพลาด',
+            subtitle: errorMsg,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
         }
       }
     }
@@ -1627,11 +1688,15 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
 
   Widget _buildFinanceForm(BuildContext context) {
     final chartGames = _financeDashboard?['latestGames'] as List? ?? [];
-    List<ChartGroup> chartData = chartGames.map((g) => ChartGroup(
-      name: g['name'] ?? 'N/A',
-      playersValue: (g['playersCount'] ?? 0).toDouble(),
-      paidValue: (g['paidCount'] ?? 0).toDouble(),
-    )).toList();
+    List<ChartGroup> chartData = chartGames
+        .map(
+          (g) => ChartGroup(
+            name: g['name'] ?? 'N/A',
+            playersValue: (g['playersCount'] ?? 0).toDouble(),
+            paidValue: (g['paidCount'] ?? 0).toDouble(),
+          ),
+        )
+        .toList();
     double currentBalance = (_financeDashboard?['balance'] ?? 0).toDouble();
     bool isNegative = currentBalance < 0;
 
@@ -1657,18 +1722,35 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                           children: [
                             // _balanceCardFinance(),
                             BalanceCardFinance(
-                              title: isNegative ? 'ยอดค้างชำระระบบ (ติดลบ)' : 'เงินคงเหลือ',
-                              balanceColor: isNegative ? Colors.redAccent : Colors.white,
-                              balance: '${NumberFormat('#,##0').format(currentBalance)} บาท',
-                              incomeText: 'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
-                              pendingText: 'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
-                              onWithdrawPressed: () => _showWithdrawAmountSheet(),
+                              title: isNegative
+                                  ? 'ยอดค้างชำระระบบ (ติดลบ)'
+                                  : 'เงินคงเหลือ',
+                              balanceColor: isNegative
+                                  ? Colors.redAccent
+                                  : Colors.white,
+                              balance:
+                                  '${NumberFormat('#,##0').format(currentBalance)} บาท',
+                              incomeText:
+                                  'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
+                              pendingText:
+                                  'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
+                              onWithdrawPressed: () =>
+                                  _showWithdrawAmountSheet(),
                             ),
                             SizedBox(height: 16),
                             IncomeChartCard(
                               title: 'รายละเอียด 5 เกมล่าสุด',
-                              totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
-                              chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
+                              totalIncomeText:
+                                  'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
+                              chartData: chartData.isNotEmpty
+                                  ? chartData
+                                  : [
+                                      ChartGroup(
+                                        name: 'ไม่มีข้อมูล',
+                                        playersValue: 0,
+                                        paidValue: 0,
+                                      ),
+                                    ],
                               onDetailsPressed: () {
                                 print('Details button pressed!');
                                 // Navigate to details page
@@ -1682,17 +1764,23 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                         child: HistoryCardFinance(
                           initialTimeRange: 'วันนี้',
                           timeRangeItems: [
-                            {"1": 'วันนี้'},
-                            {"2": 'สัปดาห์นี้'},
-                            {"3": 'เดือนนี้'},
-                            {"4": 'ทั้งหมด'},
+                            {"code": "วันนี้", "value": 'วันนี้'},
+                            {"code": "สัปดาห์นี้", "value": 'สัปดาห์นี้'},
+                            {"code": "เดือนนี้", "value": 'เดือนนี้'},
+                            {"code": "ทั้งหมด", "value": 'ทั้งหมด'},
                           ],
                           // แปลงข้อมูลจาก API เป็น HistoryItem
                           incomeHistory: _financeHistoryList.map((item) {
-                            final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
+                            final dt =
+                                DateTime.tryParse(
+                                  item['date'] ?? '',
+                                )?.toLocal() ??
+                                DateTime.now();
                             return HistoryItem(
-                              date: '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}',
-                              time: '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}',
+                              date:
+                                  '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}',
+                              time:
+                                  '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
                               amount: '${item['paidAmount'] ?? 0}',
                               totalAmount: '${item['totalIncome'] ?? 0}',
                               groupName: item['groupName'] ?? '-',
@@ -1712,7 +1800,9 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                               isHistoryFinance = true;
                             });
                             if (item.originalData['gameSessionId'] != null) {
-                              _fetchFinanceSessionDetail(item.originalData['gameSessionId']);
+                              _fetchFinanceSessionDetail(
+                                item.originalData['gameSessionId'],
+                              );
                             }
                           },
                           onIncomeItemGroupTap: (item) {
@@ -1721,7 +1811,9 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                               isHistory = true;
                             });
                             if (item.originalData['gameSessionId'] != null) {
-                              _fetchFinanceSessionDetail(item.originalData['gameSessionId']);
+                              _fetchFinanceSessionDetail(
+                                item.originalData['gameSessionId'],
+                              );
                             }
                           },
                         ),
@@ -1753,18 +1845,34 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       BalanceCardFinance(
-                        title: isNegative ? 'ยอดค้างชำระระบบ (ติดลบ)' : 'เงินคงเหลือ',
-                        balanceColor: isNegative ? Colors.redAccent : Colors.white,
-                        balance: '${NumberFormat('#,##0').format(currentBalance)} บาท',
-                        incomeText: 'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
-                        pendingText: 'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
+                        title: isNegative
+                            ? 'ยอดค้างชำระระบบ (ติดลบ)'
+                            : 'เงินคงเหลือ',
+                        balanceColor: isNegative
+                            ? Colors.redAccent
+                            : Colors.white,
+                        balance:
+                            '${NumberFormat('#,##0').format(currentBalance)} บาท',
+                        incomeText:
+                            'รายได้รวม: ${_financeDashboard?['totalIncome'] ?? 0} บาท',
+                        pendingText:
+                            'รอชำระ: ${_financeDashboard?['pendingAmount'] ?? 0} บาท',
                         onWithdrawPressed: () => _showWithdrawAmountSheet(),
                       ),
                       SizedBox(height: 16),
                       IncomeChartCard(
                         title: 'รายละเอียด 5 เกมล่าสุด',
-                        totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
-                        chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
+                        totalIncomeText:
+                            'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
+                        chartData: chartData.isNotEmpty
+                            ? chartData
+                            : [
+                                ChartGroup(
+                                  name: 'ไม่มีข้อมูล',
+                                  playersValue: 0,
+                                  paidValue: 0,
+                                ),
+                              ],
                         onDetailsPressed: () {
                           print('Details button pressed!');
                           // Navigate to details page
@@ -1774,10 +1882,10 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
                       HistoryCardFinance(
                         initialTimeRange: 'วันนี้',
                         timeRangeItems: [
-                          {"1": 'วันนี้'},
-                          {"2": 'สัปดาห์นี้'},
-                          {"3": 'เดือนนี้'},
-                          {"4": 'ทั้งหมด'},
+                          {"code": "วันนี้", "value": 'วันนี้'},
+                          {"code": "สัปดาห์นี้", "value": 'สัปดาห์นี้'},
+                          {"code": "เดือนนี้", "value": 'เดือนนี้'},
+                          {"code": "ทั้งหมด", "value": 'ทั้งหมด'},
                         ],
                         incomeHistory: [
                           HistoryItem(
@@ -1931,14 +2039,19 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
       children: [
         SummaryCard(data: _financeAnalytics),
         SizedBox(height: 16),
-        GameTimingCard(games: _financeAnalytics?['matchHistory'] is List ? _financeAnalytics!['matchHistory'] : [])
+        GameTimingCard(
+          games: _financeAnalytics?['matchHistory'] is List
+              ? _financeAnalytics!['matchHistory']
+              : [],
+        ),
       ],
     );
   }
 
   Widget detailsViewHistoryFinance(BuildContext context, {Function()? onBack}) {
     final bool isMobile = onBack != null;
-    final shuttlecockRate = _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
+    final shuttlecockRate =
+        _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
@@ -1967,7 +2080,8 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
     Function()? onBack,
   }) {
     final bool isMobile = onBack != null;
-    final shuttlecockRate = _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
+    final shuttlecockRate =
+        _selectedFinanceSession?['shuttlecockFeePerPerson'] ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
