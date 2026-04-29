@@ -12,25 +12,6 @@ import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:go_router/go_router.dart';
 
-// --- Data Models (สร้างขึ้นมาเพื่อจัดระเบียบข้อมูล) ---
-class IncomeHistory {
-  final String date;
-  final String time;
-  final String groupName;
-  final int income;
-  final int total;
-  IncomeHistory(this.date, this.time, this.groupName, this.income, this.total);
-}
-
-class WithdrawalHistory {
-  final String date;
-  final String time;
-  final int amount;
-  final String bank;
-  final String status;
-  WithdrawalHistory(this.date, this.time, this.amount, this.bank, this.status);
-}
-
 // --- Main Widget ---
 class FinancePage extends StatefulWidget {
   const FinancePage({super.key});
@@ -39,10 +20,9 @@ class FinancePage extends StatefulWidget {
   State<FinancePage> createState() => _FinancePageState();
 }
 
-bool isHistory = false;
-bool isHistoryFinance = false;
-
 class _FinancePageState extends State<FinancePage> {
+  bool isHistory = false;
+  bool isHistoryFinance = false;
   Map<String, dynamic>? _financeDashboard;
   bool _isDashboardLoading = true;
   List<dynamic> _financeHistoryList = [];
@@ -126,9 +106,7 @@ class _FinancePageState extends State<FinancePage> {
     double currentBalance = (_financeDashboard?['balance'] ?? 0).toDouble();
     bool isNegative = currentBalance < 0;
 
-    return DefaultTabController(
-      length: 2, // จำนวน Tab
-      child: Scaffold(
+    return Scaffold(
         appBar: AppBarSubMain(title: 'การเงิน', isBack: false),
         body: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -151,7 +129,6 @@ class _FinancePageState extends State<FinancePage> {
                       totalIncomeText: 'รายได้ ${NumberFormat('#,##0').format(_financeDashboard?['chartTotalIncome'] ?? 0)} บาท',
                       chartData: chartData.isNotEmpty ? chartData : [ChartGroup(name: 'ไม่มีข้อมูล', playersValue: 0, paidValue: 0)],
                       onDetailsPressed: () {
-                        DefaultTabController.of(context).animateTo(1);
                         setState(() {
                           isHistory = false;
                           isHistoryFinance = false;
@@ -160,12 +137,12 @@ class _FinancePageState extends State<FinancePage> {
                     ),
                     const SizedBox(height: 16),
                     HistoryCardFinance(
-                      initialTimeRange: 'วันนี้',
+                      initialTimeRange: '1',
                       timeRangeItems: [
-                        {"code": 1, "value": 'วันนี้'},
-                        {"code": 2, "value": 'สัปดาห์นี้'},
-                        {"code": 3, "value": 'เดือนนี้'},
-                        {"code": 4, "value": 'ทั้งหมด'},
+                        {"code": "1", "value": 'วันนี้'},
+                        {"code": "2", "value": 'สัปดาห์นี้'},
+                        {"code": "3", "value": 'เดือนนี้'},
+                        {"code": "4", "value": 'ทั้งหมด'},
                       ],
                   incomeHistory: _financeHistoryList.map((item) {
                     final dt = DateTime.tryParse(item['date'] ?? '')?.toLocal() ?? DateTime.now();
@@ -213,7 +190,6 @@ class _FinancePageState extends State<FinancePage> {
             ],
           ),
         ),
-      ),
     );
   }
 

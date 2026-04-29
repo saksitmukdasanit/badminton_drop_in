@@ -145,6 +145,8 @@ class _PaymentPageState extends State<PaymentPage> {
             billId: billId,
           );
           
+          if (!mounted) return;
+
           if (confirmed == true) {
             _showSuccessDialog();
           } else {
@@ -186,16 +188,15 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   void _showSuccessDialog() {
-    showDialogMsg(
-      context,
-      title: 'การจองสำเร็จ',
-      subtitle: 'คุณได้ชำระเงินและยืนยัน\nการเข้าร่วมก๊วนเรียบร้อยแล้ว',
-      btnLeft: 'ไปหน้าการจอง',
-      onConfirm: () {
-        context.pop();
-        context.go('/my-game-user');
-      },
+    // แจ้งเตือนและเปลี่ยนหน้าอัตโนมัติ ไม่ต้องรอให้ผู้ใช้กดปุ่ม
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('ชำระเงินสำเร็จ! ยืนยันการเข้าร่วมก๊วนเรียบร้อย'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
     );
+    context.go('/my-game-user');
   }
 
   Widget _buildPaymentDetails() {

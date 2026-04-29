@@ -58,6 +58,9 @@ class ManagePageState extends State<ManagePage> {
       if (mounted) {
         setState(() {
           _myGamesData = data;
+          if (_myGamesData.isNotEmpty && indexData >= _myGamesData.length) {
+            indexData = 0; // รีเซ็ต Index ถ้าก๊วนถูกลบจนตำแหน่งเดิมหายไป
+          }
           _isLoading = false;
         });
       }
@@ -74,12 +77,12 @@ class ManagePageState extends State<ManagePage> {
   Future<List<dynamic>> _fetchMyUpcomingGames() async {
     try {
       final response = await ApiProvider().get('/GameSessions/my-upcoming');
-      if (response != null && response['data'] is List) {
-        final data = response['data'] as List;
+      if (response != null && response['status'] == 200) {
+        final data = response['data'] as List? ?? [];
         _cleanupOldSessionData(data); // ล้างข้อมูลเก่าที่ไม่พบในรายการนี้
         return data; // คืนค่า List ของข้อมูลก๊วน
       } else {
-        throw Exception('Invalid API response format');
+        throw Exception(response?['message'] ?? 'Invalid API response format');
       }
     } catch (e) {
       // โยน Error ออกไปเพื่อให้ FutureBuilder จัดการ
@@ -94,6 +97,9 @@ class ManagePageState extends State<ManagePage> {
       if (mounted) {
         setState(() {
           _myGamesData = data;
+          if (_myGamesData.isNotEmpty && indexData >= _myGamesData.length) {
+            indexData = 0;
+          }
         });
       }
     } catch (e) {
@@ -571,11 +577,7 @@ class ManagePageState extends State<ManagePage> {
 
     switch (status) {
       case 1:
-        // [Smart Backend Alert 🚨] 
-        // Logic ตรวจสอบว่าเหลือน้อยกว่า 3 ชั่วโมงหรือยัง ควรมาจาก Backend (เช่น game['canStartSession'] == true)
-        // การใช้เวลาเครื่องมือถือคำนวณแบบนี้อันตรายมาก ถ้าผู้จัดตั้งเวลามือถือไม่ตรง ปุ่มอาจจะไม่แสดง!
-        final bool canStart = game['canStartSession'] == true || 
-            (DateTime.parse(game['sessionStart']).difference(DateTime.now()).inMinutes <= 180);
+        bool canStart = game['canStartSession'] == true;
 
         if (!canStart) {
           // มากกว่า 3 ชั่วโมง (หรือไม่ได้รับอนุญาตให้เปิด), แสดงปุ่มยกเลิก/แก้ไข

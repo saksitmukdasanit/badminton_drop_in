@@ -119,16 +119,15 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
       }
 
       if (mounted) {
-        showDialogMsg(
-          context,
-          title: 'ชำระเงินสำเร็จ',
-          subtitle:
-              'คุณได้ชำระเงินและจบการเล่นสำหรับก๊วนนี้แล้ว ขอบคุณที่ใช้บริการ',
-          btnLeft: 'กลับสู่หน้าหลัก',
-          onConfirm: () {
-            context.go('/'); // Go to home page after payment
-          },
+        // แจ้งเตือนและเปลี่ยนหน้าอัตโนมัติ ไม่ต้องรอให้ผู้ใช้กดปุ่ม
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ชำระเงินสำเร็จ! ขอบคุณที่ใช้บริการ'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
         );
+        context.go('/'); // Go to home page after payment
       }
     } catch (e) {
       if (mounted) {

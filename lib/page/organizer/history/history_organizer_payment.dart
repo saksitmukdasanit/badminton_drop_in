@@ -146,9 +146,25 @@ class _HistoryOrganizerPaymentPageState
   // --- NEW: ฟังก์ชันยิง API จ่ายเงิน ---
   Future<void> _confirmPaymentAPI(int billId, String method, double amount) async {
     try {
-      await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
+      final res = await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
 
       if (mounted) {
+        // --- NEW: ถ้าเป็น QR Code ให้แสดง Popup สแกน ---
+        if (method == 'QR Code' && res['data'] != null && res['data']['qrCode'] != null) {
+          String qrString = res['data']['qrCode'];
+          final confirmed = await showQrPaymentDialog(
+            context, 
+            amount, 
+            qrData: qrString,
+            sessionId: widget.sessionId,
+            billId: billId,
+          );
+          
+          if (confirmed != true) {
+            return; // ถ้ายกเลิก/กดปิด QR เอง ไม่ต้องโชว์ Success
+          }
+        }
+
         _hidePaymentPanel();
         _fetchSessionData();
         
