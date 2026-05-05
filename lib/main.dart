@@ -40,6 +40,7 @@ import 'package:badminton/page/user/profile/saved_payment.dart';
 import 'package:badminton/page/user/profile/profile_user.dart';
 import 'package:badminton/page/user/wallet/my_wallet_page.dart';
 import 'package:badminton/page/user/search/search_user.dart';
+import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/navigator_key.dart'; // --- FIX: Import navigator_key เพื่อใช้ Global Key ตัวเดียวกับ ApiProvider ---
 import 'package:flutter/material.dart';
