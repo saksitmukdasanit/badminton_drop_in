@@ -52,12 +52,14 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response['status'] == 200) {
         final token = response['data'];
 
+        // เอา await ออก เพื่อให้ระบบไปอัปเดต Token เบื้องหลัง จะได้ไม่บล็อกหน้าจอให้หมุนค้าง
+        FirebaseMessagingService().updateTokenToServer();
+
         if (mounted) {
           Provider.of<AuthProvider>(context, listen: false).login(token);
+          // บังคับเปลี่ยนหน้าไป Home ทันทีเพื่อความชัวร์
+          context.go('/'); 
         }
-            
-            // ส่ง FCM Token ไปที่ Backend เพื่อรับ Push Notification
-            await FirebaseMessagingService().updateTokenToServer();
       }
     } catch (e) {
       if (mounted) {
@@ -77,6 +79,12 @@ class _LoginScreenState extends State<LoginScreen> {
             }
           },
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false; // สั่งหยุดหมุนเสมอไม่ว่าจะสำเร็จหรือพัง
+        });
       }
     }
   }

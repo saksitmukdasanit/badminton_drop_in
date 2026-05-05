@@ -78,6 +78,7 @@ class _PlayerAvatarState extends State<PlayerAvatar> {
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark
         ? Colors.white
         : Colors.black87;
+    final bool isWalkIn = widget.player.id.startsWith('Guest_');
 
     return Card(
       clipBehavior: Clip.antiAlias, // ตัด child ให้เป็นวงกลมตาม Card
@@ -104,30 +105,46 @@ class _PlayerAvatarState extends State<PlayerAvatar> {
 
           // --- Column 2: รูปภาพ ---
           Expanded(
-            child: (widget.player.imageUrl != null && widget.player.imageUrl!.isNotEmpty)
-                ? Image.network(
-                    widget.player.imageUrl!,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    // เพิ่ม Loading Builder เพื่อให้ UX ดีขึ้น
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.person, color: Colors.grey);
-                    },
-                  )
-                : const Icon(Icons.person, color: Colors.grey),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                (widget.player.imageUrl != null && widget.player.imageUrl!.isNotEmpty)
+                    ? Image.network(
+                        widget.player.imageUrl!,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(Icons.person, color: Colors.grey);
+                        },
+                      )
+                    : const Icon(Icons.person, color: Colors.grey),
+                // --- ปรับปรุง: ใช้ Icon Badge สำหรับ Walk-in แทน Text ---
+                if (isWalkIn)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(
+                        color: Colors.orange,
+                        borderRadius: BorderRadius.only(bottomLeft: Radius.circular(8)),
+                      ),
+                      child: const Icon(Icons.hail, size: 14, color: Colors.white), // Icon คนเดิน (Walk-in)
+                    ),
+                  ),
+              ],
+            ),
           ),
 
           // --- Column 3: ข้อมูลและสีพื้นหลัง ---
           Container(
             color: color,
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+            padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 2.0),
             child: Column(
               children: [
                 Text(
@@ -135,57 +152,42 @@ class _PlayerAvatarState extends State<PlayerAvatar> {
                   style: TextStyle(
                     color: textColor,
                     fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontSize: widget.isPlaying ? 12 : 14, // ลดขนาดฟอนต์นิดนึงถ้าอยู่ในสนาม
                   ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
-                const SizedBox(height: 2),
-                // --- NEW: แสดง Stats แบบ Badge ภายใน Card ---
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    // Badge จำนวนเกม
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'G: ${widget.player.gamesPlayed ?? 0}',
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                // ซ่อนสถิติ (G: และ W:) เมื่อลากลงสนาม เพื่อไม่ให้การ์ดถูกบีบจนมองไม่เห็นรูป
+                if (!widget.isPlaying) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'G: ${widget.player.gamesPlayed ?? 0}',
+                          style: TextStyle(color: textColor, fontSize: 10, fontWeight: FontWeight.bold),
                         ),
                       ),
-                    ),
-                    // Badge เวลาที่รอ (สีน้ำเงินเข้ม ตัวหนังสือเหลือง)
-                    // FIX: แสดงตลอดเวลา แต่หยุดนับเมื่อ isPlaying (จัดการใน Timer)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.shade900,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'W: ${_formatDuration(_currentDuration)}', // ใช้วลาที่นับเอง
-                        style: const TextStyle(
-                          color: Colors.yellowAccent,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade900,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'W: ${_formatDuration(_currentDuration)}',
+                          style: const TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ]
               ],
             ),
           ),

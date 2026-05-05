@@ -77,7 +77,7 @@ class BookingConfirmPage extends StatefulWidget {
   State<BookingConfirmPage> createState() => _BookingConfirmPageState();
 }
 
-class _BookingConfirmPageState extends State<BookingConfirmPage> {
+class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBindingObserver {
   final PageController _pageController = PageController();
   Timer? _timer;
   int _currentPage = 0;
@@ -95,6 +95,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // ผูก Observer เพื่อดักจับสถานะหน้าจอ
     _imageUrls = widget.details.courtImageUrls; // <-- ใช้ข้อมูลที่ส่งมา
 
     // --- NEW: โหลดข้อมูล User และต่อ SignalR เพื่อรอรับสัญญาณ Check-in ---
@@ -127,10 +128,25 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // ยกเลิก Observer
     _timer?.cancel();
     _pageController.dispose();
     _hubConnection?.stop(); // ปิดการเชื่อมต่อเมื่อออกจากหน้า
     super.dispose();
+  }
+
+  // --- NEW: ดักจับเหตุการณ์เมื่อแอปถูกพับหรือจอเปิดขึ้นมาใหม่ ---
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // โหลดข้อมูลยอดค้างชำระใหม่ และเช็ค SignalR
+      if (widget.details.currentUserStatus == 'PendingPayment' || widget.details.status == 5) {
+        _fetchPendingAmount();
+      }
+      if (_hubConnection?.state == HubConnectionState.Disconnected) {
+        _hubConnection?.start();
+      }
+    }
   }
 
   Future<void> _fetchPendingAmount() async {
@@ -579,7 +595,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  '* นโยบายคืนเงิน: หากคุณกดยกเลิกการจองด้วยตนเอง จะได้รับคืนเฉพาะค่าสนาม (ไม่รวมค่าธรรมเนียมแพลตฟอร์ม) แต่หากผู้จัดเป็นผู้ยกเลิกก๊วน คุณจะได้รับเงินคืนเต็มจำนวน',
+                  '* นโยบายคืนเงิน: หากคุณกดยกเลิกการจอง คุณจะได้รับเงินคืนเต็มจำนวน (รวมค่าธรรมเนียมแพลตฟอร์ม)',
                   style: TextStyle(fontSize: 12, color: Colors.redAccent),
                 ),
               ],
@@ -739,7 +755,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> {
       context,
       title: 'ยืนยันการยกเลิก',
       subtitle:
-          'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?\n\n*หมายเหตุ: ตามนโยบายคืนเงิน ค่าธรรมเนียมแพลตฟอร์มจะไม่สามารถขอคืนได้ในกรณีที่คุณเป็นผู้กดยกเลิกเอง',
+          'คุณต้องการยกเลิกการเข้าร่วมก๊วนนี้ใช่หรือไม่?',
       isWarning: true,
       btnLeft: 'ยกเลิกก๊วน',
       btnLeftBackColor: Colors.red,

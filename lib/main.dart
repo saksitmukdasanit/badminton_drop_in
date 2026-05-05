@@ -409,15 +409,41 @@ class _MyAppState extends State<MyApp> {
     if (initialMessage != null) {
       final referenceId = initialMessage.data['referenceId'];
       if (referenceId != null && referenceId.isNotEmpty) {
-        // รอให้แอป Build เฟรมแรกเสร็จก่อน (เพื่อให้ GoRouter พร้อมและมี Context)
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
           final context = navigatorKey.currentContext;
           if (context != null) {
             final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
-            if (role == Role.organizer) {
-              context.push('/manage-game/$referenceId');
-            } else {
-              context.push('/game-player/$referenceId');
+            
+            try {
+              // ยิง API เช็คสถานะก่อน เพื่อไม่ให้เด้งไปหน้า Live Board มั่วๆ
+              if (role == Role.organizer) {
+                final response = await ApiProvider().get('/GameSessions/$referenceId');
+                if (response['status'] == 200 && response['data'] != null) {
+                  final int status = response['data']['status'] ?? 1;
+                  if (status == 1) context.go('/manage');
+                  else if (status == 2) context.push('/manage-game/$referenceId');
+                  else context.push('/history-organizer-payment', extra: int.parse(referenceId));
+                }
+              } else {
+                final response = await ApiProvider().get('/player/gamesessions/$referenceId');
+                if (response['status'] == 200 && response['data'] != null) {
+                  final int status = response['data']['status'] ?? 1;
+                  final String userStatus = response['data']['currentUserStatus'] ?? 'NotJoined';
+                  
+                  if (status == 2 && userStatus == 'CheckedIn') {
+                    context.push('/game-player/$referenceId');
+                  } else if (status == 3 || status == 4 || userStatus == 'CheckedOut') {
+                    context.push('/history-detail/$referenceId');
+                  } else {
+                    context.go('/my-game-user');
+                  }
+                }
+              }
+            } catch (e) {
+              // ถ้าเช็ค API พัง ให้ปลอดภัยไว้ก่อนโดยกลับไปหน้าแรก
+              if (context.mounted) {
+                context.go('/');
+              }
             }
           }
         });

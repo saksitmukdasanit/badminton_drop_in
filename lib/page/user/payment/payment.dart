@@ -22,7 +22,7 @@ class PaymentPage extends StatefulWidget {
   State<PaymentPage> createState() => _PaymentPageState();
 }
 
-class _PaymentPageState extends State<PaymentPage> {
+class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   bool _autoConfirm = true;
   String? _selectedPaymentMethod;
   final List<dynamic> _paymentMethods = [
@@ -39,16 +39,43 @@ class _PaymentPageState extends State<PaymentPage> {
   double _courtFee = 0.0;
   double _serviceFee = 10.0;
 
+  bool _isQrDialogOpen = false;
+
   @override
   void initState() {
     _fetchSessionData();
+    WidgetsBinding.instance.addObserver(this);
     super.initState();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _isQrDialogOpen) {
+      _checkIfPaidAfterResume();
+    }
+  }
+
+  Future<void> _checkIfPaidAfterResume() async {
+    try {
+      final res = await ApiProvider().get('/player/gamesessions/${widget.bookingId}/history-detail');
+      if (res['data'] != null && res['data']['payment'] != null) {
+        final status = res['data']['payment']['status'];
+        if (status == 'Completed') {
+          if (_isQrDialogOpen && mounted) {
+             Navigator.of(context).pop(true); 
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Check payment status error: $e');
+    }
   }
 
   // --- ดึงข้อมูลค่าใช้จ่ายจริงจาก API ---
@@ -137,6 +164,7 @@ class _PaymentPageState extends State<PaymentPage> {
           final qrCode = response['data']?['qrCode'] ?? '00020101021129370016A000000677010111011300668000000005802TH530376454045.006304E612';
           final billId = response['data']?['billId'] ?? 0;
 
+          _isQrDialogOpen = true;
           final confirmed = await showQrPaymentDialog(
             context,
             _courtFee + _serviceFee,
@@ -144,22 +172,37 @@ class _PaymentPageState extends State<PaymentPage> {
             sessionId: int.parse(widget.bookingId),
             billId: billId,
           );
+          _isQrDialogOpen = false;
           
           if (!mounted) return;
 
           if (confirmed == true) {
             _showSuccessDialog();
           } else {
-            // --- NEW: ทางเลือกที่ 2 กดยกเลิก/ปิดหน้า QR ให้ยิง API ยกเลิกการจองทันที ---
             try {
-              await ApiProvider().delete('/player/gamesessions/${widget.bookingId}/cancel');
+              // --- ป้องกัน Race Condition: ก่อนจะยกเลิก ให้เช็คชัวร์ๆ อีกรอบว่าจ่ายไปแล้วหรือยัง เผื่อ Webhook มาช้า ---
+              final res = await ApiProvider().get('/player/gamesessions/${widget.bookingId}/history-detail');
+              if (res['data'] != null && res['data']['payment'] != null) {
+                if (res['data']['payment']['status'] == 'Completed') {
+                   // จ่ายแล้ว ไม่ต้องยกเลิก ให้แสดงสำเร็จเลย
+                   _showSuccessDialog();
+                   return;
+                }
+              }
+
+              // --- ปรับปรุง: ส่ง isAbort=true ไปด้วย เพื่อให้ Backend ดักไว้ชัวร์ๆ ว่าห้ามยกเลิกถ้าจ่ายแล้ว ---
+              await ApiProvider().delete('/player/gamesessions/${widget.bookingId}/cancel?isAbort=true');
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('ยกเลิกรายการจองแล้ว เนื่องจากยังไม่ได้ชำระเงิน')),
                 );
               }
             } catch (e) {
-              debugPrint('Cancel booking failed: $e');
+              if (e.toString().contains('PAYMENT_COMPLETED')) {
+                _showSuccessDialog(); // ถ้า Backend ฟ้องว่าจ่ายไปแล้ว ให้แสดงหน้า Success เลย
+              } else {
+                debugPrint('Cancel booking failed: $e');
+              }
             }
           }
         } else {

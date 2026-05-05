@@ -198,6 +198,27 @@ class GamePlayerPageState extends State<GamePlayerPage>
       }
     });
 
+    // --- NEW: ดักจับตอนผู้จัดกดยืนยันรับเงิน (Checkout) เพื่อเตะผู้เล่นไปหน้าประวัติ ---
+    _hubConnection!.on("PlayerCheckedOut", (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        int checkedOutUserId = int.tryParse(arguments[0].toString()) ?? 0;
+        if (_myUserId != null && checkedOutUserId == _myUserId) {
+          if (mounted) {
+            showDialogMsg(
+              context,
+              title: 'เช็คเอาท์สำเร็จ',
+              subtitle: 'ผู้จัดยืนยันการรับชำระเงินเรียบร้อยแล้ว\nระบบจะพาคุณไปยังหน้าประวัติ',
+              btnLeft: 'ตกลง',
+              btnLeftBackColor: const Color(0xFF0E9D7A),
+              onConfirm: () {
+                context.pushReplacement('/history-detail/${widget.id}');
+              },
+            );
+          }
+        }
+      }
+    });
+
     try {
       await _hubConnection!.start();
       await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
@@ -946,14 +967,19 @@ class GamePlayerPageState extends State<GamePlayerPage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        isReserve ? 'รอลงสนาม' : (isPlaying ? 'กำลังเล่น' : 'รอกดเริ่ม'),
-                        style: TextStyle(
-                          color: isPlaying ? Colors.greenAccent : Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      isReserve
+                          ? const Text(
+                              'รอลงสนาม',
+                              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                            )
+                          : (isPlaying && match['startTime'] != null)
+                              ? ReadOnlyCourtTimerWidget(
+                                  startTime: DateTime.parse(match['startTime']).toLocal(),
+                                )
+                              : const Text(
+                                  'รอกดเริ่ม',
+                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
                       Text(
                         titleText,
                         style: const TextStyle(
@@ -1037,6 +1063,61 @@ class GamePlayerPageState extends State<GamePlayerPage>
           if (!isSmall)
             Text(level, style: TextStyle(fontSize: 10, color: subTextColor)),
         ],
+      ),
+    );
+  }
+}
+
+// --- NEW: Widget สำหรับนับเวลาในสนามแบบ Read-Only ---
+class ReadOnlyCourtTimerWidget extends StatefulWidget {
+  final DateTime startTime;
+  const ReadOnlyCourtTimerWidget({super.key, required this.startTime});
+
+  @override
+  State<ReadOnlyCourtTimerWidget> createState() => _ReadOnlyCourtTimerWidgetState();
+}
+
+class _ReadOnlyCourtTimerWidgetState extends State<ReadOnlyCourtTimerWidget> {
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateTime();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
+  }
+
+  void _updateTime() {
+    if (mounted) {
+      setState(() {
+        _elapsed = DateTime.now().difference(widget.startTime);
+        if (_elapsed.isNegative) _elapsed = Duration.zero;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$twoDigitMinutes:$twoDigitSeconds";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'กำลังเล่น (${_formatDuration(_elapsed)})',
+      style: const TextStyle(
+        color: Colors.greenAccent,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
       ),
     );
   }

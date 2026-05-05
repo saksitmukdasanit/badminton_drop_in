@@ -518,11 +518,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
               if (playerMap.containsKey(playerId)) {
                 player = playerMap[playerId]!;
               } else {
-                // NEW: ตัด (1), (2) ออกจากชื่อ ถ้าหาใน Map ไม่เจอ
-                String cleanName = pInMatch.nickname.replaceAll(
-                  RegExp(r'\s\(\d+\)$'),
-                  '',
-                );
+                // ใช้ชื่อจาก Backend โดยตรง (รวมถึง (1), (2) ถ้ามี)
+                String cleanName = pInMatch.nickname;
                 player = Player(
                   id: playerId,
                   name: cleanName, // ใช้ชื่อที่ตัด (1) ออกแล้ว
@@ -606,12 +603,6 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
               } else {
                 // NEW: ตัด (1) ออกจากชื่อ
                 var pJson = pDto.toPlayerJson();
-                if (pJson['nickname'] is String) {
-                  pJson['nickname'] = (pJson['nickname'] as String).replaceAll(
-                    RegExp(r'\s\(\d+\)$'),
-                    '',
-                  );
-                }
                 player = PlayerFromJson.fromJson(pJson);
                 playerMap[playerId] = player;
 
@@ -738,9 +729,6 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                 player = playerMap[playerId]!;
               } else {
                 var pJson = pDto.toPlayerJson();
-                if (pJson['nickname'] is String) {
-                  pJson['nickname'] = (pJson['nickname'] as String).replaceAll(RegExp(r'\s\(\d+\)$'), '');
-                }
                 player = PlayerFromJson.fromJson(pJson);
                 playerMap[playerId] = player;
                 if (_playerExtraData.containsKey(playerId)) {
@@ -2802,8 +2790,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     final isEnded = _endedPlayerIds.contains(player.id); // NEW
 
     Widget avatarContent = SizedBox(
-      width: 90,
-      height: 150, // เพิ่มความสูงอีกนิดเพื่อรองรับป้ายข้อมูล
+      width: isPlaying ? 75 : 90,   // หดความกว้างลงเมื่ออยู่ในสนาม
+      height: isPlaying ? 95 : 150, // ลดความสูงลงฮวบฮาบเพื่อรักษาพื้นที่รูปภาพ
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -2903,11 +2891,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         (courtOrTeam is PlayingCourt && courtOrTeam.isLocked);
     Player? player = courtOrTeam.players[slotIndex];
 
-    // --- NEW: เช็คว่ากำลังเล่นอยู่ในสนามจริงหรือไม่ ---
-    bool isPlaying = false;
-    if (courtOrTeam is PlayingCourt && courtOrTeam.status == CourtStatus.playing) {
-      isPlaying = true;
-    }
+    // ให้ถือว่าการอยู่ใน Slot (ทั้งสนามและสำรอง) ต้องย่อขนาดการ์ดเสมอ เพื่อไม่ให้รูปภาพโดนบีบหายไป
+    bool isPlaying = true;
 
     return DragTarget<Object>(
       builder: (context, candidateData, rejectedData) {

@@ -40,7 +40,7 @@ class QrPaymentDialog extends StatefulWidget {
   State<QrPaymentDialog> createState() => _QrPaymentDialogState();
 }
 
-class _QrPaymentDialogState extends State<QrPaymentDialog> {
+class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingObserver {
   HubConnection? _hubConnection;
   int? _myUserId;
   final GlobalKey _qrKey = GlobalKey();
@@ -51,6 +51,7 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchMyUserIdAndInitSignalR();
     _startTimer();
   }
@@ -110,7 +111,17 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_hubConnection?.state == HubConnectionState.Disconnected) {
+        _hubConnection?.start();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _hubConnection?.stop(); // ปิดการเชื่อมต่อเมื่อปิด Dialog
     super.dispose();

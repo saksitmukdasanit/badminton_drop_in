@@ -16,7 +16,7 @@ class PaymentNowPage extends StatefulWidget {
   State<PaymentNowPage> createState() => _PaymentNowPageState();
 }
 
-class _PaymentNowPageState extends State<PaymentNowPage> {
+class _PaymentNowPageState extends State<PaymentNowPage> with WidgetsBindingObserver {
   bool _isLoading = true;
   dynamic _billData;
   String? _selectedPaymentMethod;
@@ -26,11 +26,45 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
     {"code": 'Cash', "value": 'เงินสด'},
     {"code": 'Wallet', "value": 'กระเป๋าเงิน (Wallet)'},
   ];
+  bool _isQrDialogOpen = false; // ตัวแปรสำหรับเช็คสถานะการเปิดหน้าต่าง QR
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // ลงทะเบียนดักจับสถานะแอป
     _fetchMyBill();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // ยกเลิกดักจับเมื่อออกจากหน้า
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // เมื่อกลับมาจากแอปธนาคาร (Resumed) และ QR Dialog กำลังเปิดอยู่
+    if (state == AppLifecycleState.resumed && _isQrDialogOpen) {
+      _checkIfPaidAfterResume();
+    }
+  }
+
+  Future<void> _checkIfPaidAfterResume() async {
+    try {
+      // ดึงประวัติมาดูว่าบิลก๊วนนี้ถูกเปลี่ยนสถานะเป็นจ่ายแล้ว (Completed) หรือยัง
+      final res = await ApiProvider().get('/player/gamesessions/${widget.code}/history-detail');
+      if (res['data'] != null && res['data']['payment'] != null) {
+        final status = res['data']['payment']['status'];
+        if (status == 'Completed') {
+          if (_isQrDialogOpen && mounted) {
+             // ถ้าจ่ายแล้ว ให้สั่งปิดหน้าต่าง QR Code ทันที พร้อมส่งค่า true (เสมือนจ่ายสำเร็จ)
+             Navigator.of(context).pop(true); 
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Check payment status error: $e');
+    }
   }
 
   Future<void> _fetchMyBill() async {
@@ -104,6 +138,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
       if (_selectedPaymentMethod == 'QR Code' && response['data'] != null && response['data']['qrCode'] != null) {
         String qrString = response['data']['qrCode'];
         int billId = response['data']['billId'];
+        _isQrDialogOpen = true; // มาร์คว่าเปิด QR อยู่
         final confirmed = await showQrPaymentDialog(
           context, 
           totalAmount, 
@@ -111,6 +146,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> {
           sessionId: int.parse(widget.code),
           billId: billId,
         );
+        _isQrDialogOpen = false; // มาร์คว่าปิด QR แล้ว
         
         if (confirmed != true) {
           setState(() => _isLoading = false);
