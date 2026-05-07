@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:badminton/navigator_key.dart'; // Import GlobalKey
 import 'package:provider/provider.dart';
 import 'package:badminton/shared/user_role.dart';
+import 'package:badminton/shared/booking_details_mapper.dart';
 
 // Top-level function ต้องอยู่นอก Class เพื่อรับ Notification ตอนแอปปิดอยู่ (Background/Terminated)
 @pragma('vm:entry-point')
@@ -25,16 +26,72 @@ class FirebaseMessagingService {
   final FlutterLocalNotificationsPlugin _localNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   // --- NEW: Function to handle navigation ---
-  void _handleMessage(RemoteMessage message) {
+  void _handleMessage(RemoteMessage message) async {
     final referenceId = message.data['referenceId'];
     if (referenceId != null && referenceId.isNotEmpty) {
-      final context = navigatorKey.currentContext;
-      if (context != null) {
-        final role = Provider.of<UserRoleProvider>(context, listen: false).currentRole;
+      // อ่าน role ก่อนข้าม async gap
+      final ctx0 = navigatorKey.currentContext;
+      if (ctx0 == null || !ctx0.mounted) return;
+      final role = Provider.of<UserRoleProvider>(ctx0, listen: false).currentRole;
+      final type = message.data['type']?.toString();
+
+      try {
         if (role == Role.organizer) {
-          context.push('/manage-game/$referenceId');
+          // Organizer: ใช้ logic แบบเดียวกับ terminated handler (ดู main.dart) เพื่อลดการเด้งผิดหน้า
+          final response = await ApiProvider().get('/GameSessions/$referenceId');
+          final ctx = navigatorKey.currentContext;
+          if (ctx == null || !ctx.mounted) return;
+
+          if (response is Map &&
+              response['status'] == 200 &&
+              response['data'] != null) {
+            final int status = (response['data']['status'] as num?)?.toInt() ?? 1;
+            if (status == 1) {
+              ctx.go('/manage');
+            } else if (status == 2) {
+              ctx.push('/manage-game/$referenceId');
+            } else {
+              ctx.push('/history-organizer-payment',
+                  extra: int.parse(referenceId));
+            }
+          } else {
+            ctx.push('/manage-game/$referenceId');
+          }
+          return;
+        }
+
+        // Player: ถ้าเป็น noti "ก๊วนใหม่จากผู้จัดที่ติดตาม" หรือยังไม่ได้ join → ควรไปหน้า booking-confirm (รายละเอียด/จอง)
+        final res = await ApiProvider().get('/player/gamesessions/$referenceId');
+        final ctx = navigatorKey.currentContext;
+        if (ctx == null || !ctx.mounted) return;
+
+        if (res is Map && res['status'] == 200 && res['data'] is Map) {
+          final data = Map<String, dynamic>.from(res['data'] as Map);
+          final details = bookingDetailsFromUpcomingCardMap(data);
+          final userStatus = (data['userStatus'] ?? '').toString();
+
+          final bool shouldOpenBooking =
+              type == 'NEW_SESSION_FROM_FOLLOWED_ORGANIZER' ||
+              userStatus.isEmpty ||
+              userStatus == 'NotJoined';
+
+          if (shouldOpenBooking) {
+            ctx.push('/booking-confirm', extra: details);
+          } else {
+            ctx.push('/game-player/$referenceId');
+          }
         } else {
-          context.push('/game-player/$referenceId');
+          // fallback เดิม
+          ctx.push('/game-player/$referenceId');
+        }
+      } catch (_) {
+        // fallback เดิม
+        final ctx = navigatorKey.currentContext;
+        if (ctx == null || !ctx.mounted) return;
+        if (role == Role.organizer) {
+          ctx.push('/manage-game/$referenceId');
+        } else {
+          ctx.push('/game-player/$referenceId');
         }
       }
     }
@@ -75,7 +132,7 @@ class FirebaseMessagingService {
       _showLocalNotification(message);
       
       final context = navigatorKey.currentContext;
-      if (context != null) {
+      if (context != null && context.mounted) {
         Provider.of<NotificationProvider>(context, listen: false).increment();
       }
     });
@@ -118,6 +175,20 @@ class FirebaseMessagingService {
   // 5. ฟังก์ชันสำหรับดึง Token แล้วส่งให้ Backend
   Future<void> updateTokenToServer() async {
     try {
+      // บน iOS/macOS ต้องรอให้ได้รับ APNS Token ก่อนจึงจะขอ FCM Token ได้
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS)) {
+        String? apnsToken = await _firebaseMessaging.getAPNSToken();
+        if (apnsToken == null) {
+          // หากยังไม่ได้ ให้รอสักพัก (เผื่อ OS กำลังลงทะเบียน) แล้วลองดึงใหม่
+          await Future.delayed(const Duration(seconds: 3));
+          apnsToken = await _firebaseMessaging.getAPNSToken();
+          if (apnsToken == null) {
+            debugPrint("APNS token is not ready. Skipping FCM token update.");
+            return;
+          }
+        }
+      }
+
       String? token = await _firebaseMessaging.getToken();
       if (token != null) {
         debugPrint("FCM Token: $token");

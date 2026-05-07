@@ -3,10 +3,11 @@ import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/filter_option.dart';
 import 'package:badminton/component/game_card.dart';
-import 'package:badminton/component/game_card2.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/component/text_box.dart';
-import 'package:badminton/page/user/booking_confirm.dart';
+import 'package:badminton/page/user/search/search_sessions_map.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/booking_details_mapper.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -32,6 +33,10 @@ class SearchUserPageState extends State<SearchUserPage> {
   bool _isLoadingMore = false;
   bool _hasMore = true;
   List<dynamic> _games = [];
+  /// รายการกว้างสำหรับโหมดแผนที่ (sync จาก API เป็นชุดเดียวกับตัวกรอง แต่ limit ใหญ่กว่า)
+  List<dynamic> _mapGames = [];
+  bool _syncingMapPins = false;
+  int _viewMode = 0; // 0 = รายการ, 1 = แผนที่
   final ScrollController _scrollController = ScrollController();
 
   final List<dynamic> _items = [
@@ -83,6 +88,63 @@ class SearchUserPageState extends State<SearchUserPage> {
     });
   }
 
+  Map<String, dynamic> _buildUpcomingQueryParams({required int page, required int limit}) {
+    final queryParams = <String, dynamic>{'page': page, 'limit': limit};
+    if (searchController.text.isNotEmpty) {
+      queryParams['keyword'] = searchController.text;
+    }
+    if (_selectedItem != null) {
+      queryParams['sortBy'] = _selectedItem;
+    }
+    if (_organizerIdFilter != null) {
+      queryParams['organizerId'] = _organizerIdFilter;
+    }
+
+    if (_appliedFilters != null) {
+      final dayThaiToEnum = <String, String>{
+        'จันทร์': 'Monday',
+        'อังคาร': 'Tuesday',
+        'พุธ': 'Wednesday',
+        'พฤหัสบดี': 'Thursday',
+        'ศุกร์': 'Friday',
+        'เสาร์': 'Saturday',
+        'อาทิตย์': 'Sunday',
+      };
+
+      final selectedDays = _appliedFilters!['วันที่จัด']
+          ?.map((thai) => dayThaiToEnum[thai])
+          .whereType<String>()
+          .toList();
+      if (selectedDays != null && selectedDays.isNotEmpty) {
+        queryParams['daysOfWeek'] = selectedDays.join(',');
+      }
+    }
+
+    return queryParams;
+  }
+
+  Future<void> _syncMapPins() async {
+    setState(() => _syncingMapPins = true);
+    try {
+      final qp = _buildUpcomingQueryParams(page: 1, limit: 150);
+      final response = await ApiProvider().get(
+        '/player/gamesessions/upcoming',
+        queryParameters: qp,
+      );
+      if (response['status'] == 200 && mounted) {
+        setState(() {
+          _mapGames = response['data'] ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint('sync map pins failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _syncingMapPins = false);
+      }
+    }
+  }
+
   Future<void> _fetchUpcomingGames({bool refresh = false}) async {
     if (refresh) {
       _page = 1;
@@ -93,15 +155,7 @@ class SearchUserPageState extends State<SearchUserPage> {
     }
 
     try {
-      // แปะค่าการค้นหาและการจัดเรียงส่งไปให้ API (Query Params)
-      final queryParams = <String, dynamic>{};
-      if (searchController.text.isNotEmpty)
-        queryParams['keyword'] = searchController.text;
-      if (_selectedItem != null) queryParams['sortBy'] = _selectedItem;
-      if (_organizerIdFilter != null)
-        queryParams['organizerId'] = _organizerIdFilter;
-      queryParams['page'] = _page;
-      queryParams['limit'] = _limit;
+      final queryParams = _buildUpcomingQueryParams(page: _page, limit: _limit);
 
       final response = await ApiProvider().get(
         '/player/gamesessions/upcoming',
@@ -117,18 +171,20 @@ class SearchUserPageState extends State<SearchUserPage> {
               _games.addAll(newData);
             }
 
-            // ถ้าข้อมูลที่ได้มาน้อยกว่า limit แสดงว่าหมดแล้ว
             if (newData.length < _limit) {
               _hasMore = false;
             }
             _page++;
           });
+          if (refresh) {
+            unawaited(_syncMapPins());
+          }
         }
       } else {
         throw Exception('Invalid API response format');
       }
     } catch (e) {
-      print('Failed to load upcoming games: $e');
+      debugPrint('Failed to load upcoming games: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -151,13 +207,11 @@ class SearchUserPageState extends State<SearchUserPage> {
     );
 
     if (result != null) {
-      // 4. อัปเดต State เพื่อให้หน้าจอแสดงผลใหม่
       setState(() {
         _appliedFilters = result;
       });
-
-      // คุณสามารถนำค่า _appliedFilters ไปใช้กรองข้อมูลต่อได้เลย
-      print('Filters applied: $_appliedFilters');
+      // ดึงข้อมูลใหม่หลัง apply filter (ก่อนหน้านี้ filter ถูกเก็บแต่ไม่มีผลกับ API)
+      _fetchUpcomingGames(refresh: true);
     }
   }
 
@@ -185,6 +239,111 @@ class SearchUserPageState extends State<SearchUserPage> {
         });
       }
     }
+  }
+
+  void _openBookingConfirm(BuildContext context, Map<String, dynamic> game) {
+    final details = bookingDetailsFromUpcomingCardMap(game);
+    context.push('/booking-confirm', extra: details);
+  }
+
+  Widget _buildMainContent() {
+    if (_viewMode == 1) {
+      return SearchSessionsMapView(
+        games: _mapGames,
+        isLoadingOverlay: _syncingMapPins,
+      );
+    }
+
+    if (_games.isEmpty) {
+      return const Center(child: Text('ไม่พบก๊วนที่กำลังจะมาถึง'));
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: _games.length + (_isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _games.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final game = _games[index];
+        final formattedDateTime = formatSessionStart(game['sessionStart']);
+        return Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 10),
+          child: GameCard(
+            teamName: game['groupName'] ?? 'N/A',
+            imageUrl: game['imageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+            day: formattedDateTime['day']!,
+            date: '${game['dayOfWeek']} ${game['sessionDate']}',
+            time: '${game['startTime']}-${game['endTime']}',
+            courtName: game['courtName'] ?? 'N/A',
+            location: game['location'] ?? '-',
+            price:
+                'สนาม ${game['courtFeePerPerson'] ?? game['courtFee'] ?? '-'} บ.\nลูก ${(game['costingMethod'] == 2) ? 'เหมาจ่าย' : '${game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'] ?? '-'} บ.'}',
+            shuttlecockInfo: game['shuttlecockModelName'] ?? '-',
+            shuttlecockBrand: game['shuttlecockBrandName'] ?? '-',
+            gameInfo: game['gameTypeName'] ?? '-',
+            currentPlayers: game['currentParticipants'] ?? 0,
+            maxPlayers: game['maxParticipants'] ?? 0,
+            organizerName: game['organizerName'] ?? 'N/A',
+            organizerImageUrl:
+                game['organizerImageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png',
+            isInitiallyBookmarked: game['isBookmarked'] ?? false,
+            onBookmarkTap: (val) => _toggleBookmark(index, val),
+            onCardTap: () => _openBookingConfirm(
+              context,
+              Map<String, dynamic>.from(game as Map),
+            ),
+            onTapOrganizer: () async {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const Center(child: CircularProgressIndicator()),
+              );
+
+              try {
+                final res = await ApiProvider()
+                    .get('/player/gamesessions/${game['sessionId']}/organizer-summary');
+                if (!context.mounted) return;
+                Navigator.of(context, rootNavigator: true).pop();
+
+                if (res['status'] == 200 && res['data'] != null) {
+                  final data = res['data'];
+                  showUserProfileDialog(
+                    context,
+                    imageUrl: data['profilePhotoUrl'] ?? game['organizerImageUrl'] ?? '',
+                    name: data['nickname'] ?? game['organizerName'] ?? 'N/A',
+                    hostedCount: data['totalHosted'] ?? 0,
+                    cancelledCount: data['totalCancelled'] ?? 0,
+                    organizerId: data['organizerId'],
+                    isFollowed: data['isFollowed'],
+                  );
+                } else {
+                  showUserProfileDialog(
+                    context,
+                    imageUrl: game['organizerImageUrl'] ?? '',
+                    name: game['organizerName'] ?? 'N/A',
+                  );
+                }
+              } catch (e) {
+                if (!context.mounted) return;
+                Navigator.of(context, rootNavigator: true).pop();
+                showUserProfileDialog(
+                  context,
+                  imageUrl: game['organizerImageUrl'] ?? '',
+                  name: game['organizerName'] ?? 'N/A',
+                );
+              }
+            },
+            onTapPlayers: () => context.push(
+              '/player-list/${game['sessionId']}',
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -230,151 +389,31 @@ class SearchUserPageState extends State<SearchUserPage> {
 
             Expanded(
               child: _isLoadingInitial
-                  ? const Center(child: CircularProgressIndicator())
-                  : _games.isEmpty
-                  ? const Center(child: Text('ไม่พบก๊วนที่กำลังจะมาถึง'))
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _games.length + (_isLoadingMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == _games.length) {
-                          return const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final game = _games[index];
-                        // แปลงวันที่เวลา
-                        final formattedDateTime = formatSessionStart(
-                          game['sessionStart'],
-                        );
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 10, bottom: 10),
-                          child: GameCard(
-                            // --- ใช้ข้อมูลจาก API ---
-                            teamName: game['groupName'] ?? 'N/A',
-                            imageUrl: game['imageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png', // Placeholder
-                            day: formattedDateTime['day']!,
-                            date: '${game['dayOfWeek']} ${game['sessionDate']}',
-                            time: '${game['startTime']}-${game['endTime']}',
-                            courtName:
-                                game['courtName'] ??
-                                'N/A', // แสดงชื่อสนาม+ที่อยู่รวมกันไปก่อน
-                            location:
-                                game['location'] ?? '-', // ไม่มีข้อมูล location แยก
-                            price:
-                                'สนาม ${game['courtFeePerPerson'] ?? game['courtFee'] ?? '-'} บ.\nลูก ${(game['costingMethod'] == 2) ? 'เหมาจ่าย' : '${game['shuttlecockFeePerPerson'] ?? game['shuttlecockFee'] ?? '-'} บ.'}',
-                            shuttlecockInfo: game['shuttlecockModelName'] ?? '-',
-                            shuttlecockBrand: game['shuttlecockBrandName'] ?? '-',
-                            gameInfo: game['gameTypeName'] ?? '-',
-                            currentPlayers: game['currentParticipants'] ?? 0,
-                            maxPlayers: game['maxParticipants'] ?? 0,
-                            organizerName:
-                                game['organizerName'] ?? 'N/A', // ไม่มีข้อมูลผู้จัด
-                            organizerImageUrl:
-                                game['organizerImageUrl'] ?? 'https://gateway.we-builds.com/wb-document/images/banner/banner_251851442.png', // Placeholder
-                            // แก้ไข: ดึงสถานะ Bookmark จริงจาก API
-                            isInitiallyBookmarked:
-                                game['isBookmarked'] ?? false,
-                            // เพิ่ม: รับค่าเมื่อกดหัวใจ
-                            onBookmarkTap: (val) => _toggleBookmark(index, val),
-                            // หมายเหตุ: หาก GameCard2 มี callback onBookmarkTap ให้ใส่ Logic ตรงนี้
-                            onCardTap: () {
-                              final imageUrlsFromApi =
-                                  game['courtImageUrls'] as List<dynamic>? ??
-                                  []; // ดึงมาเป็น List<dynamic> และป้องกันค่า null
-                              final List<String> courtImageUrls =
-                                  List<String>.from(
-                                    imageUrlsFromApi,
-                                  ); // แปลงเป็น List<String>
-                              final bookingDetails = BookingDetails(
-                                code: game['sessionId'],
-                                teamName: game['groupName'],
-                                imageUrl: game['imageUrl'],
-                                day: formattedDateTime['day']!,
-                                date:
-                                    '${game['dayOfWeek']} ${game['sessionDate']}',
-                                time: '${game['startTime']}-${game['endTime']}',
-                                courtName: game['courtName'],
-                                location: game['location'],
-                                price: game['price'],
-                                shuttlecockInfo: game['shuttlecockModelName'],
-                                shuttlecockBrand: game['shuttlecockBrandName'],
-                                gameInfo: game['gameTypeName'],
-                                courtNumbers: game['courtNumbers'],
-                                currentPlayers:
-                                    game['currentParticipants'] ?? 0,
-                                maxPlayers: game['maxParticipants'] ?? 0,
-                                organizerName: game['organizerName'],
-                                organizerImageUrl: game['organizerImageUrl'],
-                                courtImageUrls: courtImageUrls,
-                                status: game['status'],
-                                notes: game['notes'],
-                                currentUserStatus:
-                                    game['userStatus'] ??
-                                    'NotJoined', // ส่งค่าจาก API
-                                courtFee: double.tryParse(
-                                  (game['courtFeePerPerson'] ??
-                                              game['courtFee'])
-                                          ?.toString() ??
-                                      '',
-                                ),
-                                shuttleFee: double.tryParse(
-                                  (game['shuttlecockFeePerPerson'] ??
-                                              game['shuttlecockFee'])
-                                          ?.toString() ??
-                                      '',
-                                ),
-                                isBuffet:
-                                    game['costingMethod'] ==
-                                    2, // 1 = คิดตามเกม, 2 = เหมาจ่าย
-                                sessionStart: game['sessionStart'] ?? DateTime.now().toIso8601String(),
-                              );
-                              context.push(
-                                '/booking-confirm',
-                                extra: bookingDetails,
-                              );
-                            },
-                                onTapOrganizer: () async {
-                                  // โชว์ Loading ก่อนเปิด Dialog
-                                  showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
-                                  
-                                  try {
-                                    final res = await ApiProvider().get('/player/gamesessions/${game['sessionId']}/organizer-summary');
-                                    if (!context.mounted) return;
-                                    Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading
-                                    
-                                    if (res['status'] == 200 && res['data'] != null) {
-                                      final data = res['data'];
-                                      showUserProfileDialog(
-                                        context,
-                                        imageUrl: data['profilePhotoUrl'] ?? game['organizerImageUrl'] ?? '',
-                                        name: data['nickname'] ?? game['organizerName'] ?? 'N/A',
-                                        hostedCount: data['totalHosted'] ?? 0,
-                                        cancelledCount: data['totalCancelled'] ?? 0,
-                                        organizerId: data['organizerId'],
-                                        isFollowed: data['isFollowed'],
-                                      );
-                                    } else {
-                                      showUserProfileDialog(
-                                        context, 
-                                        imageUrl: game['organizerImageUrl'] ?? '', 
-                                        name: game['organizerName'] ?? 'N/A',
-                                        // organizerId and isFollowed are null, so no follow button will be shown
-                                      );
-                                    }
-                                  } catch (e) {
-                                    if (!context.mounted) return;
-                                    Navigator.of(context, rootNavigator: true).pop(); // ปิด Loading กรณี Error
-                                    showUserProfileDialog(context, imageUrl: game['organizerImageUrl'] ?? '', name: game['organizerName'] ?? 'N/A');
-                                  }
-                                },
-                            onTapPlayers: () => context.push(
-                              '/player-list/${game['sessionId']}',
-                            ), // ใช้ sessionId
-                          ),
-                        );
-                      },
+                  ? const SessionCardListSkeleton()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment<int>(
+                              value: 0,
+                              label: Text('รายการ'),
+                              icon: Icon(Icons.list),
+                            ),
+                            ButtonSegment<int>(
+                              value: 1,
+                              label: Text('แผนที่'),
+                              icon: Icon(Icons.map_outlined),
+                            ),
+                          ],
+                          selected: {_viewMode},
+                          onSelectionChanged: (Set<int> next) {
+                            setState(() => _viewMode = next.first);
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(child: _buildMainContent()),
+                      ],
                     ),
             ),
           ],

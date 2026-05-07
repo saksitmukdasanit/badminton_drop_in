@@ -165,6 +165,11 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
         contentWidget: (context) => Container(), // ไม่มีหน้า content
       ),
       ProfileMenuItem(
+        title: 'เกี่ยวกับแอป / ข้อกำหนด',
+        onTap: () => context.push('/about'),
+        contentWidget: (context) => Container(),
+      ),
+      ProfileMenuItem(
         title: 'ยกเลิกการเป็นผู้จัด',
         iconPath: 'assets/icon/delete.png',
         onTap: () {
@@ -724,48 +729,55 @@ class ProFileOrganizerPageState extends State<ProFileOrganizerPage> {
           end: Alignment.bottomCenter,
         ),
       ),
-      child: Column(
-        children: [
-          profile(),
-          // สร้างเมนูส่วนบนจาก List
-          ..._topMenuItems.asMap().entries.map((entry) {
-            int index = entry.key;
-            ProfileMenuItem item = entry.value;
-            return menu(
-              item.title,
-              () {
-                if (isTablet) {
-                  setState(() {
-                    isHistory = false;
-                    isHistoryFinance = false;
-                    final selectedIndexOld = _selectedIndex;
-                    _selectedIndex = index;
-                    _isPanelVisible =
-                        selectedIndexOld == index && _isPanelVisible
-                        ? false
-                        : true;
-                  });
-                } else {
-                  if (item.mobileRoute != null) {
-                    context.push(item.mobileRoute!);
-                  } else if (item.onTap != null) {
-                    item.onTap!();
-                  }
-                }
-              },
-              path: item.iconPath,
-              isSelected:
-                  isTablet && _isPanelVisible && _selectedIndex == index,
-            );
-          }),
-          const Spacer(),
-          // สร้างเมนูส่วนล่างจาก List
-          ..._bottomMenuItems.map((item) {
-            return menu(item.title, item.onTap, path: item.iconPath);
-          }),
-          const SizedBox(
-            height: 100,
-          ), // เพิ่มระยะห่างด้านล่างไม่ให้เมนูบาร์บังปุ่ม Logout
+      child: CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Column(
+              children: [
+                profile(),
+                // สร้างเมนูส่วนบนจาก List
+                ..._topMenuItems.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  ProfileMenuItem item = entry.value;
+                  return menu(
+                    item.title,
+                    () {
+                      if (isTablet) {
+                        setState(() {
+                          isHistory = false;
+                          isHistoryFinance = false;
+                          final selectedIndexOld = _selectedIndex;
+                          _selectedIndex = index;
+                          _isPanelVisible =
+                              selectedIndexOld == index && _isPanelVisible
+                              ? false
+                              : true;
+                        });
+                      } else {
+                        if (item.mobileRoute != null) {
+                          context.push(item.mobileRoute!);
+                        } else if (item.onTap != null) {
+                          item.onTap!();
+                        }
+                      }
+                    },
+                    path: item.iconPath,
+                    isSelected:
+                        isTablet && _isPanelVisible && _selectedIndex == index,
+                  );
+                }),
+                const Spacer(),
+                // สร้างเมนูส่วนล่างจาก List
+                ..._bottomMenuItems.map((item) {
+                  return menu(item.title, item.onTap, path: item.iconPath);
+                }),
+                const SizedBox(
+                  height: 100,
+                ), // เพิ่มระยะห่างด้านล่างไม่ให้เมนูบาร์บังปุ่ม Logout
+              ],
+            ),
+          ),
         ],
       ),
     );

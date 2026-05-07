@@ -43,14 +43,24 @@ class SavedPaymentPageState extends State<SavedPaymentPage> {
   Future<void> _fetchInitialData() async {
     setState(() => _isLoading = true);
     try {
-      // 1. โหลดรายชื่อธนาคาร
-      final bankRes = await ApiProvider().get('/Dropdown/banks');
-      if (bankRes['data'] != null) {
-        _banks = (bankRes['data'] as List).map((b) => {
-          "code": b['id'].toString(),
-          "value": b['name']
-        }).toList();
+      // 1. โหลดรายชื่อธนาคาร — API: GET api/Dropdowns/banks → [{ code, value }]
+      final bankRes = await ApiProvider().get('/Dropdowns/banks');
+      List<dynamic>? bankList;
+      if (bankRes is List) {
+        bankList = bankRes;
+      } else if (bankRes is Map && bankRes['data'] != null) {
+        bankList = bankRes['data'] as List?;
       }
+      _banks = (bankList ?? []).map((b) {
+        final m = Map<String, dynamic>.from(b as Map);
+        final code = m['code'] ?? m['Code'] ?? m['id'] ?? m['Id'];
+        final label = m['value'] ??
+            m['Value'] ??
+            m['name'] ??
+            m['Name'] ??
+            '';
+        return {'code': code?.toString() ?? '', 'value': label.toString()};
+      }).toList();
 
       // 2. โหลดข้อมูล Profile ปัจจุบัน (เพื่อดึงบัญชีเก่ามาแสดง)
       final profileRes = await ApiProvider().get('/Profiles/me');

@@ -1,6 +1,6 @@
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/game_card.dart';
-import 'package:badminton/component/game_card2.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
@@ -94,7 +94,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
           future: _myGamesFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const MyGamesPageSkeleton();
             }
             if (snapshot.hasError) {
               return Center(child: Text('เกิดข้อผิดพลาด: ${snapshot.error}'));

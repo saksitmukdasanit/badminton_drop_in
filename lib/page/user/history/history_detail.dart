@@ -100,7 +100,7 @@ class _HistoryDetailPageState extends State<HistoryDetailPage> {
                             ),
                             Text(
                               'ดูเพิ่มเติม',
-                              style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
                             ),
                           ],
                         ),

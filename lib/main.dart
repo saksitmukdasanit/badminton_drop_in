@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:app_links/app_links.dart';
 import 'package:badminton/home_page.dart';
 import 'package:badminton/menu_bar.dart';
 import 'package:badminton/page/auth/login_screen.dart';
 import 'package:badminton/page/auth/otp_verification_screen.dart';
 import 'package:badminton/page/auth/personal_info_screen.dart';
 import 'package:badminton/page/auth/register_screen.dart';
+import 'package:badminton/page/auth/social_phone_link_screen.dart';
+import 'package:badminton/page/legal/legal_pages.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/page/organizer/history/history_organizer_payment.dart';
 import 'package:badminton/page/organizer/manage/manage.dart';
@@ -14,6 +18,8 @@ import 'package:badminton/page/user/noti/user_noti_page.dart';
 import 'package:badminton/page/organizer/manage/manage_game.dart';
 import 'package:badminton/page/organizer/new_game/add_game.dart';
 import 'package:badminton/page/organizer/new_game/new_game.dart';
+import 'package:badminton/page/organizer/new_game/recurring_template_form_page.dart';
+import 'package:badminton/page/organizer/new_game/recurring_templates_list_page.dart';
 import 'package:badminton/page/organizer/profile/change_password_organizer.dart';
 import 'package:badminton/page/organizer/profile/edit_profile.dart';
 import 'package:badminton/page/organizer/profile/edit_skill_levels.dart';
@@ -23,7 +29,6 @@ import 'package:badminton/page/organizer/profile/profile_organizer.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/page/user/history/history_detail.dart';
 import 'package:badminton/page/user/history/history_user.dart';
-import 'package:badminton/page/user/home_user.dart';
 import 'package:badminton/page/user/my_game/game_player.dart';
 import 'package:badminton/page/user/my_game/mygame_user.dart';
 import 'package:badminton/page/user/otp.dart';
@@ -40,7 +45,10 @@ import 'package:badminton/page/user/profile/saved_payment.dart';
 import 'package:badminton/page/user/profile/profile_user.dart';
 import 'package:badminton/page/user/wallet/my_wallet_page.dart';
 import 'package:badminton/page/user/search/search_user.dart';
+import 'package:badminton/page/user/share_session_page.dart';
+import 'package:badminton/shared/share_deep_link.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/route_observer.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/navigator_key.dart'; // --- FIX: Import navigator_key เพื่อใช้ Global Key ตัวเดียวกับ ApiProvider ---
 import 'package:flutter/material.dart';
@@ -87,6 +95,7 @@ Future<void> main() async {
   // สร้าง provider และเรียก tryAutoLogin ก่อนรันแอป
   final authProvider = AuthProvider();
   await authProvider.tryAutoLogin();
+  await authProvider.refreshSessionGateAfterLogin();
   runApp(
     MultiProvider(
       providers: [
@@ -113,6 +122,30 @@ class _MyAppState extends State<MyApp> {
   // เพิ่ม GlobalKey สำหรับ ShellRoute โดยเฉพาะ
   final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
   late final GoRouter _router;
+  StreamSubscription<Uri>? _appLinkSubscription;
+
+  @override
+  void dispose() {
+    _appLinkSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _handleIncomingAppLink(Uri? uri) {
+    if (!mounted || uri == null) return;
+    final id = parseSessionPublicIdFromAppLink(uri);
+    if (id != null && id.isNotEmpty) {
+      _router.go('/share-session/$id');
+    }
+  }
+
+  Future<void> _setupAppDeepLinks() async {
+    try {
+      final initial = await AppLinks().getInitialLink();
+      _handleIncomingAppLink(initial);
+    } catch (_) {}
+    await _appLinkSubscription?.cancel();
+    _appLinkSubscription = AppLinks().uriLinkStream.listen(_handleIncomingAppLink);
+  }
 
   @override
   void initState() {
@@ -125,6 +158,7 @@ class _MyAppState extends State<MyApp> {
     _router = GoRouter(
       refreshListenable: authProvider,
       navigatorKey: navigatorKey, // <-- เพิ่มบรรทัดนี้
+      observers: [appRouteObserver], // NEW: ให้ home pages รู้ตอน popNext กลับมา
       initialLocation: '/',
       redirect: (BuildContext context, GoRouterState state) {
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -133,16 +167,41 @@ class _MyAppState extends State<MyApp> {
 
         // 1. หน้าสำหรับผู้ที่ยังไม่ได้ Login เท่านั้น (เช่น หน้าสมัคร/เข้าสู่ระบบ)
         final isAuthPage = location == '/login' || location == '/register-screen' || location == '/otp-verification-screen' || location == '/personal-info-screen';
+
+        /// ผูกเบอร์ / OTP / กรอกข้อมูลหลังยืนยัน — อนุญาตเข้งได้แม้ยังไม่มีเบอร์ verified
+        final isPhoneCompletingFlow =
+            location == '/social-phone-link' ||
+                location == '/otp-verification-screen' ||
+                location == '/personal-info-screen';
+
+        final bool exemptPhoneGateWhenLogged =
+            isPhoneCompletingFlow ||
+                location == '/privacy-policy' ||
+                location == '/terms' ||
+                location == '/about';
         
         // 2. หน้าที่อนุญาตให้บุคคลทั่วไป (ยังไม่ Login) เข้าดูได้ (เพื่อผ่านกฎ Apple Guideline)
-        final isPublicPage = location == '/' || location == '/search-user' || location.startsWith('/game-player/');
+        final isPublicPage = location == '/' ||
+            location == '/search-user' ||
+            location == '/privacy-policy' ||
+            location == '/terms' ||
+            location == '/about' ||
+            location.startsWith('/game-player/') ||
+            location.startsWith('/share-session/') ||
+            location == '/booking-confirm';
 
         if (!loggedIn && !isPublicPage && !isAuthPage) {
           authProvider.redirectAfterLogin = location;
           return '/login';
         }
 
-        if (loggedIn && isAuthPage) {
+        if (loggedIn &&
+            authProvider.needsVerifiedPhoneBlocking &&
+            !exemptPhoneGateWhenLogged) {
+          return '/social-phone-link';
+        }
+
+        if (loggedIn && (location == '/login' || location == '/register-screen')) {
           final target = authProvider.redirectAfterLogin;
           authProvider.redirectAfterLogin = null;
           return target ?? '/';
@@ -186,6 +245,22 @@ class _MyAppState extends State<MyApp> {
           path: '/personal-info-screen',
           builder: (context, state) => const PersonalInfoScreen(),
         ),
+        GoRoute(
+          path: '/social-phone-link',
+          builder: (context, state) => const SocialPhoneLinkScreen(),
+        ),
+        GoRoute(
+          path: '/privacy-policy',
+          builder: (context, state) => const PrivacyPolicyPage(),
+        ),
+        GoRoute(
+          path: '/terms',
+          builder: (context, state) => const TermsOfServicePage(),
+        ),
+        GoRoute(
+          path: '/about',
+          builder: (context, state) => const AboutPage(),
+        ),
 
         // ========================================================
         // --- เส้นทางที่ต้องการให้ซ่อนแถบเมนูด้านล่าง (Full Screen) ---
@@ -193,6 +268,13 @@ class _MyAppState extends State<MyApp> {
         GoRoute(
           path: '/login',
           builder: (context, state) => const LoginScreen(),
+        ),
+        GoRoute(
+          path: '/share-session/:publicId',
+          builder: (context, state) {
+            final String publicId = state.pathParameters['publicId']!;
+            return ShareSessionPage(publicId: publicId);
+          },
         ),
         GoRoute(
           path: '/player-list/:id',
@@ -204,8 +286,14 @@ class _MyAppState extends State<MyApp> {
         GoRoute(
           path: '/booking-confirm',
           builder: (context, state) {
-            final details = state.extra as BookingDetails;
-            return BookingConfirmPage(details: details);
+            final extra = state.extra;
+            if (extra is! BookingDetails) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('การจอง')),
+                body: const Center(child: Text('ไม่พบข้อมูลการจอง')),
+              );
+            }
+            return BookingConfirmPage(details: extra);
           },
         ),
         GoRoute(
@@ -368,6 +456,24 @@ class _MyAppState extends State<MyApp> {
               },
             ),
             GoRoute(
+              path: '/recurring-templates',
+              builder: (context, state) =>
+                  const RecurringTemplatesListPage(),
+            ),
+            GoRoute(
+              path: '/recurring-template-form',
+              builder: (context, state) {
+                int? id;
+                final ex = state.extra;
+                if (ex is Map && ex['id'] != null) {
+                  id = ex['id'] is int
+                      ? ex['id'] as int
+                      : int.tryParse('${ex['id']}');
+                }
+                return RecurringTemplateFormPage(templateId: id);
+              },
+            ),
+            GoRoute(
               path: '/search-user',
               builder: (context, state) {
                 final organizerId = state.uri.queryParameters['organizerId'];
@@ -402,6 +508,9 @@ class _MyAppState extends State<MyApp> {
         ),
       ],
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupAppDeepLinks();
+    });
   }
 
   // --- NEW: จัดการการกด Noti เมื่อแอปปิดสนิท (Terminated State) ---

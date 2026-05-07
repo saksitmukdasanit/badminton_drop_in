@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:badminton/shared/api_provider.dart';
+
 enum Role { player, organizer }
 
 class UserRoleProvider with ChangeNotifier {
@@ -118,9 +120,16 @@ class AuthProvider extends ChangeNotifier {
   String? _accessToken;
   String? _redirectAfterLogin;
 
+  bool _sessionGateResolved = false;
+  bool _needsVerifiedPhone = false;
+
   bool get isLoggedIn => _accessToken != null;
   String? get accessToken => _accessToken;
   String? get redirectAfterLogin => _redirectAfterLogin;
+
+  /// หลังโหลด /Auth/me แล้ว: ต้องการเบอร์ + verified ถึงจะเข้าฟังก์ชันหลักได้
+  bool get needsVerifiedPhoneBlocking =>
+      _sessionGateResolved && _needsVerifiedPhone;
 
   set redirectAfterLogin(String? value) {
     _redirectAfterLogin = value;
@@ -137,22 +146,58 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// เรียกหลังล็อกอินหรือเปิดแอป — ประเมินว่ามีเบอร์และยืนยันแล้วหรือยัง (ใช้ GoRouter redirect)
+  Future<void> refreshSessionGateAfterLogin() async {
+    if (!isLoggedIn) {
+      _sessionGateResolved = true;
+      _needsVerifiedPhone = false;
+      notifyListeners();
+      return;
+    }
+    try {
+      final res = await ApiProvider().get('/Auth/me');
+      final data = res['data'];
+      if (data is Map) {
+        final phone = data['phoneNumber'] ?? data['phone_number'];
+        final verified =
+            data['isPhoneNumberVerified'] == true ||
+                data['is_phone_number_verified'] == true;
+        final hasPhone =
+            phone != null && phone.toString().trim().isNotEmpty;
+        _needsVerifiedPhone = !hasPhone || !verified;
+      } else {
+        _needsVerifiedPhone = true;
+      }
+    } catch (_) {
+      _needsVerifiedPhone = false;
+    } finally {
+      _sessionGateResolved = true;
+      notifyListeners();
+    }
+  }
+
   Future<void> login(dynamic token) async {
-    _accessToken = token['accessToken'];
-    notifyListeners();
-    // --- NEW: บันทึก token ลงเครื่อง ---
+    // FIX: เขียน prefs ให้เสร็จก่อน notifyListeners() เพื่อกัน race
+    // กับ Dio interceptor ที่อ่าน token จาก SharedPreferences
+    // (อาการเดิม: หลัง login ครั้งแรก home page initState ยิง API
+    // ก่อน prefs เขียนเสร็จ → request ขาด Bearer → ข้อมูลไม่แสดงจนสลับหน้า)
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('accessToken', token['accessToken']);
     await prefs.setString('refreshToken', token['refreshToken']);
+    _sessionGateResolved = false;
+    _needsVerifiedPhone = false;
+    _accessToken = token['accessToken'];
+    notifyListeners();
   }
 
   Future<void> logout() async {
-    _accessToken = null;
-    _redirectAfterLogin = null;
-    notifyListeners();
-    // --- NEW: ลบ token ออกจากเครื่อง ---
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('accessToken');
     await prefs.remove('refreshToken');
+    _accessToken = null;
+    _redirectAfterLogin = null;
+    _sessionGateResolved = false;
+    _needsVerifiedPhone = false;
+    notifyListeners();
   }
 }

@@ -20,14 +20,14 @@ class CustomElevatedButton extends StatelessWidget {
     super.key,
     required this.text,
     this.onPressed, // เอา required ออก เพื่อให้เราสามารถข้ามไม่ส่งค่า หรือส่งเป็น null ได้
-    this.fontSize = 20,
+    this.fontSize = 18,
     this.fontWeight = FontWeight.bold,
     this.backgroundColor = Colors.black,
     this.foregroundColor = Colors.white,
     this.borderRadius = 6.0,
     this.padding = const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
     this.side,
-    this.enabled = false,
+    this.enabled = true,
     this.icon,
     this.iconBackgroundColor = Colors.white,
     this.isLoading = false,
@@ -36,7 +36,8 @@ class CustomElevatedButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ElevatedButton(
-      onPressed: (isLoading || !enabled) ? onPressed : null,
+      // FIX: semantics ถูก — enabled=true + ไม่กำลัง loading → กดได้
+      onPressed: (isLoading || !enabled) ? null : onPressed,
       style: ElevatedButton.styleFrom(
         padding: padding,
         backgroundColor: backgroundColor,
@@ -49,8 +50,8 @@ class CustomElevatedButton extends StatelessWidget {
       child: isLoading
           // ถ้า isLoading เป็น true: แสดงวงกลมหมุนๆ
           ? SizedBox(
-              height: getResponsiveFontSize(context, fontSize: fontSize) + 4,
-              width: getResponsiveFontSize(context, fontSize: fontSize) + 4,
+              height: getResponsiveFontSize(context, fontSize: fontSize),
+              width: getResponsiveFontSize(context, fontSize: fontSize),
               child: CircularProgressIndicator(
                 strokeWidth: 3,
                 valueColor: AlwaysStoppedAnimation<Color>(foregroundColor),

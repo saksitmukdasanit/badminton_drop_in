@@ -2,6 +2,7 @@ import 'package:badminton/component/button.dart';
 import 'package:badminton/component/social_login_button.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:flutter/material.dart';
@@ -114,13 +115,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
+              Text(
                 'Hello!',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 28),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              const Text(
+              Text(
                 'Register to get started',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 28),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 32),
               CustomTextFormField(

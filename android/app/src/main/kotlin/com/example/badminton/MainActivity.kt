@@ -1,4 +1,4 @@
-package com.example.badminton
+package dropinbad.badminton
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:badminton/component/app_bar.dart';
-import 'package:badminton/component/dropdown.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/shared/api_provider.dart';
@@ -204,7 +203,7 @@ class HistoryUserPageState extends State<HistoryUserPage> {
             const SizedBox(height: 15),
             Expanded(
               child: _isLoadingInitial
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const SessionCardListSkeleton()
                   : _games.isEmpty
                   ? const Center(child: Text('ไม่พบประวัติก๊วน'))
                   : ListView.builder(
@@ -338,7 +337,7 @@ class HistoryUserPageState extends State<HistoryUserPage> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: _getStatusColor(game).withOpacity(0.1),
+                      color: _getStatusColor(game).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(

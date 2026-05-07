@@ -114,6 +114,7 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onBackPressed; // เพิ่มตัวแปรรับฟังก์ชันกดกลับ
   final bool showSettings; // เพิ่มตัวแปรซ่อน/แสดง ตั้งค่า
   final bool showNotification; // เพิ่มตัวแปรซ่อน/แสดง แจ้งเตือน
+  final List<Widget> trailingActions;
 
   const AppBarSubMain({
     super.key,
@@ -123,6 +124,7 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
     this.onBackPressed, // รับค่าเข้ามา
     this.showSettings = true,
     this.showNotification = true,
+    this.trailingActions = const [],
   });
 
   @override
@@ -164,6 +166,7 @@ class AppBarSubMain extends StatelessWidget implements PreferredSizeWidget {
                 ),
               ),
             ),
+            ...trailingActions,
         // if (showSettings)
         //   IconButton(
         //     icon: Icon(Icons.settings, color: Color(0xFFFFFFFF), size: 25),

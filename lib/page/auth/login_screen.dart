@@ -3,6 +3,8 @@ import 'package:badminton/component/button.dart';
 import 'package:badminton/component/social_login_button.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/social_login_service.dart';
 import 'package:badminton/shared/user_role.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/firebase_messaging_service.dart';
@@ -24,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
+  bool _isSocialLoading = false;
 
   @override
   void dispose() {
@@ -55,10 +58,17 @@ class _LoginScreenState extends State<LoginScreen> {
         // เอา await ออก เพื่อให้ระบบไปอัปเดต Token เบื้องหลัง จะได้ไม่บล็อกหน้าจอให้หมุนค้าง
         FirebaseMessagingService().updateTokenToServer();
 
+        // FIX: ต้อง await login() ให้ prefs เขียนเสร็จก่อน
+        // ก่อน navigate ไป Home (กัน race กับ Dio interceptor)
+        final authProv = Provider.of<AuthProvider>(context, listen: false);
         if (mounted) {
-          Provider.of<AuthProvider>(context, listen: false).login(token);
-          // บังคับเปลี่ยนหน้าไป Home ทันทีเพื่อความชัวร์
-          context.go('/'); 
+          await authProv.login(token);
+        }
+        if (mounted) {
+          await authProv.refreshSessionGateAfterLogin();
+        }
+        if (mounted) {
+          context.go('/');
         }
       }
     } catch (e) {
@@ -89,6 +99,71 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _handleSocialLogin(Future<SocialLoginResult> Function() runner, {required String providerLabel}) async {
+    if (_isSocialLoading || _isLoading) return;
+    setState(() => _isSocialLoading = true);
+    try {
+      final result = await runner();
+
+      FirebaseMessagingService().updateTokenToServer();
+
+      if (!mounted) return;
+      final authProv = Provider.of<AuthProvider>(context, listen: false);
+      await authProv.login(result.toAuthProviderToken());
+      await authProv.refreshSessionGateAfterLogin();
+
+      if (!mounted) return;
+      if (result.requiresPhoneVerification) {
+        // ครั้งแรกของ social signup → ต้องเชื่อมเบอร์โทร
+        context.go('/social-phone-link');
+      } else {
+        context.go('/');
+      }
+    } on SocialLoginException catch (e) {
+      if (e.userCancelled) return; // ผู้ใช้กดยกเลิก ไม่ต้องแจ้ง error
+      if (mounted) {
+        showDialogMsg(
+          context,
+          title: 'เข้าสู่ระบบด้วย $providerLabel ไม่สำเร็จ',
+          subtitle: e.message,
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        showDialogMsg(
+          context,
+          title: 'เกิดข้อผิดพลาด',
+          subtitle: msg,
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSocialLoading = false);
+    }
+  }
+
+  Future<void> _handleGoogleLogin() async {
+    final apiProvider = ApiProvider();
+    await _handleSocialLogin(
+      () => SocialLoginService.instance.signInWithGoogle(
+        iosClientId: apiProvider.googleIosClientId,
+        serverClientId: apiProvider.googleServerClientId,
+      ),
+      providerLabel: 'Google',
+    );
+  }
+
+  Future<void> _handleAppleLogin() async {
+    await _handleSocialLogin(
+      () => SocialLoginService.instance.signInWithApple(),
+      providerLabel: 'Apple',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // กำหนดสีเพื่อการจัดการที่ง่าย
@@ -114,13 +189,19 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 24),
 
                 // --- 1. Header Text ---
-                const Text(
+                Text(
                   'Welcome back!',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: getResponsiveFontSize(context, fontSize: 28),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                const Text(
+                Text(
                   'Glad to see you, Again!',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: getResponsiveFontSize(context, fontSize: 28),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 48),
 
@@ -191,16 +272,33 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SocialLoginButton(icon: Icons.facebook, onTap: () {}),
+                    Opacity(
+                      opacity: _isSocialLoading ? 0.5 : 1,
+                      child: SocialLoginButton(
+                        icon: Icons.g_mobiledata,
+                        onTap: _isSocialLoading ? () {} : _handleGoogleLogin,
+                      ),
+                    ),
                     const SizedBox(width: 16),
-                    SocialLoginButton(
-                      icon: Icons.alternate_email,
-                      onTap: () {},
-                    ), // ใช้ Text แทนไอคอน Google
-                    const SizedBox(width: 16),
-                    SocialLoginButton(icon: Icons.apple, onTap: () {}),
+                    Opacity(
+                      opacity: _isSocialLoading ? 0.5 : 1,
+                      child: SocialLoginButton(
+                        icon: Icons.apple,
+                        onTap: _isSocialLoading ? () {} : _handleAppleLogin,
+                      ),
+                    ),
                   ],
                 ),
+                if (_isSocialLoading) ...[
+                  const SizedBox(height: 12),
+                  const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 48),
 
                 // --- 6. Register Now Link ---

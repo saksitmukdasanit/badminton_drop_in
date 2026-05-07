@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/game_card.dart';
-import 'package:badminton/component/loading_image_network.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/route_observer.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -18,14 +19,39 @@ class HomeUserPage extends StatefulWidget {
   HomeUserPageState createState() => HomeUserPageState();
 }
 
-class HomeUserPageState extends State<HomeUserPage> {
+class HomeUserPageState extends State<HomeUserPage>
+    with WidgetsBindingObserver, RouteAware {
   bool _isLoading = true;
   Map<String, dynamic>? _dashboardData;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchDashboardData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    // กลับมาที่หน้านี้จากการ pop หน้าอื่น → refresh data
+    _fetchDashboardData();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // refresh เมื่อ app กลับมา foreground
+    if (state == AppLifecycleState.resumed) {
+      _fetchDashboardData();
+    }
   }
 
   Future<void> _fetchDashboardData() async {
@@ -58,6 +84,8 @@ class HomeUserPageState extends State<HomeUserPage> {
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -70,19 +98,21 @@ class HomeUserPageState extends State<HomeUserPage> {
 
   @override
   Widget build(BuildContext context) {
+    // สอดคล้องกับ gradient ใน menu_bar (ผู้เล่น)
+    const playerHomeGradient = LinearGradient(
+      colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+    );
     return Scaffold(
-      extendBody: true, // เพื่อให้ฉากหลังทะลุใต้ MenuBar ไปได้
+      extendBody: true,
+      backgroundColor: Colors.transparent,
       appBar: AppBarHome(),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFFFFFFF), Color(0xFFD5DCF4)], // ธีมฝั่งผู้เล่น
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        width: double.infinity,
+        decoration: const BoxDecoration(gradient: playerHomeGradient),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const HomeDashboardSkeleton()
             : RefreshIndicator(
                 onRefresh: _fetchDashboardData,
                 child: ListView(
@@ -124,12 +154,12 @@ class HomeUserPageState extends State<HomeUserPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'สวัสดี, ผู้เยี่ยมชม 🏸',
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: getResponsiveFontSize(context, fontSize: 22),
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
+                    color: const Color(0xFF333333),
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -138,9 +168,9 @@ class HomeUserPageState extends State<HomeUserPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                      border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
                     ),
                     child: Text(
                       'เข้าสู่ระบบ / สมัครสมาชิก',
@@ -180,19 +210,19 @@ class HomeUserPageState extends State<HomeUserPage> {
             children: [
               Text(
                 'สวัสดี, $nickname 🏸',
-                style: const TextStyle(
-                  fontSize: 24,
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 22),
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
+                  color: const Color(0xFF333333),
                 ),
               ),
               const SizedBox(height: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
                 ),
                 child: Text(
                   skillLevel,
@@ -281,12 +311,12 @@ class HomeUserPageState extends State<HomeUserPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.55), // โปร่งแสง
+        color: Colors.white.withValues(alpha: 0.55), // โปร่งแสง
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white, width: 1.5), // ขอบขาวให้ดูเป็นกระจก
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.05),
+            color: color.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -305,7 +335,7 @@ class HomeUserPageState extends State<HomeUserPage> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(icon, color: color, size: 24),
@@ -341,7 +371,7 @@ class HomeUserPageState extends State<HomeUserPage> {
       return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.6),
+          color: Colors.white.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: Colors.white, width: 1.5),
         ),
@@ -377,7 +407,7 @@ class HomeUserPageState extends State<HomeUserPage> {
       return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.6),
+          color: Colors.white.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: Colors.white, width: 1.5),
         ),

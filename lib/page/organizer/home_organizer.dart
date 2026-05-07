@@ -1,10 +1,11 @@
 import 'dart:ui';
 import 'package:badminton/component/app_bar.dart';
-import 'package:badminton/component/loading_image_network.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/route_observer.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -16,14 +17,46 @@ class HomeOrganizerPage extends StatefulWidget {
   State<HomeOrganizerPage> createState() => _HomeOrganizerPageState();
 }
 
-class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
+class _HomeOrganizerPageState extends State<HomeOrganizerPage>
+    with WidgetsBindingObserver, RouteAware {
   bool _isLoading = true;
   Map<String, dynamic>? _dashboardData;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchDashboardData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    // กลับมาที่หน้านี้จากการ pop หน้าอื่น → refresh data
+    _fetchDashboardData();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // refresh เมื่อ app กลับมา foreground
+    if (state == AppLifecycleState.resumed) {
+      _fetchDashboardData();
+    }
+  }
+
+  @override
+  void dispose() {
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _fetchDashboardData() async {
@@ -49,19 +82,21 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
 
   @override
   Widget build(BuildContext context) {
+    // สอดคล้องกับ gradient ใน menu_bar (ผู้จัด)
+    const organizerHomeGradient = LinearGradient(
+      colors: [Color(0xFFFFFFFF), Color(0xFFE2E8F0)],
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+    );
     return Scaffold(
-      extendBody: true, // ทะลุใต้ MenuBar
+      extendBody: true,
+      backgroundColor: Colors.transparent,
       appBar: const AppBarHome(),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFFFFFFF), Color(0xFFE2E8F0)], // ธีมฝั่งผู้จัด (ดูทางการและสะอาด)
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        width: double.infinity,
+        decoration: const BoxDecoration(gradient: organizerHomeGradient),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const HomeDashboardSkeleton()
             : RefreshIndicator(
                 onRefresh: _fetchDashboardData,
                 child: ListView(
@@ -123,19 +158,19 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
             children: [
               Text(
                 'สวัสดี, $nickname 🏸',
-                style: const TextStyle(
-                  fontSize: 24,
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 22),
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
+                  color: const Color(0xFF333333),
                 ),
               ),
               const SizedBox(height: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: statusColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: statusColor.withOpacity(0.3)),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
                 ),
                 child: Text(
                   statusText,
@@ -224,12 +259,12 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.55),
+        color: Colors.white.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.05),
+            color: color.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -248,7 +283,7 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(icon, color: color, size: 24),
@@ -348,7 +383,7 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.6),
+        color: Colors.white.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white, width: 1.5),
       ),

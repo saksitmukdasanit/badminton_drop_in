@@ -37,6 +37,64 @@ class ProFileUserPageState extends State<ProFileUserPage> {
     return ApiProvider().get('/Auth/me');
   }
 
+  Future<void> _handleAccountDeletion(BuildContext context) async {
+    showDialogMsg(
+      context,
+      title: 'ยืนยันการลบบัญชี',
+      subtitle:
+          'เมื่อยืนยัน บัญชีของคุณจะถูกระงับทันทีและจะถูกลบถาวรภายใน 30 วัน '
+          '(คุณสามารถ login กลับเข้ามาภายใน 30 วันเพื่อกู้คืนได้)\n\n'
+          'ก่อนลบ ตรวจสอบให้แน่ใจว่า:\n'
+          '• ถอนเงินจาก Wallet ออกหมดแล้ว\n'
+          '• ไม่มีก๊วนที่กำลังจะมาถึง (ทั้งในฐานะผู้จัดและผู้เล่น)',
+      btnLeft: 'ลบบัญชี',
+      btnLeftBackColor: const Color(0xFFE53935),
+      btnRight: 'ยกเลิก',
+      btnRightBackColor: Colors.white,
+      btnRightForeColor: Theme.of(context).colorScheme.primary,
+      onConfirm: () async {
+        try {
+          final response = await ApiProvider().post('/Auth/request-deletion');
+          if (response['status'] == 200) {
+            if (!mounted) return;
+            final scheduledAt = response['data']?['scheduledForDeletionAt'];
+            final scheduleText = scheduledAt != null
+                ? 'จะถูกลบถาวรในวันที่ ${_formatDate(scheduledAt)}'
+                : 'จะถูกลบถาวรภายใน 30 วัน';
+            showDialogMsg(
+              context,
+              title: 'ระงับบัญชีเรียบร้อย',
+              subtitle: 'บัญชีของคุณ$scheduleText',
+              btnLeft: 'ไปหน้า Log In',
+              onConfirm: () {
+                Provider.of<AuthProvider>(context, listen: false).logout();
+              },
+            );
+          }
+        } catch (e) {
+          if (!mounted) return;
+          final msg = e.toString().replaceFirst('Exception: ', '');
+          showDialogMsg(
+            context,
+            title: 'ไม่สามารถลบบัญชี',
+            subtitle: msg,
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
+        }
+      },
+    );
+  }
+
+  String _formatDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
   void _showQrDialog(BuildContext context, String userId) {
     showDialog(
       context: context,
@@ -46,167 +104,129 @@ class ProFileUserPageState extends State<ProFileUserPage> {
     );
   }
 
+  static const _playerProfileGradient = LinearGradient(
+    colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.transparent,
       appBar: AppBarSubMain(title: 'Profile', isBack: false),
-      body: FutureBuilder<dynamic>(
-        future: futureModel,
-        builder: (context, snapshot) {
-          // --- จัดการสถานะการโหลดและ Error ---
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: Text('No data found.'));
-          }
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(gradient: _playerProfileGradient),
+        child: FutureBuilder<dynamic>(
+          future: futureModel,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: Text('No data found.'));
+            }
 
-          // --- เมื่อมีข้อมูล ---
-          final userData = snapshot.data;
-          // --- NEW: ดึงค่า isOrganizer จาก API ---
-          final bool isOrganizer = userData['data']['isOrganizer'] ?? false;
+            final userData = snapshot.data;
+            final bool isOrganizer =
+                userData['data']['isOrganizer'] ?? false;
+            final bottomPad = MediaQuery.of(context).padding.bottom;
 
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.only(bottom: 100), // เพิ่มระยะด้านล่างไม่ให้เมนูบาร์บัง
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFFFFFFFF), Color(0xFFCBF5EA)],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          children: [
-                    profile(context, userData),
-                    menu('แก้ไขข้อมูลส่วนตัว', () async {
-                      await context.push('/edit-profile-user');
-                      _callReadMe();
-                    }),
-                    menu('เปลี่ยนรหัสผ่าน', () {
-                      context.push('/change-password');
-                    }),
-                    menu('กระเป๋าเงินของฉัน (Wallet)', () {
-                      context.push('/my-wallet');
-                    }),
-                    menu('บัญชีรับเงิน (ถอนเงิน)', () {
-                      context.push('/saved-payment');
-                    }),
-                    menu('Favourite', () {
-                      context.push('/favourite');
-                    }),
-                    menu('QR code เข้าร่วมเกม', () {
-                      final qrData = userData['data']['userPublicId'] ??
-                                     userData['data']['userId'] ??
-                                     userData['data']['id'];
-                      _showQrDialog(
-                        context,
-                        qrData.toString(),
-                      );
-                    }),
-                  ],
-                ),
-                Column(
-                  children: [
-                    if (isOrganizer)
-                      menu('ไปหน้าผู้จัด', () {
-                        context.read<UserRoleProvider>().setRole(
-                          Role.organizer,
-                        );
-                        context.push('/profile-organizer');
-                      })
-                    else
-                      menu('สมัครเป็นผู้จัด', () {
-                        context.push('/apply-organizer');
-                      }),
-                    menu('ลบ Account', path: 'assets/icon/delete.png', () {
-                      if (overdue) {
-                        showDialogMsg(
-                          context,
-                          title: 'ไม่สามารถลบ Account',
-                          subtitle: 'คุณมียอดค้างจ่ายจำนวน 236 บาท',
-                          btnLeft: 'จ่ายเงิน',
-                          btnRightBackColor: Color(0xFFFFFFFF),
-                          btnRightForeColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
-                          btnRight: 'ยกเลิก',
-                          onConfirm: () {
-                            setState(() {
-                              overdue = !overdue;
-                            });
-                          },
-                        );
-                      } else {
-                        showDialogMsg(
-                          context,
-                          title: 'ยืนยับการลบ Account',
-                          subtitle: 'เมื่อลบแล้วจะไม่สามารถกูคืนได้',
-                          btnLeft: 'ลบ Account',
-                          btnLeftBackColor: Color(0xFF000000),
-                          onConfirm: () {
-                            setState(() {
-                              overdue = !overdue;
-                            });
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: bottomPad + 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          profile(context, userData),
+                          menu('แก้ไขข้อมูลส่วนตัว', () async {
+                            await context.push('/edit-profile-user');
+                            if (mounted) {
+                              setState(() => futureModel = _callReadMe());
+                            }
+                          }),
+                          menu('เปลี่ยนรหัสผ่าน', () {
+                            context.push('/change-password');
+                          }),
+                          menu('กระเป๋าเงินของฉัน (Wallet)', () {
+                            context.push('/my-wallet');
+                          }),
+                          menu('บัญชีรับเงิน (ถอนเงิน)', () {
+                            context.push('/saved-payment');
+                          }),
+                          menu('Favourite', () {
+                            context.push('/favourite');
+                          }),
+                          menu('QR code เข้าร่วมเกม', () {
+                            final qrData = userData['data']
+                                    ['userPublicId'] ??
+                                userData['data']['userId'] ??
+                                userData['data']['id'];
+                            _showQrDialog(context, qrData.toString());
+                          }),
+                          const SizedBox(height: 20),
+                          if (isOrganizer)
+                            menu('ไปหน้าผู้จัด', () {
+                              context.read<UserRoleProvider>().setRole(
+                                    Role.organizer,
+                                  );
+                              context.push('/profile-organizer');
+                            })
+                          else
+                            menu('สมัครเป็นผู้จัด', () {
+                              context.push('/apply-organizer');
+                            }),
+                          menu('เกี่ยวกับแอป / ข้อกำหนด', () {
+                            context.push('/about');
+                          }),
+                          menu('ลบบัญชี',
+                              path: 'assets/icon/delete.png', () {
+                            _handleAccountDeletion(context);
+                          }),
+                          menu('Log out', path: 'assets/icon/exit.png', () {
+                            final authProvider =
+                                Provider.of<AuthProvider>(context,
+                                    listen: false);
                             showDialogMsg(
                               context,
-                              title: 'ลบ Account เรียบร้อย',
-                              subtitle: 'ลบข้อมูลของ สมสวย มีสุข',
-                              btnLeft: 'ไปหน้า Log In',
-                              onConfirm: () {},
+                              title: 'ยืนยับการออกจากระบบ',
+                              subtitle: '',
+                              btnLeft: 'ออกจากระบบ',
+                              btnLeftBackColor: Color(0xFF000000),
+                              onConfirm: () {
+                                showDialogMsg(
+                                  context,
+                                  title: 'ออกจากระบบเรียบร้อย',
+                                  subtitle: '',
+                                  btnLeft: 'ไปหน้า Log In',
+                                  onConfirm: () {
+                                    authProvider.logout();
+                                  },
+                                );
+                              },
                             );
-                          },
-                        );
-                      }
-                    }),
-                    menu('Log out', path: 'assets/icon/exit.png', () {
-                      final authProvider = Provider.of<AuthProvider>(
-                        context,
-                        listen: false,
-                      );
-                      showDialogMsg(
-                        context,
-                        title: 'ยืนยับการออกจากระบบ',
-                        subtitle: '',
-                        btnLeft: 'ออกจากระบบ',
-                        btnLeftBackColor: Color(0xFF000000),
-                        onConfirm: () {
-                          showDialogMsg(
-                            context,
-                            title: 'ออกจากระบบเรียบร้อย',
-                            subtitle: '',
-                            btnLeft: 'ไปหน้า Log In',
-                            onConfirm: () {
-                              authProvider.logout();
-                            },
-                          );
-                        },
-                      );
-                    }),
-                  ],
-                ),
-              ],
-            ),
+                          }),
+                        ],
+                      ),
                     ),
                   ),
                 );
               },
             );
-        },
+          },
+        ),
       ),
     );
   }
@@ -257,20 +277,20 @@ class ProFileUserPageState extends State<ProFileUserPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    userData['data']['primaryContactEmail'],
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
-                      color: Color(0XFF64646D),
-                    ),
-                  ),
-                  Text(
-                    userData['data']['phoneNumber'],
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
-                      color: Color(0XFF64646D),
-                    ),
-                  ),
+              Text(
+                '${userData['data']['primaryContactEmail'] ?? '-'}',
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 14),
+                  color: Color(0XFF64646D),
+                ),
+              ),
+              Text(
+                '${userData['data']['phoneNumber'] ?? '-'}',
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 14),
+                  color: Color(0XFF64646D),
+                ),
+              ),
                 ],
               ),
             ],

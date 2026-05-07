@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/component/dialog.dart';
-import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -150,16 +149,20 @@ class _FromHistoryPageState extends State<FromHistoryPage> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBarSubMain(title: 'ประวัติการสร้าง', isBack: true),
-      body: Column(
-        children: [
-          _buildMonthHeader(),
-          _buildDaysOfWeek(),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _buildCalendarGrid(),
-          ),
-        ],
+      // เผื่อ safe area / ปุ่ม home indicator — ลดโอกาสช่องสุดท้ายของปฏิทินโดนบัง
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            _buildMonthHeader(),
+            _buildDaysOfWeek(),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildCalendarGrid(),
+            ),
+          ],
+        ),
       ),
     );
   }

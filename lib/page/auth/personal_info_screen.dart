@@ -7,6 +7,8 @@ import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/firebase_messaging_service.dart';
+import 'package:badminton/shared/function.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -34,6 +36,62 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   bool loadingImage = false;
   String imageUrl = '';
 
+  /// โหลดจาก /Auth/me (เช่น ชื่อ/เมลจาก Google)
+  bool _profileLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadExistingProfile());
+  }
+
+  /// แปลง gender จาก API ("ชาย" หรือเลข) → code ของ Dropdown ("1","2","3")
+  static String? _genderToDropdownCode(dynamic raw) {
+    if (raw == null) return null;
+    final s = raw.toString().trim();
+    if (s == '1' || s == 'ชาย') return '1';
+    if (s == '2' || s == 'หญิง') return '2';
+    if (s == '3' || s == 'อื่นๆ' || s == 'ไม่ระบุ') return '3';
+    return null;
+  }
+
+  Future<void> _loadExistingProfile() async {
+    try {
+      final res = await ApiProvider().get('/Auth/me');
+      if (!mounted) return;
+      if (res['status'] == 200 && res['data'] != null) {
+        final raw = res['data'];
+        if (raw is! Map) return;
+        final d = Map<String, dynamic>.from(raw);
+        _nickNameController.text = '${d['nickname'] ?? ''}'.trim();
+        _firstNameController.text = '${d['firstName'] ?? ''}'.trim();
+        _lastNameController.text = '${d['lastName'] ?? ''}'.trim();
+        _emailController.text =
+            '${d['primaryContactEmail'] ?? d['primary_contact_email'] ?? ''}'
+                .trim();
+        _emergencyContactNameController.text =
+            '${d['emergencyContactName'] ?? d['emergency_contact_name'] ?? ''}'
+                .trim();
+        _emergencyContactPhoneController.text =
+            '${d['emergencyContactPhone'] ?? d['emergency_contact_phone'] ?? ''}'
+                .trim();
+        final p =
+            '${d['profilePhotoUrl'] ?? d['profile_photo_url'] ?? ''}'.trim();
+        if (p.isNotEmpty) {
+          imageUrl = p;
+        }
+        _selectedGender = _genderToDropdownCode(d['gender']);
+      }
+    } catch (_) {
+      // เปิดฟอร์มว่างได้ ถ้า API ล้ม
+    } finally {
+      if (mounted) {
+        setState(() => _profileLoading = false);
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _nickNameController.dispose();
     _firstNameController.dispose();
@@ -100,7 +158,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
           "firstName": _firstNameController.text,
           "lastName": _lastNameController.text,
           "email": _emailController.text,
-          "gender": _selectedGender,
+          "gender": int.tryParse(_selectedGender ?? '') ?? 0,
           "profilePhotoUrl": imageUrl,
           "emergencyContactName": _emergencyContactNameController.text,
           "emergencyContactPhone": _emergencyContactPhoneController.text,
@@ -156,6 +214,20 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_profileLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            onPressed: () => context.pop(),
+            icon: Icon(Icons.arrow_back, color: Colors.black),
+          ),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -174,9 +246,12 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
+              Text(
                 'Personal Information',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 26),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 32),
 
@@ -198,6 +273,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: CustomDropdown(
+                      key: ValueKey('gender_${_selectedGender ?? 'none'}'),
                       labelText: '',
                       initialValue: _selectedGender,
                       items: [
@@ -269,7 +345,34 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 value: _termsAccepted,
                 onChanged: (newValue) =>
                     setState(() => _termsAccepted = newValue!),
-                title: const Text('ยอมรับข้อกำหนดและเงื่อนไข'),
+                title: Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(text: 'ยอมรับ '),
+                      TextSpan(
+                        text: 'ข้อกำหนดและเงื่อนไข',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => context.push('/terms'),
+                      ),
+                      const TextSpan(text: ' และ '),
+                      TextSpan(
+                        text: 'นโยบายความเป็นส่วนตัว',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => context.push('/privacy-policy'),
+                      ),
+                    ],
+                  ),
+                ),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
               ),
@@ -281,7 +384,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 onPressed: () {
                   _submit();
                 },
-                enabled: !_termsAccepted,
+                enabled: _termsAccepted,
                 isLoading: _isLoading,
               ),
             ],

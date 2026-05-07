@@ -447,7 +447,7 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
               border: Border.all(color: Colors.grey[200]!),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
+                  color: Colors.black.withValues(alpha: 0.03),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -532,10 +532,10 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFCBF5EA).withOpacity(0.4),
+              color: const Color(0xFFCBF5EA).withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: const Color(0xFF0E9D7A).withOpacity(0.3),
+                color: const Color(0xFF0E9D7A).withValues(alpha: 0.3),
               ),
             ),
             child: Column(

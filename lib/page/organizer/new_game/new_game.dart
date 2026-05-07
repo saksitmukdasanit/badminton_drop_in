@@ -129,6 +129,9 @@ class NewGamePageState extends State<NewGamePage> {
 
             bool isTablet = constraints.maxWidth >= tabletBreakpoint;
 
+            // Menu bar ลอย: ~15 + 75 + 15 + safe area — ใช้ค่าจาก MediaQuery แทน magic number คงที่
+            final double bottomClearance =
+                MediaQuery.of(context).padding.bottom;
             return Container(
               // พื้นหลังไล่ระดับสี
               decoration: const BoxDecoration(
@@ -142,7 +145,7 @@ class NewGamePageState extends State<NewGamePage> {
                 ),
               ),
                 child: Padding(
-                  padding: const EdgeInsets.only(bottom: 120.0), // เผื่อระยะด้านล่างหนี MenuBar ที่ลอยอยู่
+                  padding: EdgeInsets.only(bottom: bottomClearance),
                   child: isTablet
                       ? _buildTabletLayout() // Layout สำหรับจอใหญ่ (iPad)
                       : _buildMobileLayout(), // Layout สำหรับจอเล็ก (Mobile)
@@ -221,6 +224,12 @@ class _MainContent extends StatelessWidget {
               MaterialPageRoute(builder: (context) => const FromHistoryPage()),
             );
           },
+        ),
+        _MainActionButton(
+          icon: Icons.repeat,
+          title: 'Recurring',
+          subtitle: 'ก๊วนประจำสัปดาห์',
+          onTap: () => context.push('/recurring-templates'),
         ),
       ],
     );
@@ -329,13 +338,13 @@ class _DayIcon extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: isNew ? Colors.white.withOpacity(0.6) : dayColor,
+              color: isNew ? Colors.white.withValues(alpha: 0.6) : dayColor,
               shape: BoxShape.circle,
               border: isNew ? Border.all(color: Colors.grey.shade400, width: 1.5) : null,
               boxShadow: !isNew
                   ? [
                       BoxShadow(
-                        color: dayColor.withOpacity(0.4),
+                        color: dayColor.withValues(alpha: 0.4),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       )
@@ -365,7 +374,7 @@ class _DayIcon extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
+                    color: Colors.red.withValues(alpha: 0.3),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   )
@@ -414,12 +423,13 @@ class _MainActionButton extends StatelessWidget {
             height: 160,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.4),
+              color: Colors.white.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.8), width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   spreadRadius: 0,
                   blurRadius: 10,
                   offset: const Offset(0, 5),
@@ -434,7 +444,7 @@ class _MainActionButton extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.6),
+                      color: Colors.white.withValues(alpha: 0.6),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(icon, size: 40, color: Theme.of(context).colorScheme.primary),

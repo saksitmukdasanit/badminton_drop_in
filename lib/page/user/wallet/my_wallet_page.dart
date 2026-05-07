@@ -1,5 +1,6 @@
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/dialog.dart';
+import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -168,7 +169,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
           ),
         ),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const WalletPageSkeleton()
             : RefreshIndicator(
                 onRefresh: _fetchWalletData,
                 child: ListView(
@@ -215,7 +216,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -274,7 +275,9 @@ class _MyWalletPageState extends State<MyWalletPage> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
-          backgroundColor: isIncome ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+          backgroundColor: isIncome
+              ? Colors.green.withValues(alpha: 0.1)
+              : Colors.red.withValues(alpha: 0.1),
           child: Icon(
             isIncome ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
             color: isIncome ? Colors.green : Colors.red,

@@ -792,12 +792,19 @@ class ManagePageState extends State<ManagePage> {
   }
 
   _buildMobileLayout() {
+    final double bottomForFloatingNav =
+        MediaQuery.of(context).padding.bottom;
+
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
       child: _showDetailsOnMobile
-          ? detailsView(context, onBack: _backToListOnMobile) // หน้ารายละเอียด
+          ? detailsView(
+              context,
+              onBack: _backToListOnMobile,
+              scrollBottomInset: bottomForFloatingNav,
+            )
           : Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomForFloatingNav),
               child: _buildPlaying(
                 context,
                 title: 'ก๊วนที่กำลังมาถึง',
@@ -852,7 +859,12 @@ class ManagePageState extends State<ManagePage> {
                 SliverToBoxAdapter(
                   child: _buildbottomBar(_myGamesData[indexData]),
                 ),
-                SliverToBoxAdapter(child: SizedBox(height: 16)),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height:
+                        MediaQuery.of(context).padding.bottom,
+                  ),
+                ),
                 SliverStickyHeader(
                   // Header จะถูกสร้างจาก _buildPlayer โดยบอกให้สร้างแค่ส่วน header
                   header: Container(
@@ -947,7 +959,11 @@ class ManagePageState extends State<ManagePage> {
     );
   }
 
-  Widget detailsView(BuildContext context, {Function()? onBack}) {
+  Widget detailsView(
+    BuildContext context, {
+    VoidCallback? onBack,
+    double scrollBottomInset = 24,
+  }) {
     final bool isMobile = onBack != null;
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -1029,6 +1045,7 @@ class ManagePageState extends State<ManagePage> {
               ),
             ),
           ),
+          SliverToBoxAdapter(child: SizedBox(height: scrollBottomInset)),
         ],
       ),
     );
@@ -1231,10 +1248,11 @@ class ManagePageState extends State<ManagePage> {
     );
   }
 
-  // Widget สำหรับ Header ของตาราง
+  // Widget สำหรับ Header ของตาราง (ขนาดกะทัดรัด — ลดการเบียดบนจอแคบ)
   Widget _buildHeader(BuildContext context) {
+    final double t = getResponsiveFontSize(context, fontSize: 12);
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
       child: Row(
         children: [
           Expanded(
@@ -1242,17 +1260,17 @@ class ManagePageState extends State<ManagePage> {
             child: Text(
               'ลำดับ',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: t,
                 fontWeight: FontWeight.w700,
               ),
             ),
           ),
           Expanded(
-            flex: 4,
+            flex: 5,
             child: Text(
               'ชื่อเล่น',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: t,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1262,7 +1280,7 @@ class ManagePageState extends State<ManagePage> {
             child: Text(
               'เพศ',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: t,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1272,7 +1290,7 @@ class ManagePageState extends State<ManagePage> {
             child: Text(
               'ระดับมือ',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: t,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1283,7 +1301,7 @@ class ManagePageState extends State<ManagePage> {
               'สถานะ',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: t,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1316,39 +1334,42 @@ class ManagePageState extends State<ManagePage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             flex: 2,
             child: Text(
               '${index + 1}',
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: getResponsiveFontSize(context, fontSize: 12),
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
           Expanded(
-            flex: 4,
+            flex: 5,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
                     if ((player['profilePhotoUrl'] ?? "") != "")
                       CircleAvatar(
-                        radius: 12,
+                        radius: 10,
                         backgroundImage: NetworkImage(player['profilePhotoUrl']),
                       ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         player['nickname'] ?? 'N/A',
                         overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                         style: TextStyle(
-                          fontSize: getResponsiveFontSize(context, fontSize: 14),
+                          fontSize: getResponsiveFontSize(context, fontSize: 12),
                           fontWeight: FontWeight.w500,
                           color: isCheckedOut ? Colors.grey : Colors.black, // ซีดลงถ้ากลับแล้ว
                           decoration: isCheckedOut ? TextDecoration.lineThrough : null, // ขีดฆ่าชื่อเบาๆ
@@ -1361,7 +1382,7 @@ class ManagePageState extends State<ManagePage> {
                   Text(
                     'Check-out แล้ว',
                     style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 10),
+                      fontSize: getResponsiveFontSize(context, fontSize: 9),
                       color: Colors.redAccent,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1372,9 +1393,10 @@ class ManagePageState extends State<ManagePage> {
           Expanded(
             flex: 2,
             child: Text(
-              player['genderName'],
+              player['genderName'] ?? '-',
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: getResponsiveFontSize(context, fontSize: 14),
+                fontSize: getResponsiveFontSize(context, fontSize: 12),
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1384,7 +1406,13 @@ class ManagePageState extends State<ManagePage> {
             child: DropdownButton<String>(
               value: currentSkillValue,
               isExpanded: true,
+              isDense: true,
+              iconSize: 18,
               underline: const SizedBox.shrink(),
+              style: TextStyle(
+                fontSize: getResponsiveFontSize(context, fontSize: 12),
+                color: Colors.black87,
+              ),
               items: _skillLevels.map<DropdownMenuItem<String>>((
                 dynamic skill,
               ) {
@@ -1395,7 +1423,7 @@ class ManagePageState extends State<ManagePage> {
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                     style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
+                      fontSize: getResponsiveFontSize(context, fontSize: 12),
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -1435,9 +1463,9 @@ class ManagePageState extends State<ManagePage> {
                         player['participantId'],
                       );
                     },
-                    child: const Icon(Icons.arrow_upward, color: Colors.blue, size: 24),
+                    child: const Icon(Icons.arrow_upward, color: Colors.blue, size: 20),
                   ),
-                if (isReserve) const SizedBox(width: 8),
+                if (isReserve) const SizedBox(width: 4),
                 
                 // แสดงสถานะการเงิน / ปุ่มลบ
                 GestureDetector(
@@ -1456,10 +1484,10 @@ class ManagePageState extends State<ManagePage> {
                           style: TextStyle(
                             color: Colors.red,
                             fontWeight: FontWeight.bold,
-                            fontSize: getResponsiveFontSize(context, fontSize: 14),
+                            fontSize: getResponsiveFontSize(context, fontSize: 11),
                           ),
                         )
-                      : const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                      : const Icon(Icons.check_circle, color: Colors.green, size: 18),
                 ),
               ],
             ),

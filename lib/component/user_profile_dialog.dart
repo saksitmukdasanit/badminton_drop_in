@@ -1,4 +1,5 @@
 import 'package:badminton/component/Button.dart';
+import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
@@ -176,8 +177,138 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
               onPressed: () => Navigator.of(context).pop(),
             ),
           ),
+          // --- 4. ปุ่ม More (รายงาน / บล็อก) ---
+          if (widget.organizerId != null)
+            Positioned(
+              top: 50,
+              left: 10,
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: Colors.grey),
+                tooltip: 'ตัวเลือกเพิ่มเติม',
+                onSelected: (value) {
+                  if (value == 'report') _handleReport();
+                  if (value == 'block') _handleBlock();
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'report',
+                    child: Row(
+                      children: [
+                        Icon(Icons.flag_outlined, size: 18, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text('รายงานผู้ใช้'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'block',
+                    child: Row(
+                      children: [
+                        Icon(Icons.block, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('บล็อกผู้ใช้'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
+    );
+  }
+
+  Future<void> _handleReport() async {
+    final selectedReason = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return SimpleDialog(
+          title: const Text('เลือกเหตุผล'),
+          children: [
+            _reasonTile(ctx, 'spam', 'สแปม / โฆษณา'),
+            _reasonTile(ctx, 'harassment', 'คุกคาม / ใช้คำหยาบ'),
+            _reasonTile(ctx, 'fraud', 'หลอกลวง / โกงเงิน'),
+            _reasonTile(ctx, 'fake_profile', 'โปรไฟล์ปลอม'),
+            _reasonTile(ctx, 'inappropriate_content', 'เนื้อหาไม่เหมาะสม'),
+            _reasonTile(ctx, 'other', 'อื่น ๆ'),
+          ],
+        );
+      },
+    );
+    if (selectedReason == null) return;
+
+    try {
+      final response = await ApiProvider().post('/user-safety/report', data: {
+        'reportedUserId': widget.organizerId,
+        'reason': selectedReason,
+      });
+      if (!mounted) return;
+      if (response['status'] == 200) {
+        showDialogMsg(
+          context,
+          title: 'รายงานสำเร็จ',
+          subtitle: response['message'] ?? 'ทีมงานจะตรวจสอบโดยเร็วที่สุด',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showDialogMsg(
+        context,
+        title: 'รายงานไม่สำเร็จ',
+        subtitle: e.toString().replaceFirst('Exception: ', ''),
+        btnLeft: 'ตกลง',
+        onConfirm: () {},
+      );
+    }
+  }
+
+  Widget _reasonTile(BuildContext ctx, String value, String label) {
+    return SimpleDialogOption(
+      onPressed: () => Navigator.of(ctx).pop(value),
+      child: Text(label),
+    );
+  }
+
+  Future<void> _handleBlock() async {
+    showDialogMsg(
+      context,
+      title: 'ยืนยันการบล็อกผู้ใช้',
+      subtitle: 'คุณจะไม่เห็นโปรไฟล์ของผู้ใช้นี้ในระบบอีก '
+          '(สามารถยกเลิกการบล็อกได้ในเมนู Settings → Blocked Users)',
+      btnLeft: 'บล็อก',
+      btnLeftBackColor: const Color(0xFFE53935),
+      btnRight: 'ยกเลิก',
+      btnRightBackColor: Colors.white,
+      btnRightForeColor: Theme.of(context).colorScheme.primary,
+      onConfirm: () async {
+        try {
+          final response = await ApiProvider().post('/user-safety/block', data: {
+            'blockedUserId': widget.organizerId,
+          });
+          if (!mounted) return;
+          if (response['status'] == 200) {
+            Navigator.of(context).pop(); // ปิด UserProfileDialog
+            showDialogMsg(
+              context,
+              title: 'บล็อกเรียบร้อย',
+              subtitle: response['message'] ?? '',
+              btnLeft: 'ตกลง',
+              onConfirm: () {},
+            );
+          }
+        } catch (e) {
+          if (!mounted) return;
+          showDialogMsg(
+            context,
+            title: 'บล็อกไม่สำเร็จ',
+            subtitle: e.toString().replaceFirst('Exception: ', ''),
+            btnLeft: 'ตกลง',
+            onConfirm: () {},
+          );
+        }
+      },
     );
   }
 

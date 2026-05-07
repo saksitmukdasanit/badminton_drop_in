@@ -1,5 +1,6 @@
 import 'package:badminton/component/button.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/function.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +31,15 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     super.dispose();
   }
 
+  /// แสดงเบอร์แบบปิดบางส่วน เช่น 081-234-5678 → 081-XXX-5678 (กัน shoulder-surfing)
+  String _maskPhoneNumber(String phone) {
+    final cleaned = phone.replaceAll(RegExp(r'\D'), '');
+    if (cleaned.length < 7) return cleaned;
+    final first = cleaned.substring(0, 3);
+    final last = cleaned.substring(cleaned.length - 4);
+    return '$first-XXX-$last';
+  }
+
   Future<void> _handleVerifyOtp() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -51,13 +61,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           if (widget.tokens != null) {
             final authProvider = Provider.of<AuthProvider>(context, listen: false);
             authProvider.redirectAfterLogin = '/personal-info-screen';
-            authProvider.login(widget.tokens);
-            
-            // อัปเดต FCM Token ไปยัง Backend ทันทีเมื่อยืนยัน OTP ล็อกอินสำเร็จ
+            await authProvider.login(widget.tokens);
+
+            await authProvider.refreshSessionGateAfterLogin();
             FirebaseMessagingService().updateTokenToServer();
+            if (mounted) context.go('/personal-info-screen');
           } else {
+            await Provider.of<AuthProvider>(context, listen: false)
+                .refreshSessionGateAfterLogin();
             // ใช้ pushReplacement เพื่อไม่ให้กด Back กลับมาหน้า OTP ได้อีก
-            context.pushReplacement('/personal-info-screen');
+            if (mounted) context.pushReplacement('/personal-info-screen');
           }
         }
       } else {
@@ -151,13 +164,18 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'OTP Verification',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              Text(
+                'ยืนยัน OTP',
+                style: TextStyle(
+                  fontSize: getResponsiveFontSize(context, fontSize: 26),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Enter the verification code we just sent on your email address.',
+                widget.phoneNumber.isNotEmpty
+                    ? 'กรอกรหัส 6 หลักที่ส่งไปยังเบอร์ ${_maskPhoneNumber(widget.phoneNumber)}'
+                    : 'กรอกรหัส 6 หลักที่ส่งไปยังเบอร์โทรศัพท์ของคุณ',
                 style: TextStyle(fontSize: 16, color: Colors.grey[600]),
               ),
               const SizedBox(height: 48),

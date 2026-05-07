@@ -43,8 +43,33 @@
 	<string>เราต้องการใช้ข้อมูลเพื่อจัดเก็บข้อมูลของคุณอย่างปลอดภัย</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>แอปนี้ต้องการเข้าถึงคลังรูปภาพเพื่อให้คุณสามารถเลือกรูปโปรไฟล์ได้</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>แอปนี้ใช้ข้อมูลเพื่อวิเคราะห์การใช้งานและปรับปรุงประสบการณ์ของคุณ — เราไม่ส่งข้อมูลส่วนบุคคลให้ผู้โฆษณา</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>แอปนี้ต้องการตำแหน่งของคุณเพื่อค้นหาก๊วนแบดมินตันใกล้ตัว</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.dropinbad.session</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>dropinbad</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.857647867745-q5m3t1ql9gr3a9lfq70re74m3vi6s176</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

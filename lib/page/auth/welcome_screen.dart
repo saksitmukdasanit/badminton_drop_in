@@ -34,8 +34,10 @@ class WelcomeScreen extends StatelessWidget {
                 Text(
                   'Welcome to\nBadminton Fight',
                   style: TextStyle(
-                    fontSize: getResponsiveFontSize(context, fontSize: 40),
+                    // ปรับให้ไม่ใหญ่เกินบนแท็บเล็บ (helper จะ × 1.3 ให้)
+                    fontSize: getResponsiveFontSize(context, fontSize: 32),
                     fontWeight: FontWeight.bold,
+                    height: 1.2,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -54,7 +56,7 @@ class WelcomeScreen extends StatelessWidget {
                   text: 'Log In',
                   fontSize: getResponsiveFontSize(context, fontSize: 16),
                   onPressed: () {
-                    context.push('/login-screen');
+                    context.push('/login');
                   },
                 ),
                 const SizedBox(height: 16),

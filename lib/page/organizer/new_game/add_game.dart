@@ -62,7 +62,8 @@ class AddGamePageState extends State<AddGamePage> {
   Map<String, bool> _facilities = {};
 
   final List<dynamic> _gameImages = [];
-  TextEditingController? _autocompleteController; // 1. เพิ่มตัวแปรเก็บ Controller ของ Autocomplete
+  TextEditingController?
+  _autocompleteController; // 1. เพิ่มตัวแปรเก็บ Controller ของ Autocomplete
   String? _sessionToken; // ตัวแปรเก็บ Session Token
   final _uuid = const Uuid(); // ตัวสร้าง UUID
 
@@ -138,25 +139,35 @@ class AddGamePageState extends State<AddGamePage> {
     // ถ้ายังไม่มี Token (เริ่มการค้นหาใหม่) ให้สร้างใหม่
     _sessionToken ??= _uuid.v4();
 
-    String baseURL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+    String baseURL =
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json';
     // แนะนำให้ย้าย API Key ไปไว้ใน .env หรือ config file ในอนาคต
-    String apiKey = "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc"; 
+    String apiKey = "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc";
 
     try {
-      var response = await Dio().get(baseURL, queryParameters: {
-        'input': '$input แบดมินตัน', // ทริค: แอบเติมคำว่า แบดมินตัน เข้าไปเพื่อให้ Google ค้นหาเจาะจงเฉพาะสนามแบด
-        'key': apiKey,
-        'sessiontoken': _sessionToken, // ส่ง Token ไปด้วยเพื่อประหยัดค่าใช้จ่าย
-        'components': 'country:th',
-        'language': 'th',
-      });
+      var response = await Dio().get(
+        baseURL,
+        queryParameters: {
+          'input':
+              '$input แบดมินตัน', // ทริค: แอบเติมคำว่า แบดมินตัน เข้าไปเพื่อให้ Google ค้นหาเจาะจงเฉพาะสนามแบด
+          'key': apiKey,
+          'sessiontoken':
+              _sessionToken, // ส่ง Token ไปด้วยเพื่อประหยัดค่าใช้จ่าย
+          'components': 'country:th',
+          'language': 'th',
+        },
+      );
 
       if (response.statusCode == 200 && response.data['status'] == 'OK') {
         var predictions = response.data['predictions'] as List;
-        return predictions.map<PlacePrediction>((p) => PlacePrediction(
-          description: p['description'],
-          placeId: p['place_id'],
-        )).toList();
+        return predictions
+            .map<PlacePrediction>(
+              (p) => PlacePrediction(
+                description: p['description'],
+                placeId: p['place_id'],
+              ),
+            )
+            .toList();
       } else {
         // เพิ่ม Log เพื่อดู Error จาก Google (เช่น Key ผิด, Quota เต็ม, หรือ REQUEST_DENIED)
         print("Google Maps API Error: ${response.data}");
@@ -173,17 +184,21 @@ class AddGamePageState extends State<AddGamePage> {
     String apiKey = "AIzaSyBpk17agVq1F0xjqm3otuO8tXDHE1WtiSc";
 
     try {
-      var response = await Dio().get(baseURL, queryParameters: {
-        'place_id': placeOption.placeId,
-        'key': apiKey,
-        'sessiontoken': _sessionToken, // ใช้ Token เดิมเพื่อปิด Job (Google จะคิดเงินแค่ 1 request)
-        'fields': 'name,geometry,formatted_address'
-      });
+      var response = await Dio().get(
+        baseURL,
+        queryParameters: {
+          'place_id': placeOption.placeId,
+          'key': apiKey,
+          'sessiontoken':
+              _sessionToken, // ใช้ Token เดิมเพื่อปิด Job (Google จะคิดเงินแค่ 1 request)
+          'fields': 'name,geometry,formatted_address',
+        },
+      );
 
       if (response.statusCode == 200 && response.data['result'] != null) {
         var result = response.data['result'];
         var location = result['geometry']['location'];
-        
+
         setState(() {
           _selectedPlace = {
             'placeId': placeOption.placeId,
@@ -193,8 +208,10 @@ class AddGamePageState extends State<AddGamePage> {
             'lng': location['lng'],
           };
           _courtSearchController.text = result['name']; // อัปเดตชื่อในช่อง
-          _autocompleteController?.text = result['name']; // 2. อัปเดตข้อความใน Autocomplete ให้เป็นชื่อสั้นๆ
-          _sessionToken = null; // รีเซ็ต Token เพื่อเริ่ม Session ใหม่ในครั้งหน้า
+          _autocompleteController?.text =
+              result['name']; // 2. อัปเดตข้อความใน Autocomplete ให้เป็นชื่อสั้นๆ
+          _sessionToken =
+              null; // รีเซ็ต Token เพื่อเริ่ม Session ใหม่ในครั้งหน้า
         });
       }
     } catch (e) {
@@ -205,18 +222,27 @@ class AddGamePageState extends State<AddGamePage> {
   Future<void> _fetchMasterData() async {
     try {
       // ใช้ Future.wait เพื่อเรียก API ทั้งหมดพร้อมกัน
-      final responses = await Future.wait([
-        ApiProvider().get('/Dropdowns/gametypes').catchError((_) => []),
-        ApiProvider().get('/Dropdowns/pairingmethods').catchError((_) => []),
-        ApiProvider().get('/Dropdowns/shuttlecockbrands').catchError((_) => []),
-        ApiProvider().get('/Dropdowns/facilities').catchError((_) => []),
-        // ถ้าเป็นการแก้ไข (code != 'new') ให้ดึงข้อมูลเกมมาด้วย
-        if (widget.code != 'new')
-          ApiProvider().get('/GameSessions/${widget.code}').catchError((_) => null),
-      ]).timeout(const Duration(seconds: 10), onTimeout: () {
-        throw TimeoutException('การเชื่อมต่อหมดเวลา');
-      });
-
+      final responses =
+          await Future.wait([
+            ApiProvider().get('/Dropdowns/gametypes').catchError((_) => []),
+            ApiProvider()
+                .get('/Dropdowns/pairingmethods')
+                .catchError((_) => []),
+            ApiProvider()
+                .get('/Dropdowns/shuttlecockbrands')
+                .catchError((_) => []),
+            ApiProvider().get('/Dropdowns/facilities').catchError((_) => []),
+            // ถ้าเป็นการแก้ไข (code != 'new') ให้ดึงข้อมูลเกมมาด้วย
+            if (widget.code != 'new')
+              ApiProvider()
+                  .get('/GameSessions/${widget.code}')
+                  .catchError((_) => null),
+          ]).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException('การเชื่อมต่อหมดเวลา');
+            },
+          );
 
       // นำข้อมูล Master Data มาใส่ใน State
       if (!mounted) return;
@@ -253,8 +279,10 @@ class AddGamePageState extends State<AddGamePage> {
 
       if (rawGameData != null && rawGameData is Map) {
         // แปลงเป็น Map<String, dynamic> อย่างปลอดภัย (ป้องกัน Type Error)
-        final Map<String, dynamic> data = Map<String, dynamic>.from(rawGameData);
-        
+        final Map<String, dynamic> data = Map<String, dynamic>.from(
+          rawGameData,
+        );
+
         final shuttlecockModelId = data['shuttlecockModelId']?.toString();
 
         // --- NEW: โหลดข้อมูลรุ่นลูกแบดแบบ Background (ไม่รอ await) ---
@@ -275,7 +303,8 @@ class AddGamePageState extends State<AddGamePage> {
           // ถ้ามี initialDate ส่งมา (จาก Logic วันถัดไป) ให้ใช้ค่าใหม่
           if (widget.extra != null && widget.extra is Map) {
             final extraMap = widget.extra as Map;
-            if (extraMap['initialDate'] != null && extraMap['initialDate'] is DateTime) {
+            if (extraMap['initialDate'] != null &&
+                extraMap['initialDate'] is DateTime) {
               final DateTime initDate = extraMap['initialDate'];
               _dateController.text = DateFormat('dd/MM/yyyy').format(initDate);
             } else {
@@ -289,24 +318,25 @@ class AddGamePageState extends State<AddGamePage> {
           // --- จัดการเวลา (Time) ---
           // ตัดวินาทีออกถ้ามี (HH:mm:ss -> HH:mm)
           if (data['startTime'] != null) {
-            _startTimeController.text =
-                _formatTimeForDisplay(data['startTime']);
+            _startTimeController.text = _formatTimeForDisplay(
+              data['startTime'],
+            );
           }
           if (data['endTime'] != null) {
-            _endTimeController.text =
-                _formatTimeForDisplay(data['endTime']);
+            _endTimeController.text = _formatTimeForDisplay(data['endTime']);
           }
 
           // --- Validate Dropdown Values ---
           // ตรวจสอบว่าค่าที่ได้มา มีอยู่ในรายการ Master Data หรือไม่ ถ้าไม่มีให้เป็น null
           _selectedGameType = data['gameTypeId']?.toString();
-          if (!_checkItemExists(_gameTypes, _selectedGameType)) _selectedGameType = null;
+          if (!_checkItemExists(_gameTypes, _selectedGameType))
+            _selectedGameType = null;
 
-          _slotsController.text =
-              data['maxParticipants']?.toString() ?? '';
-          
+          _slotsController.text = data['maxParticipants']?.toString() ?? '';
+
           _selectedQueueType = data['pairingMethodId']?.toString();
-          if (!_checkItemExists(_pairingMethods, _selectedQueueType)) _selectedQueueType = null;
+          if (!_checkItemExists(_pairingMethods, _selectedQueueType))
+            _selectedQueueType = null;
 
           _shuttleChargeMethod = data['costingMethod'];
           _shuttlePriceController.text =
@@ -314,18 +344,17 @@ class AddGamePageState extends State<AddGamePage> {
           _shuttleCostController.text =
               data['shuttlecockCostPerUnit']?.toString() ?? '';
           _selectedShuttleBrand = data['shuttlecockBrandId']?.toString();
-          
+
           // ถ้าไม่มี Brand (ไม่ได้โหลดรุ่น) ให้ใส่ค่าเลย แต่ถ้ามี Brand ให้รอ _callReadShuttlecockmodels จัดการ
           if (data['shuttlecockBrandId'] == null) {
-             _selectedShuttleModel = shuttlecockModelId;
+            _selectedShuttleModel = shuttlecockModelId;
           }
 
           _courtPriceController.text =
               data['courtFeePerPerson']?.toString() ?? '';
           _courtTotalCostController.text =
               data['totalCourtCost']?.toString() ?? '';
-          _openCourtsController.text =
-              data['numberOfCourts']?.toString() ?? '';
+          _openCourtsController.text = data['numberOfCourts']?.toString() ?? '';
           _notesController.text = data['notes'] ?? '';
           if (data['photoUrls'] is List) {
             _gameImages.addAll(List<String>.from(data['photoUrls']));
@@ -359,8 +388,9 @@ class AddGamePageState extends State<AddGamePage> {
           // --- ส่วนที่เพิ่ม: ดึงข้อมูล Court Numbers (รวมใน setState เลย) ---
           if (data['courtNumbers'] is String) {
             final String courtNums = data['courtNumbers'];
-            final int count = int.tryParse(data['numberOfCourts']?.toString() ?? '0') ?? 0;
-            
+            final int count =
+                int.tryParse(data['numberOfCourts']?.toString() ?? '0') ?? 0;
+
             // เคลียร์และสร้าง Controller ใหม่
             for (var controller in _courtNumberControllers) {
               controller.dispose();
@@ -370,7 +400,9 @@ class AddGamePageState extends State<AddGamePage> {
             final List<String> values = courtNums.split(',');
             for (int i = 0; i < count; i++) {
               final initialText = i < values.length ? values[i] : '';
-              _courtNumberControllers.add(TextEditingController(text: initialText));
+              _courtNumberControllers.add(
+                TextEditingController(text: initialText),
+              );
             }
           }
         });
@@ -390,7 +422,6 @@ class AddGamePageState extends State<AddGamePage> {
         // เพิ่ม delay เล็กน้อยเพื่อให้แน่ใจว่า UI พร้อม render
         await Future.delayed(const Duration(milliseconds: 100));
         setState(() => _isLoading = false);
-        
       }
     }
   }
@@ -400,16 +431,27 @@ class AddGamePageState extends State<AddGamePage> {
     if (value == null) return false;
     // สมมติว่า items เป็น List<Map> และมี key 'value' หรือ 'id'
     // ปรับแก้ตามโครงสร้างจริงของ API Dropdown
-    return items.any((item) => item['value'].toString() == value || item['id'].toString() == value || item['code'].toString() == value);
+    return items.any(
+      (item) =>
+          item['value'].toString() == value ||
+          item['id'].toString() == value ||
+          item['code'].toString() == value,
+    );
   }
 
   // เพิ่ม parameter initialModelId เพื่อตั้งค่าหลังจากโหลดเสร็จ
-  Future<void> _callReadShuttlecockmodels(dynamic shuttlecockbrandsId, {String? initialModelId}) async {
-    if (shuttlecockbrandsId == null) return; // ป้องกันการส่งค่า null ไปเรียก API
+  Future<void> _callReadShuttlecockmodels(
+    dynamic shuttlecockbrandsId, {
+    String? initialModelId,
+  }) async {
+    if (shuttlecockbrandsId == null)
+      return; // ป้องกันการส่งค่า null ไปเรียก API
     try {
-      final responses = await ApiProvider().get(
-        '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
-      ).timeout(const Duration(seconds: 10)); // เพิ่ม Timeout กันเหนียว
+      final responses = await ApiProvider()
+          .get(
+            '/Dropdowns/shuttlecockmodels?brandId=${shuttlecockbrandsId.toString()}',
+          )
+          .timeout(const Duration(seconds: 10)); // เพิ่ม Timeout กันเหนียว
 
       if (mounted) {
         setState(() {
@@ -424,8 +466,7 @@ class AddGamePageState extends State<AddGamePage> {
           }
         });
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   void _updateCourtFields(String value, [String? initialValues]) {
@@ -571,7 +612,8 @@ class AddGamePageState extends State<AddGamePage> {
       } else {
         if (mounted) {
           final errorMessage =
-              (response is Map ? response['message'] : null) ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+              (response is Map ? response['message'] : null) ??
+              'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: Colors.orange,
@@ -614,11 +656,21 @@ class AddGamePageState extends State<AddGamePage> {
 
     // --- NEW: ตรวจสอบเวลาเริ่มต้นและสิ้นสุดที่ฝั่ง Frontend ---
     try {
-      final startFormat = DateFormat('HH:mm').parse(_formatTimeForApi(_startTimeController.text));
-      final endFormat = DateFormat('HH:mm').parse(_formatTimeForApi(_endTimeController.text));
+      final startFormat = DateFormat(
+        'HH:mm',
+      ).parse(_formatTimeForApi(_startTimeController.text));
+      final endFormat = DateFormat(
+        'HH:mm',
+      ).parse(_formatTimeForApi(_endTimeController.text));
       if (startFormat.compareTo(endFormat) >= 0) {
-         showDialogMsg(context, title: 'เวลาไม่ถูกต้อง', subtitle: 'เวลาเริ่มต้นต้องน้อยกว่าเวลาสิ้นสุด', btnLeft: 'ตกลง', onConfirm: () {});
-         return;
+        showDialogMsg(
+          context,
+          title: 'เวลาไม่ถูกต้อง',
+          subtitle: 'เวลาเริ่มต้นต้องน้อยกว่าเวลาสิ้นสุด',
+          btnLeft: 'ตกลง',
+          onConfirm: () {},
+        );
+        return;
       }
     } catch (e) {
       // ปล่อยผ่านถ้า parse ไม่ได้ (Backend จะดักจับอีกชั้น)
@@ -737,6 +789,7 @@ class AddGamePageState extends State<AddGamePage> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.code != 'new';
+    final double bottomClearance = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.white,
@@ -765,7 +818,7 @@ class AddGamePageState extends State<AddGamePage> {
                       borderRadius: BorderRadius.circular(16.0),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           spreadRadius: 2,
                           blurRadius: 10,
                         ),
@@ -776,24 +829,30 @@ class AddGamePageState extends State<AddGamePage> {
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           if (constraints.maxWidth > 600) {
-                            return Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: _buildLeftColumn(context)),
-                                const SizedBox(width: 24),
-                                Expanded(child: _buildRightColumn(context)),
-                              ],
+                            return Padding(
+                              padding: EdgeInsets.only(bottom: bottomClearance),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: _buildLeftColumn(context)),
+                                  const SizedBox(width: 24),
+                                  Expanded(child: _buildRightColumn(context)),
+                                ],
+                              ),
                             );
                           } else {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildLeftColumn(context),
-                                const SizedBox(
-                                  height: 24,
-                                ), // เพิ่มระยะห่างแนวตั้ง
-                                _buildRightColumn(context),
-                              ],
+                            return Padding(
+                              padding: EdgeInsets.only(bottom: bottomClearance),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildLeftColumn(context),
+                                  const SizedBox(
+                                    height: 24,
+                                  ), // เพิ่มระยะห่างแนวตั้ง
+                                  _buildRightColumn(context),
+                                ],
+                              ),
                             );
                           }
                         },
@@ -832,7 +891,8 @@ class AddGamePageState extends State<AddGamePage> {
               _getPlaceDetails(option);
             },
             fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-              _autocompleteController = controller; // 3. เก็บ Controller ไว้ใช้งาน
+              _autocompleteController =
+                  controller; // 3. เก็บ Controller ไว้ใช้งาน
               return CustomTextFormField(
                 controller: controller,
                 focusNode: focusNode,
@@ -840,7 +900,8 @@ class AddGamePageState extends State<AddGamePage> {
                 onChanged: (value) {
                   _courtSearchController.text = value; // Sync ค่ากลับ
                   // NEW: ถ้าผู้ใช้พิมพ์แก้ไขเอง ให้เคลียร์ค่าที่เลือกไว้ เพื่อให้ค้นหาใหม่ได้
-                  if (_selectedPlace != null && value != _selectedPlace!['name']) {
+                  if (_selectedPlace != null &&
+                      value != _selectedPlace!['name']) {
                     setState(() {
                       _selectedPlace = null;
                     });
@@ -989,7 +1050,9 @@ class AddGamePageState extends State<AddGamePage> {
           children: [
             Expanded(
               child: CustomTextFormField(
-                labelText: _shuttleChargeMethod == 2 ? 'ราคาบุฟเฟต์/คน' : 'ราคาค่าลูก/คน',
+                labelText: _shuttleChargeMethod == 2
+                    ? 'ราคาบุฟเฟต์/คน'
+                    : 'ราคาค่าลูก/คน',
                 controller: _shuttlePriceController,
                 keyboardType: TextInputType.number,
               ),
@@ -997,7 +1060,9 @@ class AddGamePageState extends State<AddGamePage> {
             const SizedBox(width: 16),
             Expanded(
               child: CustomTextFormField(
-                labelText: _shuttleChargeMethod == 2 ? 'ต้นทุนลูกบุฟเฟต์/คน' : 'ต้นทุนลูกแบด/คน',
+                labelText: _shuttleChargeMethod == 2
+                    ? 'ต้นทุนลูกบุฟเฟต์/คน'
+                    : 'ต้นทุนลูกแบด/คน',
                 controller: _shuttleCostController,
                 keyboardType: TextInputType.number,
               ),

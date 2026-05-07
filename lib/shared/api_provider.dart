@@ -27,6 +27,14 @@ class ApiProvider {
   final String serverDocument =
       'http://line-ddpm.we-builds.com/drop-in-document/api/Files/upload';
 
+  // --- Social Login Config ---
+  // Google OAuth 2.0 Client IDs (ดูคำแนะนำใน docs/SOCIAL_LOGIN_SETUP.md)
+  // - serverClientId = Web Client ID (ใช้ verify ID token ฝั่ง backend)
+  // - iosClientId = iOS Client ID (เฉพาะ iOS, Android อ่านจาก google-services.json)
+  // ปล่อยเป็น null ถ้ายังไม่ได้ตั้งค่า — SocialLoginService จะ throw exception แจ้งให้ทราบ
+  final String? googleServerClientId = '857647867745-kdakum1g1nl83ghgv1vniqm9cntgn56e.apps.googleusercontent.com';
+  final String? googleIosClientId = '857647867745-q5m3t1ql9gr3a9lfq70re74m3vi6s176.apps.googleusercontent.com';
+
   // --- NEW: ตัวแปรสำหรับระบบ Lock การ Refresh Token ---
   bool _isRefreshing = false;
   Completer<String?>? _refreshCompleter;
@@ -215,6 +223,18 @@ class ApiProvider {
   Future<dynamic> put(String path, {dynamic data}) async {
     try {
       final response = await _dio.put(path, data: data);
+      return response.data;
+    } on DioException catch (e) {
+      _handleDioException(e);
+    } catch (e) {
+      throw Exception('An unexpected error occurred: $e');
+    }
+  }
+
+  /// Generic PATCH method
+  Future<dynamic> patch(String path, {dynamic data}) async {
+    try {
+      final response = await _dio.patch(path, data: data);
       return response.data;
     } on DioException catch (e) {
       _handleDioException(e);

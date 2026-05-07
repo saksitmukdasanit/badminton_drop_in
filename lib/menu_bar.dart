@@ -102,7 +102,12 @@ class _MenuBarPageState extends State<MenuBarPage> {
       iconPath: 'assets/icon/add_game.png',
       label: 'New Game',
       initialPath: '/new-game',
-      activePaths: ['/new-game', '/add-game'],
+      activePaths: [
+        '/new-game',
+        '/add-game',
+        '/recurring-templates',
+        '/recurring-template-form'
+      ],
     ),
     BottomNavItem(
       iconPath: 'assets/icon/manage.png',
@@ -192,10 +197,10 @@ class _MenuBarPageState extends State<MenuBarPage> {
             child: Container(
               height: 75, // เพิ่มความสูงเล็กน้อยเพื่อแก้ปัญหา RenderFlex overflow
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.85), // สีหลักแบบโปร่งแสง
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85), // สีหลักแบบโปร่งแสง
                 borderRadius: BorderRadius.circular(30),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.2), // เส้นขอบสีขาวบางๆ
+                  color: Colors.white.withValues(alpha: 0.2), // เส้นขอบสีขาวบางๆ
                 ),
               ),
               child: Row(

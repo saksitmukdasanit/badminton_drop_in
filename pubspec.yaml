@@ -58,6 +58,13 @@ dependencies:
   flutter_local_notifications: ^20.1.0
   timeago: ^3.7.1
   gal: ^2.3.0
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^7.0.1
+  app_links: ^6.4.0
+  share_plus: ^11.0.0
+  flutter_map: ^8.3.0
+  latlong2: ^0.9.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:badminton/component/app_bar.dart';
+import 'package:badminton/component/auto_match_settings_sheet.dart';
 import 'package:badminton/component/button.dart';
 import 'package:badminton/component/add_guest_dialog.dart';
 import 'package:badminton/component/court_timer_widget.dart';
@@ -9,15 +10,19 @@ import 'package:badminton/component/manage_game_models.dart';
 import 'package:badminton/component/player_profile_panel.dart';
 import 'package:badminton/component/report_panel.dart';
 import 'package:badminton/component/roster_management_panel.dart';
+import 'package:badminton/model/auto_match_scoring_weights.dart';
 import 'package:badminton/model/player.dart';
 import 'package:badminton/component/player_avatar.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/function.dart';
+import 'package:badminton/shared/share_deep_link.dart';
 import 'package:badminton/widget/expense_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:signalr_netcore/signalr_client.dart'; // 1. Import SignalR
 import 'dart:convert'; // สำหรับ json decoding (ถ้าจำเป็น)
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:badminton/component/qr_payment_dialog.dart'; // Import ไฟล์กลาง
 
@@ -66,6 +71,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   bool _isSortBySkill = false; // NEW: ตัวแปรเก็บสถานะการเรียงลำดับ
   bool _isMixedMode =
       true; // NEW: ตัวแปรเก็บสถานะโหมดจับคู่ (Default: จัดแบบผสม)
+  String? _sessionPublicId; // ลิงก์แชร์ก๊วน (SessionPublicId จาก API)
+  AutoMatchScoringWeights _autoMatchWeights =
+      AutoMatchScoringWeights.defaults(); // NEW: น้ำหนักสำหรับ Auto Match
   final Map<String, Map<String, dynamic>> _playerExtraData =
       {}; // NEW: เก็บข้อมูลเพิ่มเติม (Games, Time)
   final Set<String> _pausedPlayerIds = {}; // NEW: เก็บ ID ผู้เล่นที่ถูกหยุดเกม
@@ -134,9 +142,13 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   // --- NEW: โหลดและบันทึกค่า Preference ---
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+    // NEW: ใช้ cache prefs ก่อน แล้วค่อย refresh จาก server เบื้องหลัง
+    final weights = await AutoMatchScoringWeights.loadFromPrefs();
+    if (!mounted) return;
     setState(() {
       _isQueueMode = prefs.getBool('isQueueMode') ?? true;
       _isMixedMode = prefs.getBool('isMixedMode') ?? true;
+      _autoMatchWeights = weights;
 
       final pausedList =
           prefs.getStringList('pausedPlayers_${widget.id}') ?? [];
@@ -153,6 +165,13 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         );
       }
     });
+
+    // NEW: refresh preset จาก server (sync ข้ามเครื่อง) — ไม่บล็อก UI
+    final serverWeights = await AutoMatchScoringWeights.loadFromServer();
+    if (!mounted) return;
+    if (serverWeights != _autoMatchWeights) {
+      setState(() => _autoMatchWeights = serverWeights);
+    }
   }
 
   Future<void> _saveQueueModePreference(bool value) async {
@@ -163,6 +182,22 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   Future<void> _saveMixedModePreference(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isMixedMode', value);
+  }
+
+  // NEW: เปิด Bottom Sheet ปรับน้ำหนัก Auto Match
+  Future<void> _openAutoMatchSettings() async {
+    final updated = await AutoMatchSettingsSheet.show(
+      context,
+      initial: _autoMatchWeights,
+    );
+    if (updated != null && mounted) {
+      setState(() => _autoMatchWeights = updated);
+      // sync ขึ้น server (พร้อม cache) — ถ้า offline จะเก็บ prefs ไว้ก่อน
+      final saved = updated.isDefault
+          ? await AutoMatchScoringWeights.resetOnServer()
+          : await updated.saveToServer();
+      if (mounted) setState(() => _autoMatchWeights = saved);
+    }
   }
 
   Future<void> _savePausedPlayers() async {
@@ -208,6 +243,23 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     } catch (e) {
       // ไม่ต้องแสดง error ก็ได้ เพราะหน้านี้ยังทำงานต่อได้
     }
+  }
+
+  Future<void> _shareSessionInviteLink() async {
+    final pid = _sessionPublicId;
+    if (pid == null || pid.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ยังโหลดลิงก์แชร์ไม่ได้ ลองรีเฟรชหน้า')),
+        );
+      }
+      return;
+    }
+    final link = buildSessionShareLink(pid);
+    final name = _groupName.isNotEmpty ? _groupName : 'ก๊วนแบด';
+    await SharePlus.instance.share(
+      ShareParams(text: 'ชวนมาตีแบด: $name\n$link'),
+    );
   }
 
   Future<void> _fetchSessionDetails() async {
@@ -257,6 +309,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         }
 
         setState(() {
+          _sessionPublicId = data['sessionPublicId']?.toString();
           // _currentParticipants = joinedCount; // ไม่ใช้ค่า Booking แล้ว ใช้ค่า Check-in จาก Live State แทน
           _maxParticipants = data['maxParticipants'] ?? 0;
           _courtFee = parseFee(data['courtFeePerPerson']);
@@ -857,13 +910,19 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     try {
       // รวม ID ของคนที่ถูกหยุดเกมและจบเกม เพื่อส่งไปให้ Backend กรองออก
       final excludedIds = [..._pausedPlayerIds, ..._endedPlayerIds];
-      
+
+      // ส่ง scoringWeights เฉพาะตอนผู้จัดปรับเอง — ค่า default ปล่อย backend ใช้ค่าเดิม
+      final body = <String, dynamic>{
+        "isMixedMode": _isMixedMode,
+        "excludedPlayerIds": excludedIds,
+      };
+      if (!_autoMatchWeights.isDefault) {
+        body['scoringWeights'] = _autoMatchWeights.toJson();
+      }
+
       await ApiProvider().post(
         '/GameSessions/${widget.id}/auto-match',
-        data: {
-          "isMixedMode": _isMixedMode,
-          "excludedPlayerIds": excludedIds
-        },
+        data: body,
       );
       // ไม่ต้องทำอะไรต่อ เพราะ SignalR จะส่งข้อมูล Live State ใหม่มาให้เอง
     } catch (e) {
@@ -1760,7 +1819,16 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     });
 
     return Scaffold(
-      appBar: AppBarSubMain(title: 'จัดการก๊วน - $_groupName'),
+      appBar: AppBarSubMain(
+        title: 'จัดการก๊วน - $_groupName',
+        trailingActions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: Color(0xFFFFFFFF)),
+            tooltip: 'แชร์ลิงก์ก๊วน',
+            onPressed: _shareSessionInviteLink,
+          ),
+        ],
+      ),
       // --- NEW: เพิ่มปุ่มจัดคู่อัตโนมัติที่มุมขวาบน ---
       // หมายเหตุ: หาก AppBarSubMain ไม่รองรับ actions ให้ลองตรวจสอบไฟล์ component/app_bar.dart
       // หรือใช้ Stack ซ้อนทับใน body แทน
@@ -1774,124 +1842,56 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       body: Stack(
         children: [
           SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(16.0),
-              children: [
-                // --- UPDATED: ย้ายปุ่มจับคู่ออโต้มาไว้ตรงนี้ ---
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // RESPONSIVE: บนแท็บเล็บ (>=900) แบ่ง 2 คอลัมน์ — สนาม | ผู้เล่นที่รอ
+            // บนมือถือ (<900) ใช้ ListView เดิม
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final bool isWideTablet = constraints.maxWidth >= 900;
+                if (isWideTablet) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: ListView(
+                          padding: const EdgeInsets.all(16.0),
+                          children: [
+                            _buildCourtsToolbar(),
+                            const SizedBox(height: 8),
+                            _buildSyncedCourtsList(),
+                            _buildReserveTeamsList(),
+                          ],
+                        ),
+                      ),
+                      const VerticalDivider(width: 1),
+                      Expanded(
+                        flex: 2,
+                        child: ListView(
+                          padding: const EdgeInsets.all(16.0),
+                          children: [
+                            _buildWaitingHeader(),
+                            const SizedBox(height: 8),
+                            _buildWaitingPlayersGrid(mainWaitingPlayers),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return ListView(
+                  padding: const EdgeInsets.all(16.0),
                   children: [
-                    _buildSectionTitle('สนาม'),
-                    Row(
-                      children: [
-                        // --- NEW: ปุ่มสลับโหมด จัดตามคิว / จัดตามคอร์ท ---
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _isQueueMode = !_isQueueMode;
-                              _saveQueueModePreference(
-                                _isQueueMode,
-                              ); // บันทึกค่าเมื่อเปลี่ยน
-                            });
-                          },
-                          icon: Icon(
-                            _isQueueMode
-                                ? Icons.format_list_numbered
-                                : Icons.grid_view,
-                            size: 16,
-                          ),
-                          label: Text(
-                            _isQueueMode ? 'จัดตามคิว' : 'จัดตามคอร์ท',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _isQueueMode
-                                ? Colors.orange
-                                : Colors.teal,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            minimumSize: const Size(0, 32),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // --- NEW: ปุ่มสลับโหมด จัดแบบผสม / จัดตามมือ ---
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _isMixedMode = !_isMixedMode;
-                              _saveMixedModePreference(_isMixedMode);
-                            });
-                          },
-                          icon: Icon(
-                            _isMixedMode ? Icons.shuffle : Icons.equalizer,
-                            size: 16,
-                          ),
-                          label: Text(
-                            'โหมด: ${_isMixedMode ? 'ผสม' : 'มือ'}',
-                          ), // ปรับข้อความให้ชัดเจน
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _isMixedMode
-                                ? Colors.purple
-                                : Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            minimumSize: const Size(0, 32),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          onPressed: _autoMatchAPI, // --- CHANGED: เรียก API แทน ---
-                          icon: const Icon(Icons.auto_awesome, size: 16),
-                          label: const Text('จับคู่ออโต้'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            minimumSize: const Size(0, 32),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _buildCourtsToolbar(),
+                    const SizedBox(height: 8),
+                    _buildSyncedCourtsList(),
+                    _buildReserveTeamsList(),
+                    const SizedBox(height: 24),
+                    _buildWaitingHeader(),
+                    const SizedBox(height: 8),
+                    _buildWaitingPlayersGrid(mainWaitingPlayers),
                   ],
-                ),
-                const SizedBox(height: 8),
-                _buildSyncedCourtsList(), // Widget หลักที่แสดงสนามทั้งหมด
-                _buildReserveTeamsList(), // NEW: ส่วนแสดงทีมสำรอง
-                const SizedBox(height: 24),
-                // --- UPDATED: ส่วนหัวผู้เล่นที่รอ พร้อมปุ่มเรียงลำดับ ---
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildSectionTitle('ผู้เล่นที่รอ'),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _isSortBySkill = !_isSortBySkill;
-                        });
-                      },
-                      icon: Icon(
-                        _isSortBySkill ? Icons.bar_chart : Icons.access_time,
-                        size: 18,
-                        color: Colors.indigo,
-                      ),
-                      label: Text(
-                        _isSortBySkill ? 'เรียงตามมือ' : 'เรียงตามเวลา',
-                        style: const TextStyle(
-                          color: Colors.indigo,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _buildWaitingPlayersGrid(
-                  mainWaitingPlayers,
-                ), // FIX: ใช้ List ที่กรองแล้ว
-              ],
+                );
+              },
             ),
           ),
 
@@ -2056,7 +2056,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           if (_isProcessing)
             Positioned.fill(
               child: Container(
-                color: Colors.black.withOpacity(0.3), // พื้นหลังสีดำจางๆ
+                color: Colors.black.withValues(alpha: 0.3), // พื้นหลังสีดำจางๆ
                 child: const Center(
                   child: CircularProgressIndicator(),
                 ),
@@ -2084,7 +2084,145 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
-      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      style: TextStyle(
+        fontSize: getResponsiveFontSize(context, fontSize: 18),
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+
+  // --- NEW: Toolbar ส่วนสนาม (extract มาจาก build เพื่อ reuse ใน LayoutBuilder) ---
+  Widget _buildCourtsToolbar() {
+    final buttons = <Widget>[
+      ElevatedButton.icon(
+        onPressed: () {
+          setState(() {
+            _isQueueMode = !_isQueueMode;
+            _saveQueueModePreference(_isQueueMode);
+          });
+        },
+        icon: Icon(
+          _isQueueMode ? Icons.format_list_numbered : Icons.grid_view,
+          size: 16,
+        ),
+        label: Text(_isQueueMode ? 'จัดตามคิว' : 'จัดตามคอร์ท'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _isQueueMode ? Colors.orange : Colors.teal,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: const Size(0, 32),
+        ),
+      ),
+      ElevatedButton.icon(
+        onPressed: () {
+          setState(() {
+            _isMixedMode = !_isMixedMode;
+            _saveMixedModePreference(_isMixedMode);
+          });
+        },
+        icon: Icon(
+          _isMixedMode ? Icons.shuffle : Icons.equalizer,
+          size: 16,
+        ),
+        label: Text('โหมด: ${_isMixedMode ? 'ผสม' : 'มือ'}'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _isMixedMode ? Colors.purple : Colors.blue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: const Size(0, 32),
+        ),
+      ),
+      ElevatedButton.icon(
+        onPressed: _autoMatchAPI,
+        icon: const Icon(Icons.auto_awesome, size: 16),
+        label: const Text('จับคู่ออโต้'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: const Size(0, 32),
+        ),
+      ),
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IconButton(
+            tooltip: 'ตั้งค่าน้ำหนักการจัดคู่',
+            onPressed: _openAutoMatchSettings,
+            icon: const Icon(Icons.tune),
+            color: Colors.indigo,
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+          ),
+          if (!_autoMatchWeights.isDefault)
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.orange,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _buildSectionTitle('สนาม'),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: buttons,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- NEW: Header ของส่วนผู้เล่นที่รอ ---
+  Widget _buildWaitingHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _buildSectionTitle('ผู้เล่นที่รอ'),
+        TextButton.icon(
+          onPressed: () {
+            setState(() {
+              _isSortBySkill = !_isSortBySkill;
+            });
+          },
+          icon: Icon(
+            _isSortBySkill ? Icons.bar_chart : Icons.access_time,
+            size: 18,
+            color: Colors.indigo,
+          ),
+          label: Text(
+            _isSortBySkill ? 'เรียงตามมือ' : 'เรียงตามเวลา',
+            style: const TextStyle(
+              color: Colors.indigo,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      ],
     );
   }
 
@@ -2372,7 +2510,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                 child: Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.close, color: Colors.white, size: 16),
@@ -2411,7 +2549,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
@@ -2523,19 +2661,21 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           );
         }
       },
+      borderRadius: BorderRadius.circular(8),
+      // FIX: ขยาย tap target เป็น 48×48 ตาม Material guideline
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
         ),
-        // ใช้ Icon แทน Text เพื่อความสวยงาม
         child: Icon(
           isPlaying ? Icons.pause : Icons.play_arrow,
           color: isPlaying
               ? Colors.blueAccent
               : (isFull ? Colors.green : Colors.grey),
-          size: 24,
+          size: 28,
         ),
       ),
     );
@@ -2618,7 +2758,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           //     child: Container(
           //       padding: const EdgeInsets.all(4),
           //       decoration: BoxDecoration(
-          //         color: Colors.black.withOpacity(0.3),
+          //         color: Colors.black.withValues(alpha: 0.3),
           //         shape: BoxShape.circle,
           //       ),
           //       child: const Icon(Icons.close, color: Colors.white, size: 16),
@@ -2649,8 +2789,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(
-                      0.4,
+                    color: Colors.white.withValues(
+                      alpha: 0.4,
                     ), // Overlay สีดำโปร่งแสง
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -2802,7 +2942,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           if (isSelected && !isDragging)
             Container(
               decoration: BoxDecoration(
-                color: Colors.blueAccent.withOpacity(0.75),
+                color: Colors.blueAccent.withValues(alpha: 0.75),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
@@ -2815,7 +2955,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                     fontSize: 16,
                     shadows: [
                       Shadow(
-                        color: Colors.black.withOpacity(0.4),
+                        color: Colors.black.withValues(alpha: 0.4),
                         blurRadius: 4,
                         offset: Offset(0, 2),
                       ),
@@ -2841,7 +2981,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
               child: Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
+                  color: Colors.black.withValues(alpha: 0.5),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.pause, color: Colors.white, size: 24),
@@ -2871,7 +3011,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
               child: Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.7),
+                  color: Colors.red.withValues(alpha: 0.7),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.flag, color: Colors.white, size: 24),
@@ -3013,15 +3153,15 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       height: 45, // FIX: กำหนดความสูง
       decoration: BoxDecoration(
         color: isHighlighted
-            ? Colors.green.withOpacity(0.5)
-            : Colors.black.withOpacity(0.2),
+            ? Colors.green.withValues(alpha: 0.5)
+            : Colors.black.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Center(
         child: Text(
           'A', // อาจจะเปลี่ยนเป็น B, C, D ตามตำแหน่ง
           style: TextStyle(
-            color: Colors.white.withOpacity(0.7),
+            color: Colors.white.withValues(alpha: 0.7),
             fontWeight: FontWeight.bold,
           ),
         ),
