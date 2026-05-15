@@ -1,6 +1,7 @@
 import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -163,9 +164,12 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
           // --- 2. รูปโปรไฟล์ (CircleAvatar) ---
           Positioned(
             top: 0, // จัดให้อยู่ด้านบนสุดของ Stack
-            child: CircleAvatar(
-              radius: 45,
-              backgroundImage: NetworkImage(widget.imageUrl),
+            child: GestureDetector(
+              onTap: () => showFullscreenNetworkImage(context, widget.imageUrl),
+              child: CircleAvatar(
+                radius: 45,
+                backgroundImage: NetworkImage(widget.imageUrl),
+              ),
             ),
           ),
           // --- 3. ปุ่มปิด (X) ---

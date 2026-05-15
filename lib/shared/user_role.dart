@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/firebase_messaging_service.dart';
 
 enum Role { player, organizer }
 
@@ -191,6 +192,12 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // ลบ FCM token ของเครื่องนี้ออกจาก user บนเซิร์ฟเวอร์ก่อนล้าง JWT — ไม่เช่นนั้น push ยังวิ่งมาที่เครื่องเดิม
+    try {
+      await FirebaseMessagingService().unregisterCurrentDeviceFromPush();
+    } catch (_) {
+      // ไม่บล็อก logout
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('accessToken');
     await prefs.remove('refreshToken');

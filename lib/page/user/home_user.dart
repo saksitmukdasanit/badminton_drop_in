@@ -3,7 +3,9 @@ import 'dart:ui';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/skeleton.dart';
+import 'package:badminton/page/user/player_organizer_skills_page.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/route_observer.dart';
 import 'package:flutter/material.dart';
@@ -193,16 +195,26 @@ class HomeUserPageState extends State<HomeUserPage>
     final nickname = profile['nickname'] ?? 'ผู้เล่น';
     final photoUrl = profile['profilePhotoUrl'];
     final skillLevel = profile['latestSkillLevelName'] ?? 'ยังไม่มีข้อมูลระดับมือ';
+    final usesManualPreference = profile['skillLevelUsesManualOrganizerPreference'] == true;
 
     return Row(
       children: [
-        CircleAvatar(
-          radius: 35,
-          backgroundColor: Colors.white,
-          backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-              ? NetworkImage(photoUrl)
-              : const AssetImage('assets/icon/profile.png') as ImageProvider,
-        ),
+        if (photoUrl != null && photoUrl.toString().isNotEmpty)
+          GestureDetector(
+            onTap: () =>
+                showFullscreenNetworkImage(context, photoUrl.toString()),
+            child: CircleAvatar(
+              radius: 35,
+              backgroundColor: Colors.white,
+              backgroundImage: NetworkImage(photoUrl.toString()),
+            ),
+          )
+        else
+          const CircleAvatar(
+            radius: 35,
+            backgroundColor: Colors.white,
+            backgroundImage: AssetImage('assets/icon/profile.png'),
+          ),
         const SizedBox(width: 15),
         Expanded(
           child: Column(
@@ -217,19 +229,62 @@ class HomeUserPageState extends State<HomeUserPage>
                 ),
               ),
               const SizedBox(height: 5),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
-                ),
-                child: Text(
-                  skillLevel,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () async {
+                    await showPlayerOrganizerSkillsDialog(context);
+                    if (mounted) await _fetchDashboardData();
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  skillLevel,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          usesManualPreference
+                              ? 'แสดงตามผู้จัดที่คุณเลือก · แตะเพื่อเปลี่ยน'
+                              : 'แสดงจากประเมินล่าสุด · แตะเพื่อเลือกผู้จัด',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

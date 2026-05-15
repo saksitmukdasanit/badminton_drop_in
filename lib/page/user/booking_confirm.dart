@@ -3,6 +3,7 @@ import 'package:badminton/component/Button.dart';
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/booking_confirm_dialog.dart';
 import 'package:badminton/component/qr_dialog.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/url_launcher.dart';
 import 'package:flutter/material.dart';
@@ -259,7 +260,12 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
               controller: _pageController,
               itemCount: _imageUrls.length,
               itemBuilder: (context, index) {
-                return Image.network(_imageUrls[index], fit: BoxFit.cover);
+                final url = _imageUrls[index];
+                return GestureDetector(
+                  onTap: () => showFullscreenNetworkImage(context, url),
+                  behavior: HitTestBehavior.opaque,
+                  child: Image.network(url, fit: BoxFit.cover),
+                );
               },
             ),
           ),
@@ -339,8 +345,31 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
           ),
           const SizedBox(height: 5),
           // --- ข้อมูลผู้จัด (ปรับให้เป็น Card สวยงาม) ---
-          GestureDetector(
-            onTap: () async {
+          Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(50),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () => showFullscreenNetworkImage(
+                      context,
+                      widget.details.organizerImageUrl,
+                    ),
+                    child: CircleAvatar(
+                      radius: 14,
+                      backgroundImage: NetworkImage(
+                        widget.details.organizerImageUrl,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () async {
               // โชว์ Loading ก่อนเปิด Dialog
               showDialog(
                 context: context,
@@ -389,37 +418,25 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
                 );
               }
             },
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(50),
-                border: Border.all(color: Colors.grey[200]!),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundImage: NetworkImage(
-                      widget.details.organizerImageUrl,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'ผู้จัด: ${widget.details.organizerName}',
+                          style: TextStyle(
+                            fontSize: getResponsiveFontSize(context, fontSize: 14),
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'ผู้จัด: ${widget.details.organizerName}',
-                    style: TextStyle(
-                      fontSize: getResponsiveFontSize(context, fontSize: 14),
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
                 ],
               ),
             ),
-          ),
           const SizedBox(height: 10),
           // --- ไอคอนสิ่งอำนวยความสะดวก ---
           Wrap(

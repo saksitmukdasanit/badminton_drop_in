@@ -17,7 +17,9 @@ import 'package:badminton/shared/api_provider.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/share_deep_link.dart';
 import 'package:badminton/widget/expense_panel.dart';
+import 'package:badminton/component/bill_summary_image_generator.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // NEW: สำหรับ HapticFeedback
 import 'package:signalr_netcore/signalr_client.dart'; // 1. Import SignalR
 import 'dart:convert'; // สำหรับ json decoding (ถ้าจำเป็น)
 import 'package:go_router/go_router.dart';
@@ -44,7 +46,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   List<ReadyTeam> readyTeams = [];
   List<Player> waitingPlayers = [];
   List<Player> selectedPlayers = [];
-  final Map<int, Timer> _timers = {};
+  final ScrollController _reserveScrollController = ScrollController();
+  final Map<String, Timer> _timers = {};
+  final Map<String, bool> _isProcessingCourt = {}; // NEW: Lock API สำหรับแต่ละสนาม
   final GlobalKey _fabKey = GlobalKey(); // Key สำหรับหาตำแหน่งของ FAB
   OverlayEntry? _fabMenuOverlay; // ตัวแปรสำหรับเก็บเมนู Overlay ของเรา
   bool _isRosterPanelVisible = false;
@@ -443,6 +447,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
     // --- FIX: หยุด Timer เก่าทั้งหมดก่อนที่จะสร้างใหม่ ---
     _timers.forEach((_, timer) => timer.cancel());
+    _timers.clear();
 
     // 1. แปลงข้อมูล WaitingPool
     final List<Player> newWaitingPlayers = [];
@@ -534,20 +539,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           court.isLocked = true;
           court.elapsedTime = DateTime.now().difference(match.startTime!);
 
-          // เริ่ม Timer ใหม่สำหรับสนามที่กำลังเล่นอยู่
-          _timers[court.courtNumber] = Timer.periodic(
-            const Duration(seconds: 1),
-            (timer) {
-              if (mounted) {
-                // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
-                playingCourts
-                    .firstWhere((c) => c.courtNumber == court.courtNumber)
-                    .elapsedTime += const Duration(
-                  seconds: 1,
-                );
-              }
-            },
-          );
+          // ไม่เริ่ม Timer ที่นี่ — ต้องรอหลัง setState แล้วค่อยผูกกับ playingCourts ชุดปัจจุบัน
+          // ไม่งั้น Timer จะไปบวก elapsed ที่ PlayingCourt ตัวเก่าที่ไม่ได้อยู่ใน UI
         } else {
           // ถ้าเกมยังไม่เริ่ม (แค่จัดทีมไว้)
           court.status = CourtStatus.waiting;
@@ -891,6 +884,21 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         _sessionTimer = null;
       }
     });
+
+    // หลังอัปเดต playingCourts แล้ว ค่อยเริ่ม Timer สนาม — ใช้ identifier เป็นคีย์ (กันหลายสนามได้จริง)
+    for (final c in newPlayingCourts) {
+      if (c.status != CourtStatus.playing) continue;
+      final String courtKey = c.identifier;
+      _timers[courtKey]?.cancel();
+      _timers[courtKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        final idx = playingCourts.indexWhere((x) => x.identifier == courtKey);
+        if (idx == -1) return;
+        final pc = playingCourts[idx];
+        if (pc.status != CourtStatus.playing) return;
+        pc.elapsedTime += const Duration(seconds: 1);
+      });
+    }
   }
 
   // --- NEW: ฟังก์ชันสำหรับจัดคู่อัตโนมัติผ่าน API ---
@@ -1030,19 +1038,22 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
     // --- FIX: ถ้าเป็นการ Resume (สถานะ Paused) ให้เริ่มจับเวลาต่อเลย ไม่ต้องยิง API ---
     if (court.status == CourtStatus.paused) {
-      _timers[court.courtNumber]?.cancel();
+      final String courtKey = court.identifier;
+      _timers[courtKey]?.cancel();
       setState(() {
         court.status = CourtStatus.playing;
         // court.isLocked = true; // ปกติ Locked อยู่แล้วตอน Pause แต่กันเหนียว
       });
       
-      _timers[court.courtNumber] = Timer.periodic(
+      _timers[courtKey] = Timer.periodic(
         const Duration(seconds: 1),
-        (timer) {
-          if (mounted) {
-            // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
-            court.elapsedTime += const Duration(seconds: 1);
-          }
+        (_) {
+          if (!mounted) return;
+          final idx = playingCourts.indexWhere((c) => c.identifier == courtKey);
+          if (idx == -1) return;
+          final pc = playingCourts[idx];
+          if (pc.status != CourtStatus.playing) return;
+          pc.elapsedTime += const Duration(seconds: 1);
         },
       );
       return; // จบการทำงาน ไม่ยิง API เพราะแมตช์ยังรันอยู่ที่ Backend
@@ -1066,6 +1077,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
     final currentCourt = playingCourts[teamIndex];
     final currentTeam = readyTeams[teamIndex];
+    final String courtKey = currentCourt.identifier;
 
     // --- FIX: ตรวจสอบว่ามี stagedMatchId หรือยัง ---
     if (currentTeam.stagedMatchId == null) {
@@ -1079,46 +1091,30 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       return;
     }
 
-    // --- OPTIMISTIC UI: อัปเดตหน้าจอทันที ไม่ต้องรอ API ---
-    _timers[currentCourt.courtNumber]?.cancel();
+    // --- FIX: ใช้ Localized Loading ป้องกันอาการจอผีหลอก (SignalR Drift) และกดซ้ำ ---
+    if (_isProcessingCourt[courtKey] == true) return; // กำลังโหลดอยู่ ห้ามทำซ้ำ
+
     setState(() {
-      currentCourt.status = CourtStatus.playing;
-      currentCourt.isLocked = true; // <<< NEW: ล็อกสนามเมื่อเกมเริ่ม
+      _isProcessingCourt[courtKey] = true;
     });
 
-    // เริ่มเดินเวลาทันที
-    _timers[currentCourt.courtNumber] = Timer.periodic(
-      const Duration(seconds: 1),
-      (timer) {
-        if (mounted) {
-          // อัปเดตข้อมูล Model โดยไม่ต้อง setState ทั้งหน้า
-          currentCourt.elapsedTime += const Duration(seconds: 1);
-        }
-      },
-    );
+    HapticFeedback.mediumImpact(); // NEW: สั่นเพื่อยืนยันการกดเริ่มเกม
 
     // --- ยิง API เบื้องหลัง ---
     try {
       await _callStartMatchAPI(currentCourt); 
+      // สังเกตว่าเราไม่สั่ง `currentCourt.status = CourtStatus.playing` ทันที 
+      // และไม่สร้าง Timer เอง ปล่อยให้ SignalR (ReceiveLiveStateUpdate) 
+      // อัปเดตสถานะและเวลาเองเมื่อเซิร์ฟเวอร์ส่งกลับมา เพื่อป้องกัน State ขัดแย้งกัน
     } catch (e) {
       final errorStr = e.toString().toLowerCase();
       // ถ้าเป็นการ Timeout (The request took longer than...)
       if (errorStr.contains('took longer than') || errorStr.contains('timeout')) {
-        // ไม่ต้อง Rollback ทันที เพราะเซิร์ฟเวอร์อาจจะเริ่มเกมไปแล้ว
-        // ให้ทำการดึงข้อมูลล่าสุดเพื่อ Sync หน้าจอแทนแบบเงียบๆ
         if (mounted) {
           _fetchLiveState(showLoading: false);
         }
       } else {
-        // --- ROLLBACK: ถ้า API Error ทั่วไป ให้ยกเลิกทุกอย่าง ---
-        _timers[currentCourt.courtNumber]?.cancel();
         if (mounted) {
-          setState(() {
-            currentCourt.status = CourtStatus.waiting;
-            currentCourt.isLocked = false;
-            currentCourt.elapsedTime = Duration.zero;
-            currentCourt.matchId = null;
-          });
           showDialogMsg(
             context,
             title: 'เริ่มเกมไม่สำเร็จ',
@@ -1128,11 +1124,17 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           );
         }
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingCourt[courtKey] = false;
+        });
+      }
     }
   }
 
   void _pauseTimer(PlayingCourt court) {
-    _timers[court.courtNumber]?.cancel();
+    _timers[court.identifier]?.cancel();
     if (mounted) {
       setState(() {
         court.status = CourtStatus.paused;
@@ -1192,7 +1194,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   }
 
   Future<void> _endGame(PlayingCourt court) async {
-    _timers[court.courtNumber]?.cancel();
+    HapticFeedback.mediumImpact(); // NEW: สั่นเพื่อยืนยันการกดจบเกม
+    _timers[court.identifier]?.cancel();
     final String courtIdentifier =
         court.identifier; // FIX: เก็บ identifier ไว้ค้นหา object ใหม่
 
@@ -2641,9 +2644,10 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   Widget _buildCenterPauseButton(PlayingCourt court, {required bool isFull}) {
     // ตรวจสอบว่ากำลังเล่นอยู่หรือไม่
     bool isPlaying = court.status == CourtStatus.playing;
+    bool isProcessing = _isProcessingCourt[court.identifier] == true;
 
     return InkWell(
-      onTap: () {
+      onTap: isProcessing ? null : () {
         if (isPlaying) {
           // ถ้ากำลังเล่นอยู่ กดหยุดได้เสมอ
           _showPauseOrEndGameDialog(court);
@@ -2670,13 +2674,19 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(
-          isPlaying ? Icons.pause : Icons.play_arrow,
-          color: isPlaying
-              ? Colors.blueAccent
-              : (isFull ? Colors.green : Colors.grey),
-          size: 28,
-        ),
+        child: isProcessing
+            ? const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              )
+            : Icon(
+                isPlaying ? Icons.pause : Icons.play_arrow,
+                color: isPlaying
+                    ? Colors.blueAccent
+                    : (isFull ? Colors.green : Colors.grey),
+                size: 28,
+              ),
       ),
     );
   }
@@ -3121,6 +3131,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         return GestureDetector(
           onTap: () {
             if (isLocked) return; // ถ้าล็อกอยู่ จะกดวางไม่ได้
+            HapticFeedback.lightImpact(); // NEW: สั่นเมื่อจิ้มวางผู้เล่น (Tap-to-move)
             _placeSelectedPlayers(courtOrTeam);
           },
           child: _buildEmptySlot(
@@ -3130,6 +3141,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       },
       onAcceptWithDetails: (details) {
         if (isLocked) return;
+        HapticFeedback.lightImpact(); // NEW: สั่นเมื่อลากวางผู้เล่น (Drag & Drop)
         // --- ตรวจสอบ Type ของข้อมูลที่ลากมา ---
         final data = details.data;
         setState(() {
@@ -3381,7 +3393,15 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
                               await ApiProvider().post(
                                 '/gamesessions/${widget.id}/end-competition',
                               );
-                              if (mounted) context.pop(true);
+                              if (mounted) {
+                                // NEW: แสดง Popup สรุปบิลและแชร์ลง LINE ก่อนเด้งออก
+                                await BillSummaryService.generateAndShare(
+                                    context, 
+                                    int.parse(widget.id), 
+                                    _groupName);
+                                
+                                if (mounted) context.pop(true);
+                              }
                             } catch (e) {
                               if (mounted) {
                                 showDialogMsg(

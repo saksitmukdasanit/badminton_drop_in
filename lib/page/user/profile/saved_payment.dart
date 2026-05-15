@@ -21,6 +21,19 @@ class SavedPaymentPageState extends State<SavedPaymentPage> {
   bool _isLoading = false;
   double gapHeight = 20;
 
+  /// รองรับ JSON แบบ camelCase / PascalCase จาก API
+  static String _strFrom(Map<String, dynamic> m, String camel, String pascal) {
+    final v = m[camel] ?? m[pascal];
+    return v == null ? '' : v.toString();
+  }
+
+  static String? _nullableStr(Map<String, dynamic> m, String camel, String pascal) {
+    final v = m[camel] ?? m[pascal];
+    if (v == null) return null;
+    final s = v.toString();
+    return s.isEmpty ? null : s;
+  }
+
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _accountNumberController;
   late TextEditingController _accountNameController;
@@ -62,16 +75,24 @@ class SavedPaymentPageState extends State<SavedPaymentPage> {
         return {'code': code?.toString() ?? '', 'value': label.toString()};
       }).toList();
 
-      // 2. โหลดข้อมูล Profile ปัจจุบัน (เพื่อดึงบัญชีเก่ามาแสดง)
-      final profileRes = await ApiProvider().get('/Profiles/me');
-      final data = profileRes['data'];
-      if (data != null) {
-        _accountNumberController.text = data['bankAccountNumber'] ?? '';
-        _accountNameController.text = data['bankAccountName'] ?? '';
-        if (data['bankId'] != null) {
-           _selectedBankId = data['bankId'].toString();
+      // 2. โหลดข้อมูลบัญชีรับเงินจาก endpoint ธนาคารโดยตรง
+      // (GET /Profiles/me คืน UserProfileDto ไม่มี bank* — เดิมทำให้บันทึกสำเร็จแล้วกลับมาหน้าว่าง)
+      try {
+        final bankResBody = await ApiProvider().get('/Profiles/me/bank');
+        final data = bankResBody is Map ? bankResBody['data'] : null;
+        if (data is Map) {
+          final d = Map<String, dynamic>.from(data);
+          _accountNumberController.text =
+              _strFrom(d, 'bankAccountNumber', 'BankAccountNumber');
+          _accountNameController.text =
+              _strFrom(d, 'bankAccountName', 'BankAccountName');
+          final bankIdRaw = d['bankId'] ?? d['BankId'];
+          _selectedBankId = bankIdRaw?.toString();
+          _existingImageUrl =
+              _nullableStr(d, 'bankAccountPhotoUrl', 'BankAccountPhotoUrl');
         }
-        _existingImageUrl = data['bankAccountPhotoUrl'];
+      } catch (_) {
+        // บางกรณี profile ใหม่หรือ error — ฟอร์มยังใช้งานได้
       }
     } catch (e) {
       debugPrint("Error fetching bank data: $e");

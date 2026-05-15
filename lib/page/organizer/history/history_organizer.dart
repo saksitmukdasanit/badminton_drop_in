@@ -6,6 +6,7 @@ import 'package:badminton/component/button.dart';
 import 'package:badminton/component/details_card.dart'; // Import Widget กลาง
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -587,7 +588,11 @@ class ImageSlideshow extends StatelessWidget {
         children: [
           // Placeholder สำหรับรูปภาพ
           if (imageUrl != null)
-            Image.network(imageUrl, fit: BoxFit.cover)
+            GestureDetector(
+              onTap: () => showFullscreenNetworkImage(context, imageUrl),
+              behavior: HitTestBehavior.opaque,
+              child: Image.network(imageUrl, fit: BoxFit.cover),
+            )
           else
             Container(
               height: 200,

@@ -198,30 +198,11 @@ class _PaymentNowPageState extends State<PaymentNowPage> with WidgetsBindingObse
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: RadioListTile<bool>(
-                          title: const Text('เพิ่ม (+)', style: TextStyle(color: Colors.red)),
-                          value: true,
-                          groupValue: isAddition,
-                          onChanged: (val) =>
-                              setDialogState(() => isAddition = val!),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                      Expanded(
-                        child: RadioListTile<bool>(
-                          title: const Text('ลด (-)', style: TextStyle(color: Colors.green)),
-                          value: false,
-                          groupValue: isAddition,
-                          onChanged: (val) =>
-                              setDialogState(() => isAddition = val!),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
+                  const Text(
+                    'คุณสามารถเพิ่มค่าใช้จ่ายส่วนตัว (เช่น ค่าน้ำ) ได้\nระบบจะไม่สามารถลดยอดบิลหลักได้',
+                    style: TextStyle(color: Colors.red, fontSize: 12),
                   ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: descController,
                     decoration: const InputDecoration(
@@ -252,7 +233,7 @@ class _PaymentNowPageState extends State<PaymentNowPage> with WidgetsBindingObse
                       setState(() {
                         _customItems.add({
                           'description': descController.text,
-                          'amount': isAddition ? amount : -amount,
+                          'amount': amount!.abs(),
                         });
                       });
                       context.pop();

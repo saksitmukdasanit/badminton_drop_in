@@ -2,6 +2,7 @@ import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/page/user/booking_confirm.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -186,31 +187,40 @@ class FavouritePageState extends State<FavouritePage> {
                   ..._followedOrganizers.asMap().entries.map((entry) {
                       final index = entry.key;
                       final org = entry.value;
+                      final photoUrl =
+                          org['profilePhotoUrl'] ??
+                          "https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png";
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
-                        child: GestureDetector(
-                          onTap: () {
-                            final orgId = org['organizerId'];
-                            if (orgId != null) {
-                              context.go('/search-user?organizerId=$orgId');
-                            }
-                          },
-                          child: Row(
-                            children: [
-                              CircleAvatar(
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () =>
+                                  showFullscreenNetworkImage(context, photoUrl),
+                              child: CircleAvatar(
                                 radius: 36,
-                                backgroundImage: NetworkImage(
-                                  org['profilePhotoUrl'] ?? "https://gateway.we-builds.com/wb-document/images/banner/banner_251839026.png",
-                                ),
+                                backgroundImage: NetworkImage(photoUrl),
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  final orgId = org['organizerId'];
+                                  if (orgId != null) {
+                                    context.go('/search-user?organizerId=$orgId');
+                                  }
+                                },
+                                behavior: HitTestBehavior.translucent,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       org['nickname'] ?? 'N/A',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text("จำนวนครั้งที่จัด ${org['totalHosted'] ?? 0} ครั้ง"),
@@ -218,12 +228,12 @@ class FavouritePageState extends State<FavouritePage> {
                                   ],
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.favorite, color: Colors.red),
-                                onPressed: () => _unfollowOrganizer(index),
-                              )
-                            ],
-                          ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.favorite, color: Colors.red),
+                              onPressed: () => _unfollowOrganizer(index),
+                            )
+                          ],
                         ),
                       );
                   }),

@@ -1,0 +1,12 @@
+# Copy เป็น key.properties แล้วกรอกค่าจริง (ไฟล์นี้ถูก git ignore)
+# สร้าง keystore: https://docs.flutter.dev/deployment/android
+#
+# keytool -genkey -v -keystore upload-keystore.jks -storetype JKS \
+#   -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# วางไฟล์ upload-keystore.jks ไว้ในโฟลเดอร์ android/ (ข้างกับ app/)
+
+storePassword=
+keyPassword=
+keyAlias=upload
+storeFile=upload-keystore.jks

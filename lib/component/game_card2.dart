@@ -1,3 +1,4 @@
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -122,11 +123,16 @@ class _GameCard2State extends State<GameCard2> {
                     // --- รูปภาพด้านซ้าย ---
                     ClipRRect(
                       // borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
+                      child: GestureDetector(
+                        onTap: () =>
+                            showFullscreenNetworkImage(context, widget.imageUrl),
+                        behavior: HitTestBehavior.opaque,
+                        child: Image.network(
                         widget.imageUrl,
                         width: 120,
                         height: 180,
                         fit: BoxFit.cover,
+                      ),
                       ),
                     ),
                     // --- รายละเอียดด้านขวา ---
@@ -245,9 +251,13 @@ class _GameCard2State extends State<GameCard2> {
         // --- ผู้จัด ---
         Row(
           children: [
-            CircleAvatar(
+            GestureDetector(
+              onTap: () =>
+                  showFullscreenNetworkImage(context, widget.organizerImageUrl),
+              child: CircleAvatar(
               radius: 10,
               backgroundImage: NetworkImage(widget.organizerImageUrl),
+            ),
             ),
             const SizedBox(width: 6),
             Expanded(

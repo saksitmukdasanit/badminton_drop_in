@@ -8,6 +8,7 @@ import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/image_picker.dart';
 import 'package:badminton/component/text_box.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -1041,9 +1042,17 @@ class _RecurringTemplateFormPageState extends State<RecurringTemplateFormPage> {
           fit: StackFit.expand,
           children: [
             if (imageItem is String)
-              Image.network(imageItem, fit: BoxFit.cover)
+              GestureDetector(
+                onTap: () => showFullscreenNetworkImage(context, imageItem),
+                behavior: HitTestBehavior.opaque,
+                child: Image.network(imageItem, fit: BoxFit.cover),
+              )
             else if (imageItem is File)
-              Image.file(imageItem, fit: BoxFit.cover),
+              GestureDetector(
+                onTap: () => showFullscreenLocalImageFile(context, imageItem),
+                behavior: HitTestBehavior.opaque,
+                child: Image.file(imageItem, fit: BoxFit.cover),
+              ),
             Positioned(
               top: 4,
               right: 4,

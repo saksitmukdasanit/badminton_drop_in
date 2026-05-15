@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:flutter/material.dart';
 
 class LoadingImageNetwork extends StatelessWidget {
@@ -9,6 +10,9 @@ class LoadingImageNetwork extends StatelessWidget {
   final Color? color;
   final bool isProfile;
 
+  /// กดแล้วเปิดดูรูปเต็มจอและซูมได้
+  final bool tapToExpand;
+
   const LoadingImageNetwork(
     this.url, {
     super.key,
@@ -17,6 +21,7 @@ class LoadingImageNetwork extends StatelessWidget {
     this.width,
     this.color,
     this.isProfile = false,
+    this.tapToExpand = true,
   });
 
   @override
@@ -44,7 +49,7 @@ class LoadingImageNetwork extends StatelessWidget {
         child: const Icon(Icons.broken_image),
       );
     }
-    return CachedNetworkImage(
+    final image = CachedNetworkImage(
       imageUrl: url,
       fit: fit,
       height: height ?? 75,
@@ -76,5 +81,13 @@ class LoadingImageNetwork extends StatelessWidget {
         child: Image.asset('assets/images/no_image.png'),
       ),
     );
+    if (tapToExpand) {
+      return GestureDetector(
+        onTap: () => showFullscreenNetworkImage(context, url),
+        behavior: HitTestBehavior.opaque,
+        child: image,
+      );
+    }
+    return image;
   }
 }

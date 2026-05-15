@@ -6,6 +6,7 @@ import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/game_card2.dart';
 import 'package:badminton/page/organizer/history/history_organizer.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_sticky_header/flutter_sticky_header.dart';
@@ -1358,9 +1359,15 @@ class ManagePageState extends State<ManagePage> {
                 Row(
                   children: [
                     if ((player['profilePhotoUrl'] ?? "") != "")
-                      CircleAvatar(
+                      GestureDetector(
+                        onTap: () => showFullscreenNetworkImage(
+                          context,
+                          '${player['profilePhotoUrl']}',
+                        ),
+                        child: CircleAvatar(
                         radius: 10,
                         backgroundImage: NetworkImage(player['profilePhotoUrl']),
+                      ),
                       ),
                     const SizedBox(width: 6),
                     Expanded(

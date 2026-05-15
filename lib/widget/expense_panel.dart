@@ -123,7 +123,7 @@ class _ExpensePanelWidgetState extends State<ExpensePanelWidget> {
       if (amount != null) {
         setState(() {
           _adjustments.add(
-            ExpenseAdjustment(name: name, amount: amount, type: type),
+            ExpenseAdjustment(name: name, amount: amount.abs(), type: type),
           );
           // เคลียร์ค่าในช่องกรอก
           _expenseNameController.clear();

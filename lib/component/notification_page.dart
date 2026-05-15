@@ -275,13 +275,18 @@ class _NotificationPageState extends State<NotificationPage> {
       itemBuilder: (context, index) {
         final notification = _notifications[index];
         return ListTile(
-          leading: !notification.isRead
-              ? Icon(
-                  Icons.circle,
-                  color: Theme.of(context).primaryColor,
-                  size: 12,
-                )
-              : const SizedBox(width: 12),
+          leading: SizedBox(
+            width: 40,
+            child: Icon(
+              notification.isRead
+                  ? Icons.notifications_none_rounded
+                  : Icons.notifications_active_rounded,
+              color: notification.isRead
+                  ? Colors.grey.shade400
+                  : Theme.of(context).colorScheme.primary,
+              size: 26,
+            ),
+          ),
           title: Text(
             notification.title,
             style: const TextStyle(fontWeight: FontWeight.bold),

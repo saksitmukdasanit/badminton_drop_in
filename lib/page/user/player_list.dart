@@ -1,5 +1,6 @@
 import 'package:badminton/component/app_bar.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -186,9 +187,13 @@ class _PlayerListPageState extends State<PlayerListPage> {
             child: Row(
               children: [
                 if (player.imageUrl.isNotEmpty)
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundImage: NetworkImage(player.imageUrl),
+                  GestureDetector(
+                    onTap: () =>
+                        showFullscreenNetworkImage(context, player.imageUrl),
+                    child: CircleAvatar(
+                      radius: 12,
+                      backgroundImage: NetworkImage(player.imageUrl),
+                    ),
                   )
                 else
                   const CircleAvatar(radius: 12, child: Icon(Icons.person, size: 16)),

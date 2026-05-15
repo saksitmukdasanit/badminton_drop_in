@@ -2,6 +2,7 @@ import 'package:badminton/component/manage_game_models.dart';
 import 'package:flutter/material.dart';
 import 'package:badminton/model/player.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/button.dart';
 
@@ -131,7 +132,14 @@ class _PlayerProfilePanelState extends State<PlayerProfilePanel> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (player.imageUrl != null && player.imageUrl!.isNotEmpty)
-                      CircleAvatar(radius: 30, backgroundImage: NetworkImage(player.imageUrl!))
+                      GestureDetector(
+                        onTap: () =>
+                            showFullscreenNetworkImage(context, player.imageUrl),
+                        child: CircleAvatar(
+                          radius: 30,
+                          backgroundImage: NetworkImage(player.imageUrl!),
+                        ),
+                      )
                     else
                       const CircleAvatar(radius: 30, child: Icon(Icons.person)),
                     const SizedBox(width: 16),

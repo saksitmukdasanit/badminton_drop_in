@@ -199,4 +199,21 @@ class FirebaseMessagingService {
       debugPrint("Failed to update FCM token: $e");
     }
   }
+
+  /// ลบ FCM token ของเครื่องนี้ออกจาก user บนเซิร์ฟเวอร์ + เคลียร์ badge (เรียกก่อนล้าง session ตอน logout)
+  Future<void> unregisterCurrentDeviceFromPush() async {
+    try {
+      final String? token = await _firebaseMessaging.getToken();
+      if (token == null || token.isEmpty) return;
+      await ApiProvider().post('/Notifications/fcm-token/unregister', data: {'token': token});
+    } catch (e) {
+      debugPrint('FCM unregister failed: $e');
+    }
+    final context = navigatorKey.currentContext;
+    if (context != null && context.mounted) {
+      try {
+        Provider.of<NotificationProvider>(context, listen: false).clear();
+      } catch (_) {}
+    }
+  }
 }

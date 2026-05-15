@@ -2,6 +2,7 @@ import 'package:badminton/component/button.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -195,7 +196,16 @@ class _PlayerMatchCardState extends State<PlayerMatchCard> {
               return Column(
                 children: [
                   if (p != null && p['profilePhotoUrl'] != null && p['profilePhotoUrl'].toString().isNotEmpty)
-                    CircleAvatar(radius: 15, backgroundImage: NetworkImage(p['profilePhotoUrl']))
+                    GestureDetector(
+                      onTap: () => showFullscreenNetworkImage(
+                        context,
+                        p['profilePhotoUrl']?.toString(),
+                      ),
+                      child: CircleAvatar(
+                        radius: 15,
+                        backgroundImage: NetworkImage(p['profilePhotoUrl']),
+                      ),
+                    )
                   else
                     const CircleAvatar(radius: 15, child: Icon(Icons.person, size: 16)),
                   const SizedBox(height: 5),

@@ -7,6 +7,7 @@ import 'package:badminton/component/player_match_card.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/model/player.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:signalr_netcore/signalr_client.dart';
@@ -403,11 +404,6 @@ class GamePlayerPageState extends State<GamePlayerPage>
       if (mounted) {
         _sessionDuration += const Duration(seconds: 1);
         _fabMenuOverlay?.markNeedsBuild(); // รีเฟรชเมนูถ้าเปิดอยู่
-        
-        // รีเฟรชหน้าจอเพื่อให้เวลาแมตช์เดิน
-        if (_isPlayingInMainCourt && _myMatchStartTime != null) {
-          setState(() {});
-        }
       }
     });
   }
@@ -674,14 +670,6 @@ class GamePlayerPageState extends State<GamePlayerPage>
   // TAB 1: สถานะของฉัน
   // ==========================================
   Widget _buildMyStatusTab() {
-    String statusDisplay = _myStatusBaseText;
-    if (_isPlayingInMainCourt && _myMatchStartTime != null) {
-      final diff = DateTime.now().difference(_myMatchStartTime!);
-      String mins = diff.inMinutes.toString().padLeft(2, '0');
-      String secs = (diff.inSeconds % 60).toString().padLeft(2, '0');
-      statusDisplay += '\nเวลาที่เล่น: $mins:$secs นาที';
-    }
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -700,14 +688,11 @@ class GamePlayerPageState extends State<GamePlayerPage>
                   style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  statusDisplay,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _isPaused ? Colors.red : Colors.teal[800],
-                  ),
-                  textAlign: TextAlign.center,
+                _MyStatusTimerDisplay(
+                  isPlayingInMainCourt: _isPlayingInMainCourt,
+                  myMatchStartTime: _myMatchStartTime,
+                  statusBaseText: _myStatusBaseText,
+                  isPaused: _isPaused,
                 ),
               ],
             ),
@@ -1033,21 +1018,29 @@ class GamePlayerPageState extends State<GamePlayerPage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: isSmall ? 20 : 30,
-            backgroundColor: isDarkBackground
-                ? Colors.black26
-                : Colors.grey[200],
-            backgroundImage: img != null && img.isNotEmpty
-                ? NetworkImage(img)
-                : null,
-            child: img == null || img.isEmpty
-                ? Icon(
-                    Icons.person,
-                    color: isDarkBackground ? Colors.white70 : Colors.grey[600],
-                  )
-                : null,
-          ),
+          if (img != null && img.isNotEmpty)
+            GestureDetector(
+              onTap: () => showFullscreenNetworkImage(context, img),
+              child: CircleAvatar(
+                radius: isSmall ? 20 : 30,
+                backgroundColor: isDarkBackground
+                    ? Colors.black26
+                    : Colors.grey[200],
+                backgroundImage: NetworkImage(img),
+              ),
+            )
+          else
+            CircleAvatar(
+              radius: isSmall ? 20 : 30,
+              backgroundColor: isDarkBackground
+                  ? Colors.black26
+                  : Colors.grey[200],
+              backgroundImage: null,
+              child: Icon(
+                Icons.person,
+                color: isDarkBackground ? Colors.white70 : Colors.grey[600],
+              ),
+            ),
 
           const SizedBox(height: 6),
           Text(
@@ -1119,6 +1112,86 @@ class _ReadOnlyCourtTimerWidgetState extends State<ReadOnlyCourtTimerWidget> {
         fontSize: 12,
         fontWeight: FontWeight.bold,
       ),
+    );
+  }
+}
+
+// --- NEW: Widget สำหรับจัดการเวลาของสถานะตัวเองเพื่อลดการ Rebuild ทั้งหน้า ---
+class _MyStatusTimerDisplay extends StatefulWidget {
+  final bool isPlayingInMainCourt;
+  final DateTime? myMatchStartTime;
+  final String statusBaseText;
+  final bool isPaused;
+
+  const _MyStatusTimerDisplay({
+    required this.isPlayingInMainCourt,
+    required this.myMatchStartTime,
+    required this.statusBaseText,
+    required this.isPaused,
+  });
+
+  @override
+  State<_MyStatusTimerDisplay> createState() => _MyStatusTimerDisplayState();
+}
+
+class _MyStatusTimerDisplayState extends State<_MyStatusTimerDisplay> {
+  Timer? _timer;
+  String _statusDisplay = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _updateStatus();
+    if (widget.isPlayingInMainCourt && widget.myMatchStartTime != null) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateStatus());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MyStatusTimerDisplay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlayingInMainCourt != widget.isPlayingInMainCourt ||
+        oldWidget.myMatchStartTime != widget.myMatchStartTime ||
+        oldWidget.statusBaseText != widget.statusBaseText ||
+        oldWidget.isPaused != widget.isPaused) {
+      _timer?.cancel();
+      _updateStatus();
+      if (widget.isPlayingInMainCourt && widget.myMatchStartTime != null) {
+        _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateStatus());
+      }
+    }
+  }
+
+  void _updateStatus() {
+    if (!mounted) return;
+    String newDisplay = widget.statusBaseText;
+    if (widget.isPlayingInMainCourt && widget.myMatchStartTime != null) {
+      final diff = DateTime.now().difference(widget.myMatchStartTime!);
+      String mins = diff.inMinutes.toString().padLeft(2, '0');
+      String secs = (diff.inSeconds % 60).toString().padLeft(2, '0');
+      newDisplay += '\nเวลาที่เล่น: $mins:$secs นาที';
+    }
+    setState(() {
+      _statusDisplay = newDisplay;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      _statusDisplay,
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: widget.isPaused ? Colors.red : Colors.teal[800],
+      ),
+      textAlign: TextAlign.center,
     );
   }
 }

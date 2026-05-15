@@ -1,3 +1,4 @@
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 
@@ -115,11 +116,15 @@ class _GameCardState extends State<GameCard> {
               ),
             ),
             // --- รูปภาพ ---
-            Image.network(
+            GestureDetector(
+              onTap: () => showFullscreenNetworkImage(context, widget.imageUrl),
+              behavior: HitTestBehavior.opaque,
+              child: Image.network(
               widget.imageUrl, // 4. ใช้ข้อมูลจาก widget
               width: double.infinity,
               height: 180,
               fit: BoxFit.cover,
+            ),
             ),
             // --- รายละเอียด ---
             Padding(
@@ -163,22 +168,28 @@ class _GameCardState extends State<GameCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      GestureDetector(
-                        onTap: widget.onTapOrganizer,
-                        child: Row(
-                          children: [
-                            CircleAvatar(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () =>
+                                showFullscreenNetworkImage(context, widget.organizerImageUrl),
+                            child: CircleAvatar(
                               radius: 12,
                               backgroundImage: NetworkImage(
                                 widget.organizerImageUrl,
                               ), // 4. ใช้ข้อมูลจาก widget
                             ),
-                            const SizedBox(width: 8),
-                            Text(
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: widget.onTapOrganizer,
+                            behavior: HitTestBehavior.translucent,
+                            child: Text(
                               widget.organizerName,
                             ), // 4. ใช้ข้อมูลจาก widget
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                       Row(
                         children: [

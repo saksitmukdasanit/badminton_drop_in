@@ -1,3 +1,4 @@
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -132,7 +133,11 @@ class DetailsCard extends StatelessWidget {
 
   // Helper สำหรับสร้างไอคอน
   Widget _buildFacilityIcon(BuildContext context, String iconUrl) {
-    return CircleAvatar(radius: 22, child: Image.network(iconUrl));
+    return GestureDetector(
+      onTap: () => showFullscreenNetworkImage(context, iconUrl),
+      behavior: HitTestBehavior.opaque,
+      child: CircleAvatar(radius: 22, child: Image.network(iconUrl)),
+    );
   }
 
   // Helper สำหรับสร้างแถวข้อมูลพร้อมไอคอน

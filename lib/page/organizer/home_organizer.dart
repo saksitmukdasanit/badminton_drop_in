@@ -4,6 +4,7 @@ import 'package:badminton/component/skeleton.dart';
 import 'package:badminton/component/game_card.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/shared/api_provider.dart';
+import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/shared/function.dart';
 import 'package:badminton/shared/route_observer.dart';
 import 'package:flutter/material.dart';
@@ -144,13 +145,22 @@ class _HomeOrganizerPageState extends State<HomeOrganizerPage>
 
     return Row(
       children: [
-        CircleAvatar(
-          radius: 35,
-          backgroundColor: Colors.white,
-          backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-              ? NetworkImage(photoUrl)
-              : const AssetImage('assets/icon/profile.png') as ImageProvider,
-        ),
+        if (photoUrl != null && photoUrl.toString().isNotEmpty)
+          GestureDetector(
+            onTap: () =>
+                showFullscreenNetworkImage(context, photoUrl.toString()),
+            child: CircleAvatar(
+              radius: 35,
+              backgroundColor: Colors.white,
+              backgroundImage: NetworkImage(photoUrl.toString()),
+            ),
+          )
+        else
+          const CircleAvatar(
+            radius: 35,
+            backgroundColor: Colors.white,
+            backgroundImage: AssetImage('assets/icon/profile.png'),
+          ),
         const SizedBox(width: 15),
         Expanded(
           child: Column(
