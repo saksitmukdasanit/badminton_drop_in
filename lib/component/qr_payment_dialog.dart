@@ -9,6 +9,9 @@ import 'package:signalr_netcore/signalr_client.dart';
 import 'package:badminton/component/button.dart';
 import 'package:gal/gal.dart';
 
+/// โหมดทดสอบ: แตะ QR เพื่อจำลองชำระเงิน — ตั้งเป็น false ก่อนปล่อย production
+const bool kAllowSimulateQrTap = true;
+
 Future<bool?> showQrPaymentDialog(BuildContext context, double amount, {required String qrData, required int sessionId, required int billId}) {
   return showDialog<bool>(
     context: context,
@@ -45,8 +48,17 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
   int? _myUserId;
   final GlobalKey _qrKey = GlobalKey();
   bool _isSaving = false;
+  bool _isSimulating = false;
+  bool _dialogClosed = false;
   Timer? _timer;
   int _remainingSeconds = 15 * 60; // 15 นาที
+
+  void _closeDialog(bool result) {
+    if (_dialogClosed || !mounted) return;
+    _dialogClosed = true;
+    _timer?.cancel();
+    Navigator.of(context).pop(result);
+  }
 
   @override
   void initState() {
@@ -65,7 +77,7 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
         } else {
           _timer?.cancel();
           // ปิดหน้าต่างอัตโนมัติเมื่อเวลาหมดและคืนค่า false
-          if (mounted) Navigator.of(context).pop(false);
+          _closeDialog(false);
         }
       });
     });
@@ -94,9 +106,7 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
         
         // ตรวจสอบว่า Bill ID ที่จ่ายสำเร็จ ตรงกับบิลที่กำลังเปิดอยู่หรือไม่
         if (paidBillId == widget.billId) {
-          if (mounted) {
-            Navigator.of(context).pop(true); // คืนค่า true บอกว่าจ่ายสำเร็จแล้ว
-          }
+          _closeDialog(true);
         }
       }
     });
@@ -125,6 +135,42 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
     _timer?.cancel();
     _hubConnection?.stop(); // ปิดการเชื่อมต่อเมื่อปิด Dialog
     super.dispose();
+  }
+
+  Future<void> _simulateQrPayment() async {
+    if (_isSimulating) return;
+    if (widget.billId <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ไม่พบเลขที่บิล — ไม่สามารถจำลองชำระเงินได้'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    setState(() => _isSimulating = true);
+    try {
+      await ApiProvider().post(
+        '/player/gamesessions/bills/${widget.billId}/simulate-qr-payment',
+        data: {'amount': widget.amount},
+      );
+      // ปิด dialog ทันที — หน้า parent จะแสดงข้อความสำเร็จเอง
+      _closeDialog(true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'จำลองชำระไม่สำเร็จ: ${e.toString().replaceFirst('Exception: ', '')}',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isSimulating = false);
+      }
+    }
   }
 
   Future<void> _saveQrCode() async {
@@ -190,23 +236,63 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
             ),
             const SizedBox(height: 24),
             // ห่อด้วย RepaintBoundary เพื่อให้สามารถแคปเจอร์ภาพนำไปบันทึกได้
-            RepaintBoundary(
-              key: _qrKey,
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: QrImageView(
-                  data: widget.qrData,
-                  version: QrVersions.auto,
-                  size: 200.0,
-                  backgroundColor: Colors.white, // สำคัญสำหรับแคปเจอร์ภาพ
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: kAllowSimulateQrTap ? _simulateQrPayment : null,
+              child: RepaintBoundary(
+                key: _qrKey,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: kAllowSimulateQrTap
+                          ? Colors.orange.shade300
+                          : Colors.grey.shade300,
+                      width: kAllowSimulateQrTap ? 2 : 1,
+                    ),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      QrImageView(
+                        data: widget.qrData,
+                        version: QrVersions.auto,
+                        size: 200.0,
+                        backgroundColor: Colors.white,
+                      ),
+                      if (_isSimulating)
+                        Container(
+                          width: 200,
+                          height: 200,
+                          color: Colors.white70,
+                          child: const Center(child: CircularProgressIndicator()),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
+            if (kAllowSimulateQrTap) ...[
+              const SizedBox(height: 8),
+              Text(
+                'โหมดทดสอบ: แตะที่ QR หรือกดปุ่มด้านล่างเพื่อจำลองชำระเงิน',
+                style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: CustomElevatedButton(
+                  text: _isSimulating ? 'กำลังจำลอง...' : 'จำลองชำระเงิน (ทดสอบ)',
+                  backgroundColor: Colors.orange.shade50,
+                  foregroundColor: Colors.orange.shade900,
+                  side: BorderSide(color: Colors.orange.shade400),
+                  onPressed: _isSimulating ? null : _simulateQrPayment,
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             TextButton.icon(
               onPressed: _isSaving ? null : _saveQrCode,
@@ -227,9 +313,7 @@ class _QrPaymentDialogState extends State<QrPaymentDialog> with WidgetsBindingOb
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.grey.shade700,
                 side: BorderSide(color: Colors.grey.shade300),
-                onPressed: () {
-                  Navigator.of(context).pop(false); // คืนค่า false ถ้ายกเลิกเอง
-                },
+                onPressed: () => _closeDialog(false),
               ),
             ),
           ],

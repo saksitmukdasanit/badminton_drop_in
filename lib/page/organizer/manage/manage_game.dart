@@ -82,6 +82,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       {}; // NEW: เก็บข้อมูลเพิ่มเติม (Games, Time)
   final Set<String> _pausedPlayerIds = {}; // NEW: เก็บ ID ผู้เล่นที่ถูกหยุดเกม
   final Set<String> _endedPlayerIds = {}; // NEW: เก็บ ID ผู้เล่นที่จบเกมแล้ว
+  /// สนามที่ผู้จัดกดหยุดชั่วคราว (client-only — server ยังถือว่าแมตช์กำลังเล่น)
+  final Set<String> _pausedCourtIdentifiers = {};
+  final Map<String, Duration> _pausedCourtElapsed = {};
   Timer? _waitingTimeRefreshTimer; // NEW: Timer สำหรับอัปเดตเวลาที่รอ
   bool _isProcessing = false; // NEW: ตัวแปรป้องกันการกดปุ่มซ้ำ (Debounce/Lock)
   final Map<String, int> _participantStatusMap = {}; // NEW: เก็บสถานะผู้เล่น (1=Main, 2=Reserve)
@@ -120,10 +123,21 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint("App Resumed: กำลังโหลดข้อมูลกระดานใหม่และตรวจสอบ SignalR (Organizer)...");
-      _fetchLiveState(showLoading: false); // โหลดข้อมูลกระดานใหม่แบบเงียบๆ
-      if (_hubConnection?.state == HubConnectionState.Disconnected) {
-        _hubConnection?.start(); // สั่งเชื่อมต่อ SignalR ใหม่
+      _ensureSignalRConnectedAndJoined();
+      _fetchLiveState(showLoading: false);
+    }
+  }
+
+  /// หลัง sleep/reconnect ต้อง join group ใหม่ — มิฉะนั้นไม่รับ ReceiveLiveStateUpdate
+  Future<void> _ensureSignalRConnectedAndJoined() async {
+    if (_hubConnection == null) return;
+    try {
+      if (_hubConnection!.state == HubConnectionState.Disconnected) {
+        await _hubConnection!.start();
       }
+      await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
+    } catch (e) {
+      debugPrint("SignalR rejoin failed (organizer): $e");
     }
   }
 
@@ -160,6 +174,19 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
       final endedList = prefs.getStringList('endedPlayers_${widget.id}') ?? [];
       _endedPlayerIds.addAll(endedList);
+
+      final pausedCourts =
+          prefs.getStringList('pausedCourts_${widget.id}') ?? [];
+      _pausedCourtIdentifiers.addAll(pausedCourts);
+      final elapsedRaw =
+          prefs.getString('pausedCourtElapsed_${widget.id}') ?? '';
+      for (final part in elapsedRaw.split(',').where((s) => s.contains(':'))) {
+        final kv = part.split(':');
+        if (kv.length == 2) {
+          final secs = int.tryParse(kv[1]);
+          if (secs != null) _pausedCourtElapsed[kv[0]] = Duration(seconds: secs);
+        }
+      }
 
       // NEW: ถ้ายังไม่มี Timestamp ให้สร้างไว้ (สำหรับข้อมูลเก่าหรือเริ่มใหม่)
       if (prefs.getInt('pausedPlayers_timestamp_${widget.id}') == null) {
@@ -215,6 +242,18 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
       'pausedPlayers_timestamp_${widget.id}',
       DateTime.now().millisecondsSinceEpoch,
     );
+  }
+
+  Future<void> _savePausedCourts() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'pausedCourts_${widget.id}',
+      _pausedCourtIdentifiers.toList(),
+    );
+    final elapsedEncoded = _pausedCourtElapsed.entries
+        .map((e) => '${e.key}:${e.value.inSeconds}')
+        .join(',');
+    await prefs.setString('pausedCourtElapsed_${widget.id}', elapsedEncoded);
   }
 
   // NEW: บันทึกสถานะจบเกม
@@ -397,8 +436,14 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     _hubConnection!.onreconnecting(({error}) {
       print("SignalR: Reconnecting... $error");
     });
-    _hubConnection!.onreconnected(({connectionId}) {
+    _hubConnection!.onreconnected(({connectionId}) async {
       print("SignalR: Reconnected! ID: $connectionId");
+      try {
+        await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
+        if (mounted) _fetchLiveState(showLoading: false);
+      } catch (e) {
+        debugPrint("SignalR rejoin after reconnect failed: $e");
+      }
     });
 
     // 6. เริ่มการเชื่อมต่อ
@@ -534,10 +579,18 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
         // --- FIX: ตรวจสอบ startTime เพื่อกำหนดสถานะของสนาม ---
         if (match.startTime != null) {
-          // ถ้าเกมเริ่มแล้ว (มี startTime)
-          court.status = CourtStatus.playing;
-          court.isLocked = true;
-          court.elapsedTime = DateTime.now().difference(match.startTime!);
+          final courtId = courtStatus.courtIdentifier;
+          if (_pausedCourtIdentifiers.contains(courtId)) {
+            // หยุดชั่วคราวฝั่ง client — อย่าให้ SignalR เปลี่ยนกลับเป็น playing
+            court.status = CourtStatus.paused;
+            court.isLocked = true;
+            court.elapsedTime = _pausedCourtElapsed[courtId] ??
+                DateTime.now().difference(match.startTime!);
+          } else {
+            court.status = CourtStatus.playing;
+            court.isLocked = true;
+            court.elapsedTime = DateTime.now().difference(match.startTime!);
+          }
 
           // ไม่เริ่ม Timer ที่นี่ — ต้องรอหลัง setState แล้วค่อยผูกกับ playingCourts ชุดปัจจุบัน
           // ไม่งั้น Timer จะไปบวก elapsed ที่ PlayingCourt ตัวเก่าที่ไม่ได้อยู่ใน UI
@@ -932,7 +985,8 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
         '/GameSessions/${widget.id}/auto-match',
         data: body,
       );
-      // ไม่ต้องทำอะไรต่อ เพราะ SignalR จะส่งข้อมูล Live State ใหม่มาให้เอง
+      // Fallback: หลัง sleep SignalR อาจไม่ส่ง event — ดึง live state จาก API โดยตรง
+      if (mounted) await _fetchLiveState(showLoading: false);
     } catch (e) {
       showDialogMsg(
         context,
@@ -1040,6 +1094,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     if (court.status == CourtStatus.paused) {
       final String courtKey = court.identifier;
       _timers[courtKey]?.cancel();
+      _pausedCourtIdentifiers.remove(courtKey);
+      _pausedCourtElapsed.remove(courtKey);
+      _savePausedCourts();
       setState(() {
         court.status = CourtStatus.playing;
         // court.isLocked = true; // ปกติ Locked อยู่แล้วตอน Pause แต่กันเหนียว
@@ -1135,6 +1192,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
 
   void _pauseTimer(PlayingCourt court) {
     _timers[court.identifier]?.cancel();
+    _pausedCourtIdentifiers.add(court.identifier);
+    _pausedCourtElapsed[court.identifier] = court.elapsedTime;
+    _savePausedCourts();
     if (mounted) {
       setState(() {
         court.status = CourtStatus.paused;
@@ -1198,6 +1258,9 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     _timers[court.identifier]?.cancel();
     final String courtIdentifier =
         court.identifier; // FIX: เก็บ identifier ไว้ค้นหา object ใหม่
+    _pausedCourtIdentifiers.remove(courtIdentifier);
+    _pausedCourtElapsed.remove(courtIdentifier);
+    _savePausedCourts();
 
     // --- OPTIMISTIC UI: เคลียร์หน้าจอทันที ---
     if (mounted) {
@@ -1266,6 +1329,7 @@ class _ManageGamePage extends State<ManageGamePage> with WidgetsBindingObserver 
     if (court.matchId != null) {
       try {
         await ApiProvider().put('/matches/${court.matchId}/end');
+        if (mounted) await _fetchLiveState(showLoading: false);
       } catch (e) {
         // --- ROLLBACK STRATEGY: ถ้าจบเกมไม่สำเร็จ ให้โหลดข้อมูลใหม่จาก Server ---
         // เพราะการกู้คืนสถานะผู้เล่นที่ถูกย้ายไปแล้วนั้นซับซ้อน การโหลดใหม่ชัวร์กว่า

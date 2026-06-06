@@ -220,6 +220,15 @@ class GamePlayerPageState extends State<GamePlayerPage>
       }
     });
 
+    _hubConnection!.onreconnected(({connectionId}) async {
+      try {
+        await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
+        if (mounted) _fetchLiveState();
+      } catch (e) {
+        debugPrint("SignalR rejoin after reconnect failed (player): $e");
+      }
+    });
+
     try {
       await _hubConnection!.start();
       await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
@@ -458,17 +467,25 @@ class GamePlayerPageState extends State<GamePlayerPage>
     super.dispose();
   }
 
+  Future<void> _ensureSignalRConnectedAndJoined() async {
+    if (_hubConnection == null) return;
+    try {
+      if (_hubConnection!.state == HubConnectionState.Disconnected) {
+        await _hubConnection!.start();
+      }
+      await _hubConnection!.invoke("JoinSessionGroup", args: [widget.id]);
+    } catch (e) {
+      debugPrint("SignalR rejoin failed (player): $e");
+    }
+  }
+
   // --- NEW: ดักจับเหตุการณ์เมื่อแอปถูกพับหรือจอเปิดขึ้นมาใหม่ ---
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint("App Resumed: กำลังโหลดกระดานและเชื่อมต่อ SignalR ใหม่...");
-      
-      _fetchLiveState(); // โหลดข้อมูลกระดานล่าสุดเพื่อป้องกันข้อมูลค้าง (Stale Data)
-      
-      if (_hubConnection?.state == HubConnectionState.Disconnected) {
-         _hubConnection?.start(); // ถ้า SignalR ยอมแพ้และหลุดไปแล้ว ให้บังคับต่อใหม่
-      }
+      _ensureSignalRConnectedAndJoined();
+      _fetchLiveState();
     }
   }
 

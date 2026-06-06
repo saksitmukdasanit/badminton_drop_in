@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:badminton/component/qr_payment_dialog.dart';
+import 'package:badminton/shared/response_parsers.dart';
 
 class PaymentPage extends StatefulWidget {
   // --- (เพิ่มใหม่) Parameter สำหรับรับข้อมูล ---
@@ -160,9 +161,20 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
       // --- 7. จัดการผลลัพธ์ตามประเภทการชำระเงิน ---
       if (mounted) {
         if (_selectedPaymentMethod == 'QR Code') {
-          // --- รอรับ QR Code จาก Backend (ใส่ Mock ไว้ก่อนเพื่อทดสอบ UI) ---
-          final qrCode = response['data']?['qrCode'] ?? '00020101021129370016A000000677010111011300668000000005802TH530376454045.006304E612';
-          final billId = response['data']?['billId'] ?? 0;
+          final data = response['data'] as Map<String, dynamic>?;
+          final billId = parseResponseBillId(data);
+          final qrCode = parseResponseQrCode(data);
+
+          if (billId <= 0 || qrCode == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('ไม่พบข้อมูลบิลหรือ QR Code จากระบบ กรุณาลองใหม่อีกครั้ง'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            setState(() => _isLoading = false);
+            return;
+          }
 
           _isQrDialogOpen = true;
           final confirmed = await showQrPaymentDialog(
@@ -231,7 +243,8 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   }
 
   void _showSuccessDialog() {
-    // แจ้งเตือนและเปลี่ยนหน้าอัตโนมัติ ไม่ต้องรอให้ผู้ใช้กดปุ่ม
+    if (!mounted) return;
+    setState(() => _isLoading = false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('ชำระเงินสำเร็จ! ยืนยันการเข้าร่วมก๊วนเรียบร้อย'),
@@ -239,7 +252,10 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         duration: Duration(seconds: 2),
       ),
     );
-    context.go('/my-game-user');
+    // รอ frame ถัดไปก่อน navigate — ป้องกัน pop dialog ซ้อนกับ go_router แล้วจอดำ
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.go('/my-game-user');
+    });
   }
 
   Widget _buildPaymentDetails() {

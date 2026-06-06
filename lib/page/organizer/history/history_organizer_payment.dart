@@ -5,6 +5,7 @@ import 'package:badminton/widget/expense_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:badminton/component/qr_payment_dialog.dart'; // Import ไฟล์กลาง
+import 'package:badminton/shared/response_parsers.dart';
 
 class _RowData {
   final String key1;
@@ -151,8 +152,9 @@ class _HistoryOrganizerPaymentPageState
 
       if (mounted) {
         // --- NEW: ถ้าเป็น QR Code ให้แสดง Popup สแกน ---
-        if (method == 'QR Code' && res['data'] != null && res['data']['qrCode'] != null) {
-          String qrString = res['data']['qrCode'];
+        final payData = res['data'] as Map<String, dynamic>?;
+        final qrString = parseResponseQrCode(payData);
+        if (method == 'QR Code' && qrString != null && billId > 0) {
           final confirmed = await showQrPaymentDialog(
             context, 
             amount, 

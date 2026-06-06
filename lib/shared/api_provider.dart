@@ -256,12 +256,26 @@ class ApiProvider {
   }
 
   void _handleDioException(DioException e) {
-    var errorMessage = e.response?.data;
-    if (errorMessage is Map && errorMessage['message'] != null) {
-      errorMessage = errorMessage['message'];
+    final data = e.response?.data;
+    if (data is Map && data['message'] != null) {
+      throw Exception(data['message'].toString());
     }
-    errorMessage = errorMessage ?? e.message ?? 'An unknown error occurred';
-    throw Exception(errorMessage);
+
+    final status = e.response?.statusCode;
+    if (status == 500) {
+      throw Exception('เซิร์ฟเวอร์ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง');
+    }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      throw Exception('การเชื่อมต่อหมดเวลา กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+    }
+    if (e.type == DioExceptionType.connectionError) {
+      throw Exception('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต');
+    }
+
+    final fallback = e.message ?? 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+    throw Exception(fallback);
   }
 
   Future<dynamic> uploadFiles({

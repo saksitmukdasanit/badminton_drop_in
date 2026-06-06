@@ -84,10 +84,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _isLoading = false;
       });
       if (mounted) {
+        final msg = e.toString().replaceFirst('Exception: ', '').trim();
         showDialogMsg(
           context,
-          title: 'เกิดข้อผิดพลาด',
-          subtitle: e.toString().replaceFirst('Exception: ', ''),
+          title: 'สมัครสมาชิกไม่สำเร็จ',
+          subtitle: msg.isEmpty ? 'กรุณาลองใหม่อีกครั้ง' : msg,
           btnLeft: 'ตกลง',
           onConfirm: () {},
         );

@@ -6,6 +6,7 @@ import 'package:badminton/shared/fullscreen_network_image.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/button.dart';
 import 'package:badminton/component/qr_payment_dialog.dart';
+import 'package:badminton/shared/response_parsers.dart';
 import 'package:badminton/widget/expense_panel.dart';
 
 class ExpensePanel extends StatefulWidget {
@@ -101,8 +102,9 @@ class _ExpensePanelState extends State<ExpensePanel> {
       }
 
       final checkoutRes = await ApiProvider().post('/participants/$pType/$pId/checkout', data: {'customLineItems': customLineItems});
-      final int billId = checkoutRes['data']['billId'];
-      final double actualDueAmount = (num.tryParse('${checkoutRes['data']['totalAmount'] ?? 0}') ?? 0).toDouble();
+      final checkoutData = checkoutRes['data'] as Map<String, dynamic>?;
+      final int billId = parseResponseBillId(checkoutData);
+      final double actualDueAmount = (num.tryParse('${checkoutData?['totalAmount'] ?? checkoutData?['TotalAmount'] ?? 0}') ?? 0).toDouble();
 
       // --- NEW: ดักไว้ว่าถ้ายังไม่จ่าย ให้แค่ปิดหน้าจอ ไม่ต้องเรียก API ยืนยันรับเงิน ---
       if (paymentMethod == 'ยังไม่จ่าย' || paymentMethod == 'ค้างชำระ') {
@@ -133,8 +135,9 @@ class _ExpensePanelState extends State<ExpensePanel> {
     final res = await ApiProvider().post('/bills/$billId/pay', data: {'paymentMethod': method, 'amount': amount});
     
     // --- NEW: ถ้าเป็น QR Code ให้รับ String มาแล้วค่อยเปิดหน้าจอ QR ให้สแกน ---
-    if (method == 'QR Code' && res['data'] != null && res['data']['qrCode'] != null) {
-        String qrString = res['data']['qrCode'];
+    final payData = res['data'] as Map<String, dynamic>?;
+    final qrString = parseResponseQrCode(payData);
+    if (method == 'QR Code' && qrString != null && billId > 0) {
         final confirmed = await showQrPaymentDialog(
           context, 
           amount, 

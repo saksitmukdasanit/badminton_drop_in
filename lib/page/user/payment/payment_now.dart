@@ -3,6 +3,7 @@ import 'package:badminton/component/button.dart';
 import 'package:badminton/component/dialog.dart';
 import 'package:badminton/component/dropdown.dart';
 import 'package:badminton/component/qr_payment_dialog.dart';
+import 'package:badminton/shared/response_parsers.dart';
 import 'package:badminton/shared/api_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -135,9 +136,23 @@ class _PaymentNowPageState extends State<PaymentNowPage> with WidgetsBindingObse
       );
 
       // ถ้าเลือก QR ให้ดึงข้อความมาเปิด Dialog
-      if (_selectedPaymentMethod == 'QR Code' && response['data'] != null && response['data']['qrCode'] != null) {
-        String qrString = response['data']['qrCode'];
-        int billId = response['data']['billId'];
+      final data = response['data'] as Map<String, dynamic>?;
+      final qrString = parseResponseQrCode(data);
+      final billId = parseResponseBillId(data);
+      if (_selectedPaymentMethod == 'QR Code') {
+        if (qrString == null || billId <= 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('ไม่พบข้อมูลบิลหรือ QR Code จากระบบ กรุณาลองใหม่อีกครั้ง'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+
         _isQrDialogOpen = true; // มาร์คว่าเปิด QR อยู่
         final confirmed = await showQrPaymentDialog(
           context, 
@@ -163,7 +178,9 @@ class _PaymentNowPageState extends State<PaymentNowPage> with WidgetsBindingObse
             duration: Duration(seconds: 2),
           ),
         );
-        context.go('/'); // Go to home page after payment
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) context.go('/my-game-user');
+        });
       }
     } catch (e) {
       if (mounted) {
