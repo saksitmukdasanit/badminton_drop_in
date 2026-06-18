@@ -1047,12 +1047,12 @@ class _BookingConfirmPageState extends State<BookingConfirmPage> with WidgetsBin
   }
 
   Widget _buildBottomBarWRC() {
-    // เช็คว่าสถานะคือรอคืนเงิน หรือ คืนเงินเสร็จสิ้นแล้ว (ยกเลิกสมบูรณ์)
-    bool isPendingRefund = widget.details.currentUserStatus == 'Refund';
-    String titleText = isPendingRefund
-        ? 'รอคืนเงิน'
-        : 'ยกเลิก / คืนเงินเรียบร้อย';
-    Color titleColor = isPendingRefund ? Colors.orange : Colors.grey;
+    // เช็คว่าสถานะคือผู้เล่นยกเลิกเอง หรือ ผู้จัดยกเลิก/ก๊วนหมดเวลา
+    bool isPlayerCancelled = widget.details.currentUserStatus == 'Refund';
+    String titleText = isPlayerCancelled
+        ? 'คืนเงินเข้ากระเป๋าแล้ว'
+        : 'ยกเลิก / คืนเงินเข้ากระเป๋าแล้ว';
+    Color titleColor = isPlayerCancelled ? Colors.orange : Colors.grey;
 
     return Column(
       mainAxisSize: MainAxisSize.min,

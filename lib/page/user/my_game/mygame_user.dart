@@ -126,7 +126,7 @@ class MyGameUserPageState extends State<MyGameUserPage> {
                 if (gamesData['refund']!.isNotEmpty)
                   _buildSection(
                     context,
-                    title: 'รอคืนเงิน',
+                    title: 'ยกเลิก / จบแล้ว',
                     games: gamesData['refund']!,
                   ),
               ],
